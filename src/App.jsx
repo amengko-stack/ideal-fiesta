@@ -411,7 +411,7 @@ Exercises planned: ${result.plan.map(e => e.name).join(", ")}
 
 Write a SHORT (4-6 sentences) coach's briefing for today's session. Be specific, motivating, and practical. Mention what today focuses on and why. Flag any safety reminders. Tone: direct, warm, professional coach talking to a parent/athlete. NO bullet points, just paragraph text.`;
 
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const res = await fetch("/api/coach", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
