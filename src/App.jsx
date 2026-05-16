@@ -121,42 +121,6 @@ const TENNIS_GAPS = [
   { id: "conditioning",      label: "Aerobic Conditioning",  desc: "Fatigues in long matches or 3rd sets" },
 ];
 
-// ─── PROGRESSION LOGIC ────────────────────────────────────────────────────────
-function prescribeProgression(exercise, history) {
-  const logs = (history || [])
-    .filter(s => s.exercises?.some(e => e.id === exercise.id))
-    .sort((a, b) => new Date(b.date) - new Date(a.date));
-
-  if (!logs.length) {
-    return { sets: exercise.defaultSets, reps: exercise.defaultReps, note: "Starting baseline", weight: null };
-  }
-
-  const lastSession = logs[0];
-  const lastEx = lastSession.exercises.find(e => e.id === exercise.id);
-  const difficulty = lastEx?.difficulty || 3;
-  const completed = lastEx?.completed !== false;
-
-  let sets = lastEx?.sets || exercise.defaultSets;
-  let reps = lastEx?.reps || exercise.defaultReps;
-  let weight = lastEx?.weight || null;
-  let note = "";
-
-  if (!completed) {
-    note = "Reduce: did not complete last session";
-    reps = Math.max(Math.round(reps * 0.85), 3);
-  } else if (difficulty <= 2) {
-    if (reps < 12) { reps += 1; note = "⬆ +1 rep (was easy)"; }
-    else if (sets < 4) { sets += 1; reps = exercise.defaultReps; note = "⬆ +1 set (was easy)"; }
-    else { note = "⬆ Consider adding weight next session"; }
-  } else if (difficulty === 3) {
-    note = "Maintain — good effort";
-  } else if (difficulty >= 4) {
-    note = "Hold — challenging, consolidate before progressing";
-  }
-
-  return { sets, reps, weight, note };
-}
-
 // ─── LOAD CALCULATOR ──────────────────────────────────────────────────────────
 function calculateWeekLoad(weekLogs) {
   let score = 0;
@@ -168,91 +132,20 @@ function calculateWeekLoad(weekLogs) {
   return score;
 }
 
-function getPlanModifier(weekLoad, tournamentStatus, sessionTime) {
-  let volumeMod = 1.0;
-  let intensityMod = 1.0;
-  let notes = [];
-
-  if (tournamentStatus === "pre") {
-    volumeMod *= 0.65; intensityMod *= 0.7;
-    notes.push("⚠️ Pre-tournament: -35% volume, familiar exercises only, no new movements");
-  } else if (tournamentStatus === "week_of") {
-    volumeMod *= 0.3; intensityMod *= 0.5;
-    notes.push("🎾 Tournament week: activation only — 15–20 min max");
-  } else if (tournamentStatus === "post_hard") {
-    volumeMod *= 0.75; intensityMod *= 0.8;
-    notes.push("🔄 Post heavy tournament: -25% volume, prioritise mobility & recovery");
-  } else if (tournamentStatus === "post_easy") {
-    notes.push("✅ Post light tournament: normal plan, monitor energy levels");
-  }
-
-  if (weekLoad > 300) {
-    volumeMod *= 0.85;
-    notes.push("📊 High weekly load (tennis + cheer): reduce weighted sets by 1, protect agility & plyometrics");
-  } else if (weekLoad < 100) {
-    volumeMod *= 1.1;
-    notes.push("📊 Light training week: can push volume and try progressive overload");
-  }
-
+function getLoadContext(weekLoad, tournamentStatus, sessionTime) {
+  const notes = [];
+  if (tournamentStatus === "pre")       notes.push("Pre-tournament (next 7 days): reduce volume by ~35%, use only familiar exercises, no new movements");
+  if (tournamentStatus === "week_of")   notes.push("Tournament THIS week: activation only, max 6 exercises, very low volume, nothing that causes soreness");
+  if (tournamentStatus === "post_hard") notes.push("Post heavy tournament: reduce volume by ~25%, prioritise mobility and recovery exercises");
+  if (tournamentStatus === "post_easy") notes.push("Post light tournament: normal plan, monitor energy");
+  if (weekLoad > 300) notes.push("HIGH weekly load from tennis+cheer: reduce total sets, protect legs");
+  else if (weekLoad < 100) notes.push("Light training week: can push volume and introduce progressive overload");
   if (sessionTime) {
     const h = parseInt(sessionTime.split(":")[0]);
-    if (h < 10) notes.push("🕗 Morning session: add 2 extra warm-up sets, CNS not fully activated");
-    if (h >= 19) notes.push("🌙 Evening session: flag recovery — avoid high-intensity plyos after 7pm for sleep quality");
+    if (h < 10) notes.push("Morning session: CNS not fully activated, add extra warmup time");
+    if (h >= 19) notes.push("Evening session: avoid high-intensity plyometrics after 7pm for sleep quality");
   }
-
-  return { volumeMod, intensityMod, notes };
-}
-
-// ─── PLAN GENERATOR ──────────────────────────────────────────────────────────
-function generatePlan(gaps, weekLogs, tournamentStatus, sessionTime, sessionHistory) {
-  const weekLoad = calculateWeekLoad(weekLogs);
-  const { volumeMod, intensityMod, notes: modNotes } = getPlanModifier(weekLoad, tournamentStatus, sessionTime);
-
-  const ALWAYS_INCLUDE_CATS = ["Agility", "Plyometrics"];
-
-  const scored = EXERCISE_DB.map(ex => {
-    let score = 0;
-    (gaps || []).forEach(gap => {
-      if (ex.tennis?.includes(gap)) score += 3;
-    });
-    if (ALWAYS_INCLUDE_CATS.includes(ex.cat)) score += 2;
-    if (ex.cat === "Mobility") score += 1;
-    return { ...ex, score };
-  }).sort((a, b) => b.score - a.score);
-
-  const catLimits = {
-    Mobility: 2, Strength: 4, Power: 2, Plyometrics: 2, Agility: 1, Conditioning: 1, Recovery: 1
-  };
-
-  // Order exercises appear in the final plan
-  const CAT_ORDER = { Mobility: 0, Plyometrics: 1, Power: 2, Strength: 3, Agility: 4, Conditioning: 5, Core: 6, Recovery: 7 };
-
-  const warmups = [
-    { ...EXERCISE_DB.find(e => e.id === "squat_mobility"), prescribed: { sets: 2, reps: 10, note: "Warmup", weight: null } },
-    { ...EXERCISE_DB.find(e => e.id === "open_book"), prescribed: { sets: 1, reps: 10, note: "Warmup", weight: null } },
-  ];
-
-  const selected = [];
-  const catCount = {};
-  const warmupIds = new Set(warmups.map(w => w.id));
-
-  scored.forEach(ex => {
-    if (warmupIds.has(ex.id)) return;
-    if ((catCount[ex.cat] || 0) >= (catLimits[ex.cat] || 2)) return;
-    if (selected.length >= 10) return;
-
-    const prescribed = prescribeProgression(ex, sessionHistory);
-    const finalSets = Math.max(1, Math.round(prescribed.sets * volumeMod));
-    catCount[ex.cat] = (catCount[ex.cat] || 0) + 1;
-    selected.push({ ...ex, prescribed: { ...prescribed, sets: finalSets } });
-  });
-
-  // Sort selected exercises into proper training order
-  selected.sort((a, b) => (CAT_ORDER[a.cat] ?? 9) - (CAT_ORDER[b.cat] ?? 9));
-
-  const plan = [...warmups, ...selected];
-
-  return { plan, weekLoad, modNotes };
+  return notes;
 }
 
 // ─── STYLES ──────────────────────────────────────────────────────────────────
@@ -425,60 +318,113 @@ export default function App() {
 function PlanTab({ profile, weekLogs, sessionHistory, aiLoading, setAiLoading, planResult, setPlanResult }) {
   const [tournament, setTournament] = useState("none");
   const [sessionTime, setSessionTime] = useState("10:00");
-  const [aiInsight, setAiInsight] = useState("");
-  const [aiSuggestions, setAiSuggestions] = useState([]);
+  const [aiError, setAiError] = useState("");
 
   const gaps = profile?.gaps || [];
 
   const handleGenerate = async () => {
-    const result = generatePlan(gaps, weekLogs, tournament, sessionTime, sessionHistory);
-    setPlanResult(result);
-
     setAiLoading(true);
-    setAiInsight("");
-    setAiSuggestions([]);
-    try {
-      const weekLoad = result.weekLoad;
-      const prompt = `You are a youth sports conditioning coach. A 12-year-old female tennis and cheerleading athlete is doing Sunday strength training.
+    setAiError("");
+    setPlanResult(null);
 
-Weekly load score: ${Math.round(weekLoad)} (0-150=low, 150-300=medium, 300+=high)
-Tournament status: ${tournament}
-Session time: ${sessionTime}
-Tennis gaps to develop: ${gaps.join(", ") || "general athletic development"}
-Plan modifiers applied: ${result.modNotes.join(" | ")}
-Exercises already in today's plan: ${result.plan.map(e => e.name).join(", ")}
+    const weekLoad = calculateWeekLoad(weekLogs);
+    const loadNotes = getLoadContext(weekLoad, tournament, sessionTime);
 
-Respond with ONLY valid JSON in this exact format, no other text:
+    // Format recent session history for AI context
+    const recentSessions = [...(sessionHistory || [])]
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
+      .slice(0, 6)
+      .map(s => ({
+        date: s.date,
+        exercises: (s.exercises || []).map(e => ({
+          name: e.name,
+          sets: e.sets,
+          reps: e.reps,
+          weight: e.weight || null,
+          difficulty: e.difficulty, // 1=very easy, 2=easy, 3=just right, 4=hard, 5=max
+          completed: e.completed,
+        }))
+      }));
+
+    // Familiar exercises reference list (what she's been doing)
+    const familiarExercises = EXERCISE_DB.map(e => e.name).join(", ");
+
+    const gapLabels = gaps.map(g => TENNIS_GAPS.find(x => x.id === g)?.label || g);
+
+    const prompt = `You are an expert youth sports conditioning coach. Design a complete Sunday strength training session for this athlete.
+
+ATHLETE:
+- Age: 12, Female
+- Sports: Tennis (primary) + Cheerleading
+- Tennis areas to develop: ${gapLabels.join(", ") || "general athletic development"}
+
+THIS WEEK'S CONTEXT:
+- Weekly load score: ${Math.round(weekLoad)} (0–150 = low, 150–300 = medium, 300+ = high)
+- Tournament status: ${tournament === "none" ? "Normal week" : tournament}
+- Session time: ${sessionTime}
+- Important notes: ${loadNotes.length ? loadNotes.join(" | ") : "None"}
+
+RECENT TRAINING HISTORY (last ${recentSessions.length} sessions, most recent first):
+${recentSessions.length === 0 ? "No history yet — this is the first session." : recentSessions.map(s =>
+  `${s.date}:\n${s.exercises.map(e =>
+    `  - ${e.name}: ${e.sets}×${e.reps}${e.weight ? " @ " + e.weight : ""} | difficulty ${e.difficulty}/5 | ${e.completed ? "completed" : "did NOT complete"}`
+  ).join("\n")}`
+).join("\n\n")}
+
+FAMILIAR EXERCISES (exercises the athlete already knows — use as reference, not as a strict limit):
+${familiarExercises}
+
+YOUR TASK:
+Design the best possible training session for this athlete TODAY. You are free to:
+- Use any of the familiar exercises above
+- Introduce new exercises that are appropriate for her age and goals
+- Adjust volume based on past difficulty ratings (if she rated an exercise 1-2 last time, increase load; if 4-5, hold or reduce)
+- Adapt to the week's load and tournament status
+
+IMPORTANT RULES:
+- Age-appropriate only: no heavy barbell lifts, no Olympic lifting, bodyweight and light loads (dumbbells, bands, medicine ball, kettlebell)
+- Order: Warmup → Mobility → Plyometrics → Power → Strength → Core → Agility → Conditioning → Recovery
+- Total exercises: 8–12
+- Always start with at least 2 warmup/mobility exercises
+- For tournament week: max 6 exercises, activation only
+
+Respond with ONLY valid JSON, no other text:
 {
-  "briefing": "4-6 sentence coach briefing here. Direct, warm, motivating. Flag safety reminders. No bullet points.",
-  "suggestions": [
-    { "name": "Exercise Name", "sets": "2-3", "reps": "8-10", "why": "One sentence on why this helps her specific gaps." },
-    { "name": "Exercise Name", "sets": "2-3", "reps": "10-12", "why": "One sentence on why this helps her specific gaps." },
-    { "name": "Exercise Name", "sets": "2", "reps": "30 sec", "why": "One sentence on why this helps her specific gaps." }
+  "briefing": "4–6 sentences. Warm, direct coach voice. What today focuses on, why, and any safety reminders.",
+  "plan": [
+    {
+      "name": "Exercise Name",
+      "category": "Warmup|Mobility|Plyometrics|Power|Strength|Core|Agility|Conditioning|Recovery",
+      "sets": 2,
+      "reps": 10,
+      "unit": "reps|seconds|meters",
+      "note": "Coaching cue or progression reason based on history"
+    }
   ]
-}
+}`;
 
-The suggestions must be DIFFERENT from the exercises already in the plan. Pick exercises that complement today's session and specifically target her tennis gaps. Consider her age (12), cheerleading demands, and the week's load.`;
-
+    try {
       const res = await fetch("/api/coach", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
-          max_tokens: 1024,
+          max_tokens: 2048,
           messages: [{ role: "user", content: prompt }]
         })
       });
       const data = await res.json();
       const text = data.content?.map(b => b.text || "").join("") || "";
-      try {
-        const parsed = JSON.parse(text);
-        setAiInsight(parsed.briefing || "");
-        setAiSuggestions(parsed.suggestions || []);
-      } catch {
-        setAiInsight(text);
-      }
-    } catch {}
+      const parsed = JSON.parse(text);
+      // Attach a slug id to each exercise for logging
+      const plan = (parsed.plan || []).map(ex => ({
+        ...ex,
+        id: ex.name.toLowerCase().replace(/[^a-z0-9]+/g, "_"),
+      }));
+      setPlanResult({ plan, briefing: parsed.briefing, weekLoad });
+    } catch (e) {
+      setAiError("Could not generate plan — check that your API key is set in .env and the server is running.");
+    }
     setAiLoading(false);
   };
 
@@ -540,76 +486,48 @@ The suggestions must be DIFFERENT from the exercises already in the plan. Pick e
         </div>
       </div>
 
+      {aiLoading && (
+        <div className="card" style={{ borderColor: COLORS.accentDim }}>
+          <div className="flex" style={{ gap: 10 }}>
+            <div className="spinner" />
+            <span style={{ color: COLORS.muted, fontSize: "0.85rem" }}>AI coach is designing your session…</span>
+          </div>
+        </div>
+      )}
+
+      {aiError && (
+        <div className="note-box warn">{aiError}</div>
+      )}
+
       {planResult && (
         <>
-          {planResult.modNotes.length > 0 && (
-            <div>
-              {planResult.modNotes.map((n, i) => (
-                <div key={i} className={`note-box ${n.includes("⚠️") || n.includes("🌙") ? "warn" : n.includes("🎾") ? "danger" : ""}`}>
-                  {n}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {(aiLoading || aiInsight) && (
-            <div className="card" style={{ borderColor: COLORS.accentDim }}>
-              <div className="card-title">🧠 Coach's Briefing</div>
-              {aiLoading
-                ? <div className="flex" style={{ gap: 10 }}><div className="spinner" /> <span style={{ color: COLORS.muted, fontSize: "0.85rem" }}>Analyzing session…</span></div>
-                : <p style={{ fontSize: "0.88rem", lineHeight: 1.65, color: COLORS.text }}>{aiInsight}</p>
-              }
-            </div>
-          )}
+          <div className="card" style={{ borderColor: COLORS.accentDim }}>
+            <div className="card-title">🧠 Coach's Briefing</div>
+            <p style={{ fontSize: "0.88rem", lineHeight: 1.65, color: COLORS.text }}>{planResult.briefing}</p>
+          </div>
 
           <div className="card">
             <div className="card-title">📋 Today's Session — {planResult.plan.length} Exercises</div>
             {planResult.plan.map((ex, i) => {
-              const p = ex.prescribed;
-              const isReps = ex.id !== "dead_hang" && ex.id !== "wall_squat" && ex.id !== "plank" && ex.id !== "side_plank";
+              const isTime = ex.unit === "seconds";
               return (
-                <div key={ex.id} className="ex-row">
+                <div key={i} className="ex-row">
                   <div className="ex-num">{String(i + 1).padStart(2, "0")}</div>
                   <div style={{ flex: 1 }}>
                     <div className="ex-name">{ex.name}</div>
                     <div className="ex-meta">
-                      <span className={`badge badge-${ex.ageFlag}`}>{ex.ageFlag === "green" ? "✓ Safe" : ex.ageFlag === "yellow" ? "⚠ Form check" : "⛔ Advanced"}</span>
-                      <span className="badge badge-gray">{ex.cat}</span>
-                      <span style={{ fontSize: "0.72rem" }}>{ex.movement}</span>
+                      <span className="badge badge-gray">{ex.category}</span>
                     </div>
-                    {p.note && p.note !== "Warmup" && <div className="ex-note mt8">→ {p.note}</div>}
-                    {p.weight && <div className="ex-note">Weight: {p.weight}</div>}
+                    {ex.note && <div className="ex-note mt8">→ {ex.note}</div>}
                   </div>
                   <div style={{ textAlign: "right" }}>
-                    <div className="ex-prescription">{p.sets}×{p.reps}{!isReps ? "s" : ""}</div>
-                    <div style={{ fontSize: "0.7rem", color: COLORS.muted }}>sets × {isReps ? "reps" : "sec"}</div>
+                    <div className="ex-prescription">{ex.sets}×{ex.reps}{isTime ? "s" : ""}</div>
+                    <div style={{ fontSize: "0.7rem", color: COLORS.muted }}>sets × {isTime ? "sec" : ex.unit || "reps"}</div>
                   </div>
                 </div>
               );
             })}
           </div>
-
-          {aiSuggestions.length > 0 && (
-            <div className="card" style={{ borderColor: COLORS.yellow }}>
-              <div className="card-title" style={{ color: COLORS.yellow }}>💡 Coach Also Recommends</div>
-              <p style={{ fontSize: "0.8rem", color: COLORS.muted, marginBottom: 14 }}>
-                Optional extras — add these if time and energy allow, or save for another day.
-              </p>
-              {aiSuggestions.map((s, i) => (
-                <div key={i} className="ex-row">
-                  <div className="ex-num" style={{ color: COLORS.yellow }}>{String(i + 1).padStart(2, "0")}</div>
-                  <div style={{ flex: 1 }}>
-                    <div className="ex-name">{s.name}</div>
-                    <div className="ex-note mt8" style={{ color: COLORS.muted }}>{s.why}</div>
-                  </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div className="ex-prescription" style={{ color: COLORS.yellow }}>{s.sets}×{s.reps}</div>
-                    <div style={{ fontSize: "0.7rem", color: COLORS.muted }}>sets × reps</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
         </>
       )}
     </div>
@@ -731,8 +649,8 @@ function StrengthLogTab({ sessionHistory, saveHistory, planResult }) {
     if (planResult?.plan && logExercises.length === 0) {
       setLogExercises(planResult.plan.map(ex => ({
         id: ex.id, name: ex.name,
-        sets: ex.prescribed?.sets || ex.defaultSets,
-        reps: ex.prescribed?.reps || ex.defaultReps,
+        sets: ex.sets || 2,
+        reps: ex.reps || 10,
         weight: "", difficulty: 3, completed: true, notes: ""
       })));
     }
