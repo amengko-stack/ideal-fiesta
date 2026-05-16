@@ -423,24 +423,16 @@ Respond with ONLY valid JSON, no other text:
 }`;
 
     try {
-      const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
-      if (!apiKey) throw new Error("No API key");
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const res = await fetch("http://localhost:3001/api/chat", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "claude-haiku-4-5-20251001",
-          max_tokens: 2048,
+          system: "You are an expert youth sports conditioning coach. Always respond with valid JSON only — no markdown, no code fences, no extra text.",
           messages: [{ role: "user", content: prompt }]
         })
       });
       const data = await res.json();
-      const raw = data.content?.map(b => b.text || "").join("") || "";
+      const raw = (data.content?.map(b => b.text || "").join("") || "").trim();
       const text = raw.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
       const parsed = JSON.parse(text);
       // Attach a slug id to each exercise for logging
