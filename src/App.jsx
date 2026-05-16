@@ -38,46 +38,71 @@ const storage = {
 // ─── EXERCISE DATABASE ─────────────────────────────────────────────────────────
 const EXERCISE_DB = [
   // LOWER BODY STRENGTH
-  { id: "goblet_squat",     name: "Goblet Squat",         cat: "Strength",    movement: "Bilateral Lower",    tennis: ["lateral_power","deceleration"],  ageFlag: "green",  progressionChain: ["bw_squat","goblet_squat","front_squat"], defaultSets: 2, defaultReps: 10 },
-  { id: "fwd_lunge",        name: "Forward Lunge",        cat: "Strength",    movement: "Single-Leg",         tennis: ["deceleration","linear_speed"],   ageFlag: "green",  progressionChain: ["fwd_lunge","reverse_lunge","weighted_lunge"], defaultSets: 2, defaultReps: 10 },
-  { id: "reverse_lunge",    name: "Reverse Lunge",        cat: "Strength",    movement: "Single-Leg",         tennis: ["deceleration","lateral_power"],  ageFlag: "green",  progressionChain: ["fwd_lunge","reverse_lunge","weighted_lunge"], defaultSets: 2, defaultReps: 10 },
-  { id: "side_lunge",       name: "Side Lunge",           cat: "Strength",    movement: "Lateral",            tennis: ["lateral_agility","lateral_power"],ageFlag: "green",  progressionChain: ["side_lunge","weighted_side_lunge"], defaultSets: 2, defaultReps: 10 },
-  { id: "nordic_curl",      name: "Nordic Curl",          cat: "Strength",    movement: "Single-Leg",         tennis: ["deceleration","hamstring"],      ageFlag: "yellow", progressionChain: ["bridge","nordic_curl_eccentric","nordic_curl"], defaultSets: 2, defaultReps: 5 },
-  { id: "hip_hinge",        name: "Hip Hinge",            cat: "Strength",    movement: "Bilateral Lower",    tennis: ["rotational_power","hamstring"],  ageFlag: "green",  progressionChain: ["hip_hinge","kb_swing"], defaultSets: 2, defaultReps: 10 },
-  { id: "calf_raise",       name: "Calf Raise",           cat: "Strength",    movement: "Bilateral Lower",    tennis: ["first_step","linear_speed"],     ageFlag: "green",  progressionChain: ["calf_raise","sl_calf_raise"], defaultSets: 2, defaultReps: 10 },
-  { id: "bridge",           name: "Glute Bridge",         cat: "Strength",    movement: "Bilateral Lower",    tennis: ["rotational_power","stability"],  ageFlag: "green",  progressionChain: ["bridge","single_leg_bridge"], defaultSets: 2, defaultReps: 10 },
-  { id: "wall_squat",       name: "Isometric Wall Squat", cat: "Strength",    movement: "Bilateral Lower",    tennis: ["deceleration","stability"],      ageFlag: "green",  progressionChain: ["wall_squat","goblet_squat"], defaultSets: 2, defaultReps: 30 },
-  { id: "kb_swing",         name: "Kettlebell Swing",     cat: "Power",       movement: "Bilateral Lower",    tennis: ["rotational_power","first_step"], ageFlag: "yellow", progressionChain: ["hip_hinge","kb_swing"], defaultSets: 2, defaultReps: 10 },
+  { id: "goblet_squat",       name: "Goblet Squat",               cat: "Strength",    movement: "Bilateral Lower",   tennis: ["lateral_power","deceleration"],           ageFlag: "green",  progressionChain: ["bw_squat","goblet_squat","front_squat"], defaultSets: 2, defaultReps: 10 },
+  { id: "fwd_lunge",          name: "Forward Lunge",              cat: "Strength",    movement: "Single-Leg",        tennis: ["deceleration","linear_speed"],            ageFlag: "green",  progressionChain: ["fwd_lunge","reverse_lunge","weighted_lunge"], defaultSets: 2, defaultReps: 10 },
+  { id: "reverse_lunge",      name: "Reverse Lunge",              cat: "Strength",    movement: "Single-Leg",        tennis: ["deceleration","lateral_power"],           ageFlag: "green",  progressionChain: ["fwd_lunge","reverse_lunge","weighted_lunge"], defaultSets: 2, defaultReps: 10 },
+  { id: "side_lunge",         name: "Side Lunge",                 cat: "Strength",    movement: "Lateral",           tennis: ["lateral_agility","lateral_power"],        ageFlag: "green",  progressionChain: ["side_lunge","weighted_side_lunge"], defaultSets: 2, defaultReps: 10 },
+  { id: "nordic_curl",        name: "Nordic Curl",                cat: "Strength",    movement: "Single-Leg",        tennis: ["deceleration","hamstring"],               ageFlag: "yellow", progressionChain: ["bridge","nordic_curl_eccentric","nordic_curl"], defaultSets: 2, defaultReps: 5 },
+  { id: "hip_hinge",          name: "Hip Hinge",                  cat: "Strength",    movement: "Bilateral Lower",   tennis: ["rotational_power","hamstring"],           ageFlag: "green",  progressionChain: ["hip_hinge","kb_swing"], defaultSets: 2, defaultReps: 10 },
+  { id: "calf_raise",         name: "Calf Raise",                 cat: "Strength",    movement: "Bilateral Lower",   tennis: ["first_step","linear_speed"],              ageFlag: "green",  progressionChain: ["calf_raise","sl_calf_raise"], defaultSets: 2, defaultReps: 10 },
+  { id: "bridge",             name: "Glute Bridge",               cat: "Strength",    movement: "Bilateral Lower",   tennis: ["rotational_power","stability"],           ageFlag: "green",  progressionChain: ["bridge","single_leg_bridge"], defaultSets: 2, defaultReps: 10 },
+  { id: "wall_squat",         name: "Isometric Wall Squat",       cat: "Strength",    movement: "Bilateral Lower",   tennis: ["deceleration","stability"],               ageFlag: "green",  progressionChain: ["wall_squat","goblet_squat"], defaultSets: 2, defaultReps: 30 },
+  { id: "step_up",            name: "Step Up",                    cat: "Strength",    movement: "Single-Leg",        tennis: ["first_step","deceleration","stability"],  ageFlag: "green",  progressionChain: ["step_up"], defaultSets: 2, defaultReps: 10 },
+  { id: "sl_rdl",             name: "Single Leg RDL",             cat: "Strength",    movement: "Single-Leg",        tennis: ["hamstring","stability","deceleration"],   ageFlag: "green",  progressionChain: ["sl_rdl"], defaultSets: 2, defaultReps: 8 },
+  { id: "bulgarian_split",    name: "Bulgarian Split Squat",      cat: "Strength",    movement: "Single-Leg",        tennis: ["lateral_power","deceleration","stability"],ageFlag: "yellow", progressionChain: ["reverse_lunge","bulgarian_split"], defaultSets: 2, defaultReps: 8 },
+  { id: "lateral_band_walk",  name: "Lateral Band Walk",          cat: "Strength",    movement: "Lateral",           tennis: ["lateral_agility","lateral_power","stability"],ageFlag:"green", progressionChain: ["lateral_band_walk"], defaultSets: 2, defaultReps: 15 },
   // UPPER BODY
-  { id: "floor_pushup",     name: "Floor Push Up",        cat: "Strength",    movement: "Upper Push",         tennis: ["serve_power","stability"],       ageFlag: "green",  progressionChain: ["floor_pushup","push_press"], defaultSets: 2, defaultReps: 10 },
-  { id: "push_press",       name: "Push Press",           cat: "Strength",    movement: "Upper Push",         tennis: ["serve_power","rotational_power"],ageFlag: "green",  progressionChain: ["floor_pushup","push_press"], defaultSets: 2, defaultReps: 10 },
-  { id: "pullup",           name: "Pull Up",              cat: "Strength",    movement: "Upper Pull",         tennis: ["shoulder_stability","serve_power"],ageFlag:"yellow", progressionChain: ["dead_hang","reverse_pullup","pullup"], defaultSets: 2, defaultReps: 8 },
-  { id: "reverse_pullup",   name: "Reverse Pull Up",      cat: "Strength",    movement: "Upper Pull",         tennis: ["shoulder_stability"],            ageFlag: "green",  progressionChain: ["dead_hang","reverse_pullup","pullup"], defaultSets: 2, defaultReps: 10 },
-  { id: "band_facepull",    name: "Band Face Pull",       cat: "Strength",    movement: "Upper Pull",         tennis: ["shoulder_stability","serve_power"],ageFlag:"green",  progressionChain: ["band_facepull","pullup"], defaultSets: 2, defaultReps: 10 },
-  { id: "dead_hang",        name: "Dead Hang",            cat: "Strength",    movement: "Upper Pull",         tennis: ["shoulder_stability","grip"],     ageFlag: "green",  progressionChain: ["dead_hang","reverse_pullup"], defaultSets: 1, defaultReps: 60 },
+  { id: "floor_pushup",       name: "Floor Push Up",              cat: "Strength",    movement: "Upper Push",        tennis: ["serve_power","stability"],                ageFlag: "green",  progressionChain: ["floor_pushup","push_press"], defaultSets: 2, defaultReps: 10 },
+  { id: "push_press",         name: "Push Press",                 cat: "Strength",    movement: "Upper Push",        tennis: ["serve_power","rotational_power"],         ageFlag: "green",  progressionChain: ["floor_pushup","push_press"], defaultSets: 2, defaultReps: 10 },
+  { id: "pullup",             name: "Pull Up",                    cat: "Strength",    movement: "Upper Pull",        tennis: ["shoulder_stability","serve_power"],       ageFlag: "yellow", progressionChain: ["dead_hang","reverse_pullup","pullup"], defaultSets: 2, defaultReps: 8 },
+  { id: "reverse_pullup",     name: "Reverse Pull Up",            cat: "Strength",    movement: "Upper Pull",        tennis: ["shoulder_stability"],                    ageFlag: "green",  progressionChain: ["dead_hang","reverse_pullup","pullup"], defaultSets: 2, defaultReps: 10 },
+  { id: "band_facepull",      name: "Band Face Pull",             cat: "Strength",    movement: "Upper Pull",        tennis: ["shoulder_stability","serve_power"],       ageFlag: "green",  progressionChain: ["band_facepull","pullup"], defaultSets: 2, defaultReps: 10 },
+  { id: "dead_hang",          name: "Dead Hang",                  cat: "Strength",    movement: "Upper Pull",        tennis: ["shoulder_stability","grip"],              ageFlag: "green",  progressionChain: ["dead_hang","reverse_pullup"], defaultSets: 1, defaultReps: 60 },
+  { id: "band_pull_apart",    name: "Band Pull Apart",            cat: "Strength",    movement: "Upper Pull",        tennis: ["shoulder_stability","serve_power"],       ageFlag: "green",  progressionChain: ["band_pull_apart"], defaultSets: 2, defaultReps: 15 },
+  { id: "wall_angels",        name: "Wall Angels",                cat: "Mobility",    movement: "Upper Push",        tennis: ["shoulder_stability","serve_power"],       ageFlag: "green",  progressionChain: ["wall_angels"], defaultSets: 2, defaultReps: 10 },
   // CORE
-  { id: "dead_bug",         name: "Dead Bug",             cat: "Core",        movement: "Anti-Extension",     tennis: ["core_stability","rotational_power"],ageFlag:"green", progressionChain: ["dead_bug"], defaultSets: 2, defaultReps: 10 },
-  { id: "hip_flexor",       name: "Hip Flexor Raise",     cat: "Core",        movement: "Hip Flexion",        tennis: ["first_step","core_stability"],   ageFlag: "green",  progressionChain: ["hip_flexor"], defaultSets: 2, defaultReps: 10 },
-  { id: "open_book",        name: "Side-Lying Open Book", cat: "Mobility",    movement: "Rotational",         tennis: ["rotational_power","shoulder_stability"],ageFlag:"green",progressionChain:["open_book"], defaultSets: 1, defaultReps: 10 },
-  { id: "slam_ball",        name: "Slam Ball",            cat: "Power",       movement: "Rotational",         tennis: ["rotational_power","serve_power"],ageFlag: "green",  progressionChain: ["slam_ball"], defaultSets: 2, defaultReps: 8 },
-  { id: "med_ball_throw",   name: "Medicine Ball Throw",  cat: "Power",       movement: "Rotational",         tennis: ["rotational_power","serve_power"],ageFlag: "green",  progressionChain: ["med_ball_throw"], defaultSets: 2, defaultReps: 10 },
+  { id: "dead_bug",           name: "Dead Bug",                   cat: "Core",        movement: "Anti-Extension",    tennis: ["core_stability","rotational_power"],      ageFlag: "green",  progressionChain: ["dead_bug"], defaultSets: 2, defaultReps: 10 },
+  { id: "hip_flexor",         name: "Hip Flexor Raise",           cat: "Core",        movement: "Hip Flexion",       tennis: ["first_step","core_stability"],            ageFlag: "green",  progressionChain: ["hip_flexor"], defaultSets: 2, defaultReps: 10 },
+  { id: "plank",              name: "Plank Hold",                 cat: "Core",        movement: "Anti-Extension",    tennis: ["core_stability","stability"],             ageFlag: "green",  progressionChain: ["plank"], defaultSets: 3, defaultReps: 30 },
+  { id: "side_plank",         name: "Side Plank",                 cat: "Core",        movement: "Anti-Lateral",      tennis: ["core_stability","lateral_power"],         ageFlag: "green",  progressionChain: ["side_plank"], defaultSets: 2, defaultReps: 20 },
+  { id: "russian_twist",      name: "Russian Twist",              cat: "Core",        movement: "Rotational",        tennis: ["rotational_power","core_stability"],      ageFlag: "green",  progressionChain: ["russian_twist"], defaultSets: 2, defaultReps: 16 },
+  { id: "pallof_press",       name: "Pallof Press",               cat: "Core",        movement: "Anti-Rotation",     tennis: ["core_stability","rotational_power"],      ageFlag: "green",  progressionChain: ["pallof_press"], defaultSets: 2, defaultReps: 10 },
+  // POWER
+  { id: "kb_swing",           name: "Kettlebell Swing",           cat: "Power",       movement: "Bilateral Lower",   tennis: ["rotational_power","first_step"],          ageFlag: "yellow", progressionChain: ["hip_hinge","kb_swing"], defaultSets: 2, defaultReps: 10 },
+  { id: "slam_ball",          name: "Slam Ball",                  cat: "Power",       movement: "Rotational",        tennis: ["rotational_power","serve_power"],         ageFlag: "green",  progressionChain: ["slam_ball"], defaultSets: 2, defaultReps: 8 },
+  { id: "med_ball_throw",     name: "Medicine Ball Throw",        cat: "Power",       movement: "Rotational",        tennis: ["rotational_power","serve_power"],         ageFlag: "green",  progressionChain: ["med_ball_throw"], defaultSets: 2, defaultReps: 10 },
+  { id: "med_ball_chest",     name: "Medicine Ball Chest Pass",   cat: "Power",       movement: "Upper Push",        tennis: ["serve_power","rotational_power"],         ageFlag: "green",  progressionChain: ["med_ball_chest"], defaultSets: 2, defaultReps: 8 },
+  { id: "broad_jump",         name: "Broad Jump",                 cat: "Power",       movement: "Linear",            tennis: ["first_step","linear_speed"],              ageFlag: "green",  progressionChain: ["broad_jump","broad_jump_sl"], defaultSets: 2, defaultReps: 6 },
   // PLYOMETRICS
-  { id: "box_jump",         name: "Box Jump",             cat: "Plyometrics", movement: "Vertical",           tennis: ["first_step","deceleration"],     ageFlag: "green",  progressionChain: ["box_jump","box_jump_sl"], defaultSets: 2, defaultReps: 8 },
-  { id: "box_jump_sl",      name: "Box Jump — Land Single Leg", cat: "Plyometrics", movement: "Vertical",    tennis: ["deceleration","stability"],      ageFlag: "yellow", progressionChain: ["box_jump","box_jump_sl"], defaultSets: 2, defaultReps: 6 },
-  { id: "skater_jump",      name: "Skater Jumps",         cat: "Plyometrics", movement: "Lateral",            tennis: ["lateral_agility","lateral_power"],ageFlag: "green",  progressionChain: ["skater_jump"], defaultSets: 2, defaultReps: 8 },
-  { id: "ski_jump",         name: "Ski / Skate Jump",     cat: "Plyometrics", movement: "Lateral",            tennis: ["lateral_agility","first_step"],  ageFlag: "green",  progressionChain: ["ski_jump"], defaultSets: 2, defaultReps: 8 },
-  { id: "lateral_hops",     name: "Lateral Side-to-Side Hops", cat: "Plyometrics", movement: "Lateral",     tennis: ["lateral_agility","first_step"],  ageFlag: "green",  progressionChain: ["lateral_hops"], defaultSets: 2, defaultReps: 20 },
-  { id: "pogo_jumps",       name: "Linear Pogo Jumps",    cat: "Plyometrics", movement: "Linear",             tennis: ["linear_speed","first_step"],     ageFlag: "green",  progressionChain: ["pogo_jumps"], defaultSets: 2, defaultReps: 10 },
-  { id: "broad_jump_sl",    name: "Single Leg Broad Jump",cat: "Plyometrics", movement: "Linear",             tennis: ["linear_speed","deceleration"],   ageFlag: "yellow", progressionChain: ["broad_jump_sl"], defaultSets: 2, defaultReps: 4 },
+  { id: "box_jump",           name: "Box Jump",                   cat: "Plyometrics", movement: "Vertical",          tennis: ["first_step","deceleration"],              ageFlag: "green",  progressionChain: ["box_jump","box_jump_sl"], defaultSets: 2, defaultReps: 8 },
+  { id: "box_jump_sl",        name: "Box Jump — Land Single Leg", cat: "Plyometrics", movement: "Vertical",          tennis: ["deceleration","stability"],               ageFlag: "yellow", progressionChain: ["box_jump","box_jump_sl"], defaultSets: 2, defaultReps: 6 },
+  { id: "skater_jump",        name: "Skater Jumps",               cat: "Plyometrics", movement: "Lateral",           tennis: ["lateral_agility","lateral_power"],        ageFlag: "green",  progressionChain: ["skater_jump"], defaultSets: 2, defaultReps: 8 },
+  { id: "ski_jump",           name: "Ski / Skate Jump",           cat: "Plyometrics", movement: "Lateral",           tennis: ["lateral_agility","first_step"],           ageFlag: "green",  progressionChain: ["ski_jump"], defaultSets: 2, defaultReps: 8 },
+  { id: "lateral_hops",       name: "Lateral Side-to-Side Hops", cat: "Plyometrics", movement: "Lateral",           tennis: ["lateral_agility","first_step"],           ageFlag: "green",  progressionChain: ["lateral_hops"], defaultSets: 2, defaultReps: 20 },
+  { id: "pogo_jumps",         name: "Linear Pogo Jumps",          cat: "Plyometrics", movement: "Linear",            tennis: ["linear_speed","first_step"],              ageFlag: "green",  progressionChain: ["pogo_jumps"], defaultSets: 2, defaultReps: 10 },
+  { id: "broad_jump_sl",      name: "Single Leg Broad Jump",      cat: "Plyometrics", movement: "Linear",            tennis: ["linear_speed","deceleration"],            ageFlag: "yellow", progressionChain: ["broad_jump_sl"], defaultSets: 2, defaultReps: 4 },
+  { id: "depth_jump",         name: "Depth Jump",                 cat: "Plyometrics", movement: "Vertical",          tennis: ["first_step","deceleration","lateral_power"],ageFlag:"yellow", progressionChain: ["box_jump","depth_jump"], defaultSets: 2, defaultReps: 6 },
+  { id: "jump_rope",          name: "Jump Rope",                  cat: "Plyometrics", movement: "Linear",            tennis: ["footwork","first_step","conditioning"],   ageFlag: "green",  progressionChain: ["jump_rope"], defaultSets: 3, defaultReps: 1 },
   // AGILITY & CONDITIONING
-  { id: "ladder",           name: "Ladder Coordination",  cat: "Agility",     movement: "Multi-Directional",  tennis: ["lateral_agility","first_step","footwork"],ageFlag:"green",progressionChain:["ladder"], defaultSets: 3, defaultReps: 1 },
-  { id: "crab_walk",        name: "Crab Walk",            cat: "Agility",     movement: "Lateral",            tennis: ["lateral_agility","stability"],   ageFlag: "green",  progressionChain: ["crab_walk"], defaultSets: 3, defaultReps: 5 },
-  { id: "parachute_run",    name: "Parachute Hill Run",   cat: "Conditioning",movement: "Linear",             tennis: ["linear_speed","conditioning"],   ageFlag: "green",  progressionChain: ["parachute_run"], defaultSets: 3, defaultReps: 1 },
+  { id: "ladder",             name: "Ladder Coordination",        cat: "Agility",     movement: "Multi-Directional", tennis: ["lateral_agility","first_step","footwork"],ageFlag: "green",  progressionChain: ["ladder"], defaultSets: 3, defaultReps: 1 },
+  { id: "crab_walk",          name: "Crab Walk",                  cat: "Agility",     movement: "Lateral",           tennis: ["lateral_agility","stability"],            ageFlag: "green",  progressionChain: ["crab_walk"], defaultSets: 3, defaultReps: 5 },
+  { id: "bear_crawl",         name: "Bear Crawl",                 cat: "Agility",     movement: "Multi-Directional", tennis: ["core_stability","footwork","conditioning"],ageFlag: "green",  progressionChain: ["bear_crawl"], defaultSets: 3, defaultReps: 5 },
+  { id: "t_drill",            name: "T-Drill",                    cat: "Agility",     movement: "Multi-Directional", tennis: ["lateral_agility","first_step","footwork"],ageFlag: "green",  progressionChain: ["t_drill"], defaultSets: 3, defaultReps: 1 },
+  { id: "cone_drill",         name: "Cone Drill",                 cat: "Agility",     movement: "Multi-Directional", tennis: ["lateral_agility","deceleration","footwork"],ageFlag:"green",  progressionChain: ["cone_drill"], defaultSets: 3, defaultReps: 1 },
+  { id: "parachute_run",      name: "Parachute Hill Run",         cat: "Conditioning",movement: "Linear",            tennis: ["linear_speed","conditioning"],            ageFlag: "green",  progressionChain: ["parachute_run"], defaultSets: 3, defaultReps: 1 },
+  { id: "shuttle_run",        name: "Shuttle Run",                cat: "Conditioning",movement: "Linear",            tennis: ["linear_speed","deceleration","conditioning"],ageFlag:"green", progressionChain: ["shuttle_run"], defaultSets: 4, defaultReps: 1 },
   // MOBILITY / WARMUP
-  { id: "squat_mobility",   name: "Squat Mobility",       cat: "Mobility",    movement: "Bilateral Lower",    tennis: ["deceleration","stability"],      ageFlag: "green",  progressionChain: ["squat_mobility"], defaultSets: 2, defaultReps: 10 },
-  { id: "hip_raise",        name: "Hip Raise",            cat: "Mobility",    movement: "Hip Flexion",        tennis: ["core_stability","first_step"],   ageFlag: "green",  progressionChain: ["hip_raise"], defaultSets: 2, defaultReps: 10 },
-  { id: "leg_lateral_raise",name: "Leg Lateral Raise",    cat: "Mobility",    movement: "Lateral",            tennis: ["lateral_agility","stability"],   ageFlag: "green",  progressionChain: ["leg_lateral_raise"], defaultSets: 2, defaultReps: 10 },
-  { id: "foam_rolling",     name: "Foam Rolling",         cat: "Recovery",    movement: "Recovery",           tennis: ["recovery"],                     ageFlag: "green",  progressionChain: ["foam_rolling"], defaultSets: 1, defaultReps: 1 },
+  { id: "squat_mobility",     name: "Squat Mobility",             cat: "Mobility",    movement: "Bilateral Lower",   tennis: ["deceleration","stability"],               ageFlag: "green",  progressionChain: ["squat_mobility"], defaultSets: 2, defaultReps: 10 },
+  { id: "hip_raise",          name: "Hip Raise",                  cat: "Mobility",    movement: "Hip Flexion",       tennis: ["core_stability","first_step"],            ageFlag: "green",  progressionChain: ["hip_raise"], defaultSets: 2, defaultReps: 10 },
+  { id: "leg_lateral_raise",  name: "Leg Lateral Raise",          cat: "Mobility",    movement: "Lateral",           tennis: ["lateral_agility","stability"],            ageFlag: "green",  progressionChain: ["leg_lateral_raise"], defaultSets: 2, defaultReps: 10 },
+  { id: "open_book",          name: "Side-Lying Open Book",       cat: "Mobility",    movement: "Rotational",        tennis: ["rotational_power","shoulder_stability"],  ageFlag: "green",  progressionChain: ["open_book"], defaultSets: 1, defaultReps: 10 },
+  { id: "inchworm",           name: "Inchworm",                   cat: "Mobility",    movement: "Multi-Directional", tennis: ["hamstring","core_stability"],             ageFlag: "green",  progressionChain: ["inchworm"], defaultSets: 2, defaultReps: 8 },
+  { id: "worlds_greatest",    name: "World's Greatest Stretch",   cat: "Mobility",    movement: "Multi-Directional", tennis: ["lateral_agility","rotational_power","stability"],ageFlag:"green",progressionChain:["worlds_greatest"], defaultSets: 1, defaultReps: 6 },
+  { id: "hip_circles",        name: "Hip Circles",                cat: "Mobility",    movement: "Rotational",        tennis: ["rotational_power","lateral_agility"],     ageFlag: "green",  progressionChain: ["hip_circles"], defaultSets: 1, defaultReps: 10 },
+  { id: "ankle_circles",      name: "Ankle Circles & Hops",       cat: "Mobility",    movement: "Bilateral Lower",   tennis: ["first_step","footwork"],                 ageFlag: "green",  progressionChain: ["ankle_circles"], defaultSets: 1, defaultReps: 10 },
+  // RECOVERY
+  { id: "foam_rolling",       name: "Foam Rolling",               cat: "Recovery",    movement: "Recovery",          tennis: ["recovery"],                              ageFlag: "green",  progressionChain: ["foam_rolling"], defaultSets: 1, defaultReps: 1 },
+  { id: "static_stretch",     name: "Static Stretching",          cat: "Recovery",    movement: "Recovery",          tennis: ["recovery","hamstring"],                  ageFlag: "green",  progressionChain: ["static_stretch"], defaultSets: 1, defaultReps: 1 },
 ];
 
 const TENNIS_GAPS = [
@@ -401,6 +426,7 @@ function PlanTab({ profile, weekLogs, sessionHistory, aiLoading, setAiLoading, p
   const [tournament, setTournament] = useState("none");
   const [sessionTime, setSessionTime] = useState("10:00");
   const [aiInsight, setAiInsight] = useState("");
+  const [aiSuggestions, setAiSuggestions] = useState([]);
 
   const gaps = profile?.gaps || [];
 
@@ -410,6 +436,7 @@ function PlanTab({ profile, weekLogs, sessionHistory, aiLoading, setAiLoading, p
 
     setAiLoading(true);
     setAiInsight("");
+    setAiSuggestions([]);
     try {
       const weekLoad = result.weekLoad;
       const prompt = `You are a youth sports conditioning coach. A 12-year-old female tennis and cheerleading athlete is doing Sunday strength training.
@@ -419,22 +446,38 @@ Tournament status: ${tournament}
 Session time: ${sessionTime}
 Tennis gaps to develop: ${gaps.join(", ") || "general athletic development"}
 Plan modifiers applied: ${result.modNotes.join(" | ")}
-Exercises planned: ${result.plan.map(e => e.name).join(", ")}
+Exercises already in today's plan: ${result.plan.map(e => e.name).join(", ")}
 
-Write a SHORT (4-6 sentences) coach's briefing for today's session. Be specific, motivating, and practical. Mention what today focuses on and why. Flag any safety reminders. Tone: direct, warm, professional coach talking to a parent/athlete. NO bullet points, just paragraph text.`;
+Respond with ONLY valid JSON in this exact format, no other text:
+{
+  "briefing": "4-6 sentence coach briefing here. Direct, warm, motivating. Flag safety reminders. No bullet points.",
+  "suggestions": [
+    { "name": "Exercise Name", "sets": "2-3", "reps": "8-10", "why": "One sentence on why this helps her specific gaps." },
+    { "name": "Exercise Name", "sets": "2-3", "reps": "10-12", "why": "One sentence on why this helps her specific gaps." },
+    { "name": "Exercise Name", "sets": "2", "reps": "30 sec", "why": "One sentence on why this helps her specific gaps." }
+  ]
+}
+
+The suggestions must be DIFFERENT from the exercises already in the plan. Pick exercises that complement today's session and specifically target her tennis gaps. Consider her age (12), cheerleading demands, and the week's load.`;
 
       const res = await fetch("/api/coach", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
+          max_tokens: 1024,
           messages: [{ role: "user", content: prompt }]
         })
       });
       const data = await res.json();
       const text = data.content?.map(b => b.text || "").join("") || "";
-      setAiInsight(text);
+      try {
+        const parsed = JSON.parse(text);
+        setAiInsight(parsed.briefing || "");
+        setAiSuggestions(parsed.suggestions || []);
+      } catch {
+        setAiInsight(text);
+      }
     } catch {}
     setAiLoading(false);
   };
@@ -523,7 +566,7 @@ Write a SHORT (4-6 sentences) coach's briefing for today's session. Be specific,
             <div className="card-title">📋 Today's Session — {planResult.plan.length} Exercises</div>
             {planResult.plan.map((ex, i) => {
               const p = ex.prescribed;
-              const isReps = ex.id !== "dead_hang" && ex.id !== "wall_squat";
+              const isReps = ex.id !== "dead_hang" && ex.id !== "wall_squat" && ex.id !== "plank" && ex.id !== "side_plank";
               return (
                 <div key={ex.id} className="ex-row">
                   <div className="ex-num">{String(i + 1).padStart(2, "0")}</div>
@@ -545,6 +588,28 @@ Write a SHORT (4-6 sentences) coach's briefing for today's session. Be specific,
               );
             })}
           </div>
+
+          {aiSuggestions.length > 0 && (
+            <div className="card" style={{ borderColor: COLORS.yellow }}>
+              <div className="card-title" style={{ color: COLORS.yellow }}>💡 Coach Also Recommends</div>
+              <p style={{ fontSize: "0.8rem", color: COLORS.muted, marginBottom: 14 }}>
+                Optional extras — add these if time and energy allow, or save for another day.
+              </p>
+              {aiSuggestions.map((s, i) => (
+                <div key={i} className="ex-row">
+                  <div className="ex-num" style={{ color: COLORS.yellow }}>{String(i + 1).padStart(2, "0")}</div>
+                  <div style={{ flex: 1 }}>
+                    <div className="ex-name">{s.name}</div>
+                    <div className="ex-note mt8" style={{ color: COLORS.muted }}>{s.why}</div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div className="ex-prescription" style={{ color: COLORS.yellow }}>{s.sets}×{s.reps}</div>
+                    <div style={{ fontSize: "0.7rem", color: COLORS.muted }}>sets × reps</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </>
       )}
     </div>
