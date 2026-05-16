@@ -449,7 +449,8 @@ Respond with ONLY valid JSON, no other text:
       }));
       setPlanResult({ plan, briefing: parsed.briefing, weekLoad });
     } catch (e) {
-      setAiError("Could not generate plan — check that your API key is set in .env and the server is running.");
+      console.error("Plan generation error:", e);
+      setAiError(`Could not generate plan — ${e.message}`);
     }
     setAiLoading(false);
   };
