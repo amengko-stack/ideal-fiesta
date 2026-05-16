@@ -440,7 +440,8 @@ Respond with ONLY valid JSON, no other text:
         })
       });
       const data = await res.json();
-      const text = data.content?.map(b => b.text || "").join("") || "";
+      const raw = data.content?.map(b => b.text || "").join("") || "";
+      const text = raw.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
       const parsed = JSON.parse(text);
       // Attach a slug id to each exercise for logging
       const plan = (parsed.plan || []).map(ex => ({
