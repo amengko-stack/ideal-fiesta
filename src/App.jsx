@@ -195,25 +195,37 @@ function generatePlan(gaps, weekLogs, tournamentStatus, sessionTime, sessionHist
     return { ...ex, score };
   }).sort((a, b) => b.score - a.score);
 
-  const plan = [];
-  const catCount = {};
   const catLimits = {
     Mobility: 2, Strength: 4, Power: 2, Plyometrics: 2, Agility: 1, Conditioning: 1, Recovery: 1
   };
 
-  plan.push({ ...EXERCISE_DB.find(e => e.id === "squat_mobility"), sets: 2, reps: 10, note: "Warmup", prescribed: { sets: 2, reps: 10, note: "Warmup", weight: null } });
-  plan.push({ ...EXERCISE_DB.find(e => e.id === "open_book"), sets: 1, reps: 10, note: "Warmup", prescribed: { sets: 1, reps: 10, note: "Warmup", weight: null } });
+  // Order exercises appear in the final plan
+  const CAT_ORDER = { Mobility: 0, Plyometrics: 1, Power: 2, Strength: 3, Agility: 4, Conditioning: 5, Core: 6, Recovery: 7 };
+
+  const warmups = [
+    { ...EXERCISE_DB.find(e => e.id === "squat_mobility"), prescribed: { sets: 2, reps: 10, note: "Warmup", weight: null } },
+    { ...EXERCISE_DB.find(e => e.id === "open_book"), prescribed: { sets: 1, reps: 10, note: "Warmup", weight: null } },
+  ];
+
+  const selected = [];
+  const catCount = {};
+  const warmupIds = new Set(warmups.map(w => w.id));
 
   scored.forEach(ex => {
-    if (plan.find(p => p.id === ex.id)) return;
+    if (warmupIds.has(ex.id)) return;
     if ((catCount[ex.cat] || 0) >= (catLimits[ex.cat] || 2)) return;
-    if (plan.length >= 12) return;
+    if (selected.length >= 10) return;
 
     const prescribed = prescribeProgression(ex, sessionHistory);
     const finalSets = Math.max(1, Math.round(prescribed.sets * volumeMod));
     catCount[ex.cat] = (catCount[ex.cat] || 0) + 1;
-    plan.push({ ...ex, prescribed: { ...prescribed, sets: finalSets } });
+    selected.push({ ...ex, prescribed: { ...prescribed, sets: finalSets } });
   });
+
+  // Sort selected exercises into proper training order
+  selected.sort((a, b) => (CAT_ORDER[a.cat] ?? 9) - (CAT_ORDER[b.cat] ?? 9));
+
+  const plan = [...warmups, ...selected];
 
   return { plan, weekLoad, modNotes };
 }
