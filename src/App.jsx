@@ -327,10 +327,25 @@ function PlanTab({ profile, weekLogs, sessionHistory, aiLoading, setAiLoading, p
     setAiError("");
     setPlanResult(null);
 
-    const weekLoad = calculateWeekLoad(weekLogs);
+    // Only count this week's activity logs for load
+    const weekStart = new Date();
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+    weekStart.setHours(0, 0, 0, 0);
+    const thisWeekLogs = weekLogs.filter(l => new Date(l.date) >= weekStart);
+
+    const weekLoad = calculateWeekLoad(thisWeekLogs);
     const loadNotes = getLoadContext(weekLoad, tournament, sessionTime);
 
-    // Format recent session history for AI context
+    // Format this week's tennis + cheer sessions for AI
+    const intensityLabel = ["", "Very light", "Light", "Moderate", "Hard", "Max effort"];
+    const weekActivity = thisWeekLogs.length === 0
+      ? "No tennis or cheer sessions logged this week."
+      : thisWeekLogs
+          .sort((a, b) => new Date(a.date) - new Date(b.date))
+          .map(l => `  - ${l.date} ${l.time}: ${l.type === "tennis" ? "Tennis" : "Cheerleading"} — ${l.duration} min, intensity ${l.intensity}/5 (${intensityLabel[l.intensity]})${l.focus ? ", focus: " + l.focus : ""}`)
+          .join("\n");
+
+    // Format recent strength session history for AI
     const recentSessions = [...(sessionHistory || [])]
       .sort((a, b) => new Date(b.date) - new Date(a.date))
       .slice(0, 6)
@@ -341,14 +356,12 @@ function PlanTab({ profile, weekLogs, sessionHistory, aiLoading, setAiLoading, p
           sets: e.sets,
           reps: e.reps,
           weight: e.weight || null,
-          difficulty: e.difficulty, // 1=very easy, 2=easy, 3=just right, 4=hard, 5=max
+          difficulty: e.difficulty,
           completed: e.completed,
         }))
       }));
 
-    // Familiar exercises reference list (what she's been doing)
     const familiarExercises = EXERCISE_DB.map(e => e.name).join(", ");
-
     const gapLabels = gaps.map(g => TENNIS_GAPS.find(x => x.id === g)?.label || g);
 
     const prompt = `You are an expert youth sports conditioning coach. Design a complete Sunday strength training session for this athlete.
@@ -358,39 +371,45 @@ ATHLETE:
 - Sports: Tennis (primary) + Cheerleading
 - Tennis areas to develop: ${gapLabels.join(", ") || "general athletic development"}
 
-THIS WEEK'S CONTEXT:
-- Weekly load score: ${Math.round(weekLoad)} (0–150 = low, 150–300 = medium, 300+ = high)
+THIS WEEK'S TENNIS + CHEER ACTIVITY (logged sessions Mon–Sat):
+${weekActivity}
+- Total weekly load score: ${Math.round(weekLoad)} (0–150 = low, 150–300 = medium, 300+ = high)
+
+SESSION CONTEXT:
 - Tournament status: ${tournament === "none" ? "Normal week" : tournament}
-- Session time: ${sessionTime}
-- Important notes: ${loadNotes.length ? loadNotes.join(" | ") : "None"}
+- Session time today: ${sessionTime}
+- Load-based notes: ${loadNotes.length ? loadNotes.join(" | ") : "None"}
 
-RECENT TRAINING HISTORY (last ${recentSessions.length} sessions, most recent first):
-${recentSessions.length === 0 ? "No history yet — this is the first session." : recentSessions.map(s =>
-  `${s.date}:\n${s.exercises.map(e =>
-    `  - ${e.name}: ${e.sets}×${e.reps}${e.weight ? " @ " + e.weight : ""} | difficulty ${e.difficulty}/5 | ${e.completed ? "completed" : "did NOT complete"}`
-  ).join("\n")}`
-).join("\n\n")}
+PAST STRENGTH TRAINING HISTORY (last ${recentSessions.length} sessions, most recent first):
+${recentSessions.length === 0
+  ? "No strength history yet — this is the first session."
+  : recentSessions.map(s =>
+      `${s.date}:\n${s.exercises.map(e =>
+        `  - ${e.name}: ${e.sets}×${e.reps}${e.weight ? " @ " + e.weight : ""} | difficulty ${e.difficulty}/5 | ${e.completed ? "completed" : "did NOT complete"}`
+      ).join("\n")}`
+    ).join("\n\n")}
 
-FAMILIAR EXERCISES (exercises the athlete already knows — use as reference, not as a strict limit):
+FAMILIAR EXERCISES (exercises the athlete already knows — use as reference, not a strict limit):
 ${familiarExercises}
 
 YOUR TASK:
-Design the best possible training session for this athlete TODAY. You are free to:
-- Use any of the familiar exercises above
-- Introduce new exercises that are appropriate for her age and goals
-- Adjust volume based on past difficulty ratings (if she rated an exercise 1-2 last time, increase load; if 4-5, hold or reduce)
-- Adapt to the week's load and tournament status
+Design the best possible Sunday training session. Use ALL the context above:
+- If she had a heavy tennis/cheer week, reduce strength volume to avoid overtraining
+- If she had a light week, she can handle more volume and harder exercises
+- Use past strength history to progress exercises (easy last time → increase; hard → hold or reduce)
+- Choose exercises that target her tennis development gaps
+- You are free to introduce new exercises beyond the familiar list when appropriate
 
-IMPORTANT RULES:
-- Age-appropriate only: no heavy barbell lifts, no Olympic lifting, bodyweight and light loads (dumbbells, bands, medicine ball, kettlebell)
+RULES:
+- Age-appropriate only: bodyweight, light dumbbells, bands, medicine ball, kettlebell — no heavy barbells
 - Order: Warmup → Mobility → Plyometrics → Power → Strength → Core → Agility → Conditioning → Recovery
 - Total exercises: 8–12
 - Always start with at least 2 warmup/mobility exercises
-- For tournament week: max 6 exercises, activation only
+- Tournament week: max 6 exercises, activation only, nothing causing soreness
 
 Respond with ONLY valid JSON, no other text:
 {
-  "briefing": "4–6 sentences. Warm, direct coach voice. What today focuses on, why, and any safety reminders.",
+  "briefing": "4–6 sentences. Warm, direct coach voice. Specifically mention what the week's tennis/cheer load means for today, what the session focuses on, and any safety notes.",
   "plan": [
     {
       "name": "Exercise Name",
@@ -398,7 +417,7 @@ Respond with ONLY valid JSON, no other text:
       "sets": 2,
       "reps": 10,
       "unit": "reps|seconds|meters",
-      "note": "Coaching cue or progression reason based on history"
+      "note": "Coaching cue or specific reason this was chosen based on her week or history"
     }
   ]
 }`;
