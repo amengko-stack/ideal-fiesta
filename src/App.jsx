@@ -432,6 +432,7 @@ Respond with ONLY valid JSON, no other text:
         })
       });
       const data = await res.json();
+      console.log("API response:", JSON.stringify(data).slice(0, 500));
       const raw = (data.content?.map(b => b.text || "").join("") || "").trim();
       const text = raw.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
       const parsed = JSON.parse(text);
