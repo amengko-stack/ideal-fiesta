@@ -5,7 +5,7 @@ import {
 } from "firebase/auth";
 import {
   doc, getDoc, setDoc, addDoc, deleteDoc,
-  collection, getDocs, query, orderBy,
+  collection, getDocs, query, orderBy, limit,
 } from "firebase/firestore";
 
 // ─── EXERCISE DATABASE ─────────────────────────────────────────────────────────
@@ -551,23 +551,29 @@ function AthleteMain({ athleteId, isParent, user, onBack, onSignOut }) {
   const [loading, setLoading]             = useState(true);
   const [planResult, setPlanResult]       = useState(null);
   const [aiLoading, setAiLoading]         = useState(false);
+  const [wellbeing, setWellbeing]         = useState([]);
 
   useEffect(() => {
     setLoading(true);
     setPlanResult(null);
     const load = async () => {
       try {
-        const [profileSnap, logsSnap, sessSnap] = await Promise.all([
+        const [profileSnap, logsSnap, sessSnap, wellSnap] = await Promise.all([
           getDoc(doc(db, "athletes", athleteId)),
           getDocs(collection(db, "athletes", athleteId, "weekLogs")),
           getDocs(query(
             collection(db, "athletes", athleteId, "sessions"),
             orderBy("date", "desc")
           )),
+          getDocs(query(
+            collection(db, "athletes", athleteId, "wellbeing"),
+            orderBy("date", "desc"), limit(7)
+          )),
         ]);
         if (profileSnap.exists()) setProfile(profileSnap.data());
         setWeekLogs(logsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
         setSessionHistory(sessSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        setWellbeing(wellSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       } catch (e) {
         console.error("Load error:", e);
       } finally {
@@ -639,7 +645,7 @@ function AthleteMain({ athleteId, isParent, user, onBack, onSignOut }) {
           ))}
         </div>
 
-        {tab === "plan"     && <PlanTab athleteId={athleteId} profile={profile} weekLogs={weekLogs} sessionHistory={sessionHistory} aiLoading={aiLoading} setAiLoading={setAiLoading} planResult={planResult} setPlanResult={setPlanResult} />}
+        {tab === "plan"     && <PlanTab athleteId={athleteId} profile={profile} weekLogs={weekLogs} sessionHistory={sessionHistory} wellbeing={wellbeing} aiLoading={aiLoading} setAiLoading={setAiLoading} planResult={planResult} setPlanResult={setPlanResult} />}
         {tab === "log"      && <LogTab weekLogs={weekLogs} addWeekLog={addWeekLog} deleteWeekLog={deleteWeekLog} />}
         {tab === "strength" && <StrengthLogTab sessionHistory={sessionHistory} addSession={addSession} planResult={planResult} />}
         {tab === "progress" && <ProgressTab sessionHistory={sessionHistory} weekLogs={weekLogs} />}
@@ -650,7 +656,7 @@ function AthleteMain({ athleteId, isParent, user, onBack, onSignOut }) {
 }
 
 // ─── PLAN TAB ─────────────────────────────────────────────────────────────────
-function PlanTab({ athleteId, profile, weekLogs, sessionHistory, aiLoading, setAiLoading, planResult, setPlanResult }) {
+function PlanTab({ athleteId, profile, weekLogs, sessionHistory, wellbeing, aiLoading, setAiLoading, planResult, setPlanResult }) {
   const [tournament, setTournament] = useState("none");
   const [sessionTime, setSessionTime] = useState("10:00");
   const [aiError, setAiError] = useState("");
@@ -693,6 +699,17 @@ function PlanTab({ athleteId, profile, weekLogs, sessionHistory, aiLoading, setA
     const familiarExercises = EXERCISE_DB.map(e => e.name).join(", ");
     const gapLabels = gaps.map(g => TENNIS_GAPS.find(x => x.id === g)?.label || g);
 
+    const moodLabel     = ["","Rough","Meh","OK","Good","Great"];
+    const sorenessLabel = ["","None","Mild","Moderate","Sore","Very sore"];
+    const recentWellbeing = [...(wellbeing || [])]
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
+      .slice(0, 5);
+    const wellbeingText = recentWellbeing.length === 0
+      ? "No wellbeing check-ins logged yet."
+      : recentWellbeing.map(w =>
+          `  - ${w.date}: Sleep ${w.sleep}h · Mood ${w.mood}/5 (${moodLabel[w.mood]}) · Soreness ${w.soreness}/5 (${sorenessLabel[w.soreness]})`
+        ).join("\n");
+
     const prompt = `You are an expert youth sports conditioning coach. Design a complete Sunday strength training session for this athlete.
 
 ATHLETE:
@@ -708,6 +725,12 @@ SESSION CONTEXT:
 - Tournament status: ${tournament === "none" ? "Normal week" : tournament}
 - Session time today: ${sessionTime}
 - Load-based notes: ${loadNotes.length ? loadNotes.join(" | ") : "None"}
+
+ATHLETE WELLBEING (last ${recentWellbeing.length} check-ins, most recent first):
+${wellbeingText}
+- If soreness is 3+ today: reduce impact exercises, prioritise mobility and recovery
+- If sleep was under 7h: avoid max-effort work, keep intensity moderate
+- If mood is 1–2: keep session positive and light, no new hard exercises
 
 PAST STRENGTH TRAINING HISTORY (last ${recentSessions.length} sessions, most recent first):
 ${recentSessions.length === 0
