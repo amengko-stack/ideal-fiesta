@@ -1,39 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
-
-// ─── PERSISTENT STORAGE HELPERS ───────────────────────────────────────────────
-const storage = {
-  async get(key) {
-    try {
-      if (window.storage) {
-        const r = await window.storage.get(key);
-        if (r && r.value !== undefined && r.value !== null) {
-          return JSON.parse(r.value);
-        }
-      }
-    } catch(e) {}
-    try {
-      const v = localStorage.getItem(key);
-      return v ? JSON.parse(v) : null;
-    } catch(e) { return null; }
-  },
-  async set(key, value) {
-    const serialized = JSON.stringify(value);
-    let cloudOk = false;
-    try {
-      if (window.storage) {
-        await window.storage.set(key, serialized);
-        cloudOk = true;
-      }
-    } catch(e) { cloudOk = false; }
-    try {
-      localStorage.setItem(key, serialized);
-      return true;
-    } catch(e) {
-      if (!cloudOk) throw new Error("Both storage methods failed");
-      return true;
-    }
-  }
-};
+import { auth, db } from "./firebase";
+import {
+  GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged,
+} from "firebase/auth";
+import {
+  doc, getDoc, setDoc, addDoc, deleteDoc,
+  collection, getDocs, query, orderBy,
+} from "firebase/firestore";
 
 // ─── EXERCISE DATABASE ─────────────────────────────────────────────────────────
 const EXERCISE_DB = [
@@ -184,10 +157,11 @@ const css = `
   input:focus, select:focus, textarea:focus { border-color: ${COLORS.accent}; }
   select option { background: ${COLORS.surface}; }
   .btn { display: inline-flex; align-items: center; gap: 6px; padding: 10px 18px; border-radius: 8px; border: none; cursor: pointer; font-family: 'DM Sans', sans-serif; font-weight: 600; font-size: 0.88rem; transition: all 0.15s; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
   .btn-primary { background: ${COLORS.accent}; color: #000; }
-  .btn-primary:hover { background: ${COLORS.accentDim}; }
+  .btn-primary:hover:not(:disabled) { background: ${COLORS.accentDim}; }
   .btn-ghost { background: ${COLORS.accentMuted}; color: ${COLORS.accent}; }
-  .btn-ghost:hover { background: rgba(0,229,160,0.2); }
+  .btn-ghost:hover:not(:disabled) { background: rgba(0,229,160,0.2); }
   .btn-danger { background: rgba(255,77,109,0.12); color: ${COLORS.red}; }
   .btn-sm { padding: 6px 12px; font-size: 0.78rem; }
   .gap-checkbox { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -227,29 +201,373 @@ const css = `
   .prog-table tr:last-child td { border-bottom: none; }
   .spinner { display: inline-block; width: 20px; height: 20px; border: 2px solid ${COLORS.border}; border-top-color: ${COLORS.accent}; border-radius: 50%; animation: spin 0.7s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
+  .athlete-row { cursor: pointer; transition: background 0.15s; }
+  .athlete-row:hover { background: ${COLORS.border}; border-radius: 8px; }
 `;
 
-// ─── MAIN APP ─────────────────────────────────────────────────────────────────
+// ─── AUTH ROUTER ─────────────────────────────────────────────────────────────
 export default function App() {
-  const [tab, setTab] = useState("plan");
-  const [profile, setProfile] = useState(null);
-  const [sessionHistory, setSessionHistory] = useState([]);
-  const [weekLogs, setWeekLogs] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [planResult, setPlanResult] = useState(null);
-  const [aiLoading, setAiLoading] = useState(false);
+  const [authState, setAuthState]         = useState("loading");
+  const [user, setUser]                   = useState(null);
+  const [athleteId, setAthleteId]         = useState(null);
+  const [viewingAthleteId, setViewingId]  = useState(null);
 
   useEffect(() => {
+    return onAuthStateChanged(auth, async (u) => {
+      if (!u) {
+        setAuthState("unauthenticated");
+        return;
+      }
+      setUser(u);
+      try {
+        const snap = await getDoc(doc(db, "users", u.uid));
+        if (!snap.exists()) {
+          setAuthState("setup");
+        } else {
+          const data = snap.data();
+          if (data.role === "athlete") {
+            setAthleteId(data.athleteId);
+            setAuthState("athlete");
+          } else {
+            setAuthState("parent");
+          }
+        }
+      } catch (e) {
+        console.error("Auth check error:", e);
+        setAuthState("setup");
+      }
+    });
+  }, []);
+
+  const handleSetupComplete = useCallback(async (role, newAthleteId) => {
+    const userData = { role, displayName: user.displayName, email: user.email };
+    if (role === "athlete") userData.athleteId = newAthleteId;
+    await setDoc(doc(db, "users", user.uid), userData);
+    if (role === "athlete") {
+      setAthleteId(newAthleteId);
+      setAuthState("athlete");
+    } else {
+      setAuthState("parent");
+    }
+  }, [user]);
+
+  const handleSignOut = useCallback(() => signOut(auth), []);
+
+  if (authState === "loading") {
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: COLORS.bg }}>
+        <style>{css}</style>
+        <div className="spinner" />
+      </div>
+    );
+  }
+
+  if (authState === "unauthenticated") {
+    return <LoginScreen />;
+  }
+
+  if (authState === "setup") {
+    return <RoleSetup user={user} onComplete={handleSetupComplete} />;
+  }
+
+  if (authState === "parent" && viewingAthleteId) {
+    return (
+      <AthleteMain
+        athleteId={viewingAthleteId}
+        isParent={true}
+        user={user}
+        onBack={() => setViewingId(null)}
+        onSignOut={handleSignOut}
+      />
+    );
+  }
+
+  if (authState === "parent") {
+    return (
+      <ParentDashboard
+        user={user}
+        onSelectAthlete={(id) => setViewingId(id)}
+        onSignOut={handleSignOut}
+      />
+    );
+  }
+
+  // authState === "athlete"
+  return (
+    <AthleteMain
+      athleteId={athleteId}
+      isParent={false}
+      user={user}
+      onBack={null}
+      onSignOut={handleSignOut}
+    />
+  );
+}
+
+// ─── LOGIN SCREEN ─────────────────────────────────────────────────────────────
+function LoginScreen() {
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleGoogle = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      await signInWithPopup(auth, new GoogleAuthProvider());
+    } catch (e) {
+      setError(e.message);
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: COLORS.bg, padding: 16 }}>
+      <style>{css}</style>
+      <div className="card" style={{ maxWidth: 420, width: "100%", textAlign: "center", padding: "40px 32px" }}>
+        <h1 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.5rem", color: COLORS.accent, marginBottom: 8 }}>Athlete OS</h1>
+        <p style={{ color: COLORS.muted, fontSize: "0.88rem", marginBottom: 36 }}>Training Intelligence · Tennis + Cheerleading</p>
+        <button
+          className="btn btn-primary"
+          onClick={handleGoogle}
+          disabled={loading}
+          style={{ width: "100%", justifyContent: "center", padding: "14px", fontSize: "0.95rem" }}
+        >
+          {loading ? <><span className="spinner" style={{ width: 16, height: 16 }} /> Signing in…</> : "Sign in with Google"}
+        </button>
+        {error && <div className="note-box warn" style={{ marginTop: 16, textAlign: "left" }}>{error}</div>}
+      </div>
+    </div>
+  );
+}
+
+// ─── ROLE SETUP ───────────────────────────────────────────────────────────────
+function RoleSetup({ user, onComplete }) {
+  const [role, setRole]           = useState("parent");
+  const [athleteName, setName]    = useState(user?.displayName?.split(" ")[0] || "");
+  const [saving, setSaving]       = useState(false);
+  const [error, setError]         = useState("");
+
+  const handleSubmit = async () => {
+    setSaving(true);
+    setError("");
+    try {
+      if (role === "athlete") {
+        if (!athleteName.trim()) { setError("Please enter your name."); setSaving(false); return; }
+        const ref = await addDoc(collection(db, "athletes"), {
+          name: athleteName.trim(), dob: "", gaps: [],
+          tennisSchedule: "", cheerSchedule: "", coachNotes: "",
+          createdBy: user.uid,
+        });
+        await onComplete("athlete", ref.id);
+      } else {
+        await onComplete("parent", null);
+      }
+    } catch (e) {
+      setError(e.message);
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: COLORS.bg, padding: 16 }}>
+      <style>{css}</style>
+      <div className="card" style={{ maxWidth: 480, width: "100%", padding: "32px 28px" }}>
+        <div className="card-title">Welcome, {user?.displayName?.split(" ")[0] || "there"} 👋</div>
+        <p style={{ color: COLORS.muted, fontSize: "0.85rem", marginBottom: 20 }}>Choose your role to get started.</p>
+
+        <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
+          <button
+            className={`btn ${role === "parent" ? "btn-primary" : "btn-ghost"}`}
+            style={{ flex: 1, justifyContent: "center" }}
+            onClick={() => setRole("parent")}
+          >
+            👨‍👩‍👧 Parent / Coach
+          </button>
+          <button
+            className={`btn ${role === "athlete" ? "btn-primary" : "btn-ghost"}`}
+            style={{ flex: 1, justifyContent: "center" }}
+            onClick={() => setRole("athlete")}
+          >
+            🎾 Athlete
+          </button>
+        </div>
+
+        {role === "parent" && (
+          <div className="note-box" style={{ marginBottom: 20 }}>
+            As a parent/coach you can create and manage multiple athlete profiles and see all their data.
+          </div>
+        )}
+
+        {role === "athlete" && (
+          <div style={{ marginBottom: 20 }}>
+            <div className="label">Your Name</div>
+            <input
+              placeholder="e.g. Sofia"
+              value={athleteName}
+              onChange={e => setName(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleSubmit()}
+            />
+            <div className="note-box" style={{ marginTop: 12 }}>
+              As an athlete you will see only your own training logs and current plan.
+            </div>
+          </div>
+        )}
+
+        {error && <div className="note-box warn" style={{ marginBottom: 12 }}>{error}</div>}
+
+        <button
+          className="btn btn-primary"
+          onClick={handleSubmit}
+          disabled={saving}
+          style={{ width: "100%", justifyContent: "center", padding: "13px" }}
+        >
+          {saving
+            ? <><span className="spinner" style={{ width: 16, height: 16 }} /> Setting up…</>
+            : "Continue →"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── PARENT DASHBOARD ────────────────────────────────────────────────────────
+function ParentDashboard({ user, onSelectAthlete, onSignOut }) {
+  const [athletes, setAthletes]   = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
+  const [newName, setNewName]     = useState("");
+  const [creating, setCreating]   = useState(false);
+
+  useEffect(() => {
+    getDocs(collection(db, "athletes"))
+      .then(snap => setAthletes(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+      .catch(e => console.error("Load athletes error:", e))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleCreate = async () => {
+    if (!newName.trim()) return;
+    setCreating(true);
+    try {
+      const ref = await addDoc(collection(db, "athletes"), {
+        name: newName.trim(), dob: "", gaps: [],
+        tennisSchedule: "", cheerSchedule: "", coachNotes: "",
+        createdBy: user.uid,
+      });
+      setAthletes(prev => [...prev, { id: ref.id, name: newName.trim(), gaps: [] }]);
+      setNewName("");
+      setShowCreate(false);
+    } catch (e) {
+      console.error("Create athlete error:", e);
+    }
+    setCreating(false);
+  };
+
+  return (
+    <div style={{ background: COLORS.bg, minHeight: "100vh" }}>
+      <style>{css}</style>
+      <div className="app">
+        <div className="header">
+          <div className="flex-between">
+            <div>
+              <h1>Athlete OS</h1>
+              <p>Parent Dashboard · {user.displayName}</p>
+            </div>
+            <button className="btn btn-ghost btn-sm" onClick={onSignOut}>Sign Out</button>
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-title">👤 Athletes</div>
+          {loading
+            ? <div className="empty"><div className="spinner" /></div>
+            : athletes.length === 0
+              ? <div className="empty">No athletes yet — add one below</div>
+              : athletes.map(a => (
+                  <div
+                    key={a.id}
+                    className="log-item athlete-row"
+                    onClick={() => onSelectAthlete(a.id)}
+                  >
+                    <div>
+                      <span style={{ fontWeight: 600, fontSize: "0.95rem" }}>{a.name || "Unnamed athlete"}</span>
+                      {a.gaps?.length > 0 && (
+                        <div style={{ color: COLORS.muted, fontSize: "0.75rem", marginTop: 3 }}>
+                          {a.gaps.length} tennis gap{a.gaps.length !== 1 ? "s" : ""} set
+                        </div>
+                      )}
+                    </div>
+                    <span style={{ color: COLORS.accent, fontWeight: 600 }}>View →</span>
+                  </div>
+                ))
+          }
+        </div>
+
+        {showCreate ? (
+          <div className="card">
+            <div className="card-title">➕ New Athlete</div>
+            <div className="label">Athlete Name</div>
+            <input
+              placeholder="e.g. Sofia"
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleCreate()}
+              style={{ marginBottom: 14 }}
+            />
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                className="btn btn-primary"
+                onClick={handleCreate}
+                disabled={creating}
+                style={{ flex: 1, justifyContent: "center" }}
+              >
+                {creating ? "Creating…" : "Create Athlete"}
+              </button>
+              <button className="btn btn-ghost" onClick={() => { setShowCreate(false); setNewName(""); }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            className="btn btn-ghost"
+            onClick={() => setShowCreate(true)}
+            style={{ width: "100%", justifyContent: "center", padding: "12px" }}
+          >
+            + Add New Athlete
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── ATHLETE MAIN ─────────────────────────────────────────────────────────────
+function AthleteMain({ athleteId, isParent, user, onBack, onSignOut }) {
+  const [tab, setTab]                     = useState("plan");
+  const [profile, setProfile]             = useState(null);
+  const [sessionHistory, setSessionHistory] = useState([]);
+  const [weekLogs, setWeekLogs]           = useState([]);
+  const [loading, setLoading]             = useState(true);
+  const [planResult, setPlanResult]       = useState(null);
+  const [aiLoading, setAiLoading]         = useState(false);
+
+  useEffect(() => {
+    setLoading(true);
+    setPlanResult(null);
     const load = async () => {
       try {
-        const [p, sh, wl] = await Promise.all([
-          storage.get("athlete_profile"),
-          storage.get("athlete_sessionHistory"),
-          storage.get("athlete_weekLogs"),
+        const [profileSnap, logsSnap, sessSnap] = await Promise.all([
+          getDoc(doc(db, "athletes", athleteId)),
+          getDocs(collection(db, "athletes", athleteId, "weekLogs")),
+          getDocs(query(
+            collection(db, "athletes", athleteId, "sessions"),
+            orderBy("date", "desc")
+          )),
         ]);
-        if (p && typeof p === "object") setProfile(p);
-        if (Array.isArray(sh)) setSessionHistory(sh);
-        if (Array.isArray(wl)) setWeekLogs(wl);
+        if (profileSnap.exists()) setProfile(profileSnap.data());
+        setWeekLogs(logsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        setSessionHistory(sessSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       } catch (e) {
         console.error("Load error:", e);
       } finally {
@@ -257,46 +575,63 @@ export default function App() {
       }
     };
     load();
-  }, []);
+  }, [athleteId]);
 
   const saveProfile = useCallback(async (p) => {
     setProfile(p);
-    await storage.set("athlete_profile", p);
-  }, []);
+    await setDoc(doc(db, "athletes", athleteId), p, { merge: true });
+  }, [athleteId]);
 
-  const saveHistory = useCallback(async (h) => {
-    setSessionHistory(h);
-    await storage.set("athlete_sessionHistory", h);
-  }, []);
+  const addWeekLog = useCallback(async (logData) => {
+    const ref = await addDoc(collection(db, "athletes", athleteId, "weekLogs"), logData);
+    setWeekLogs(prev => [...prev, { id: ref.id, ...logData }]);
+  }, [athleteId]);
 
-  const saveWeekLogs = useCallback(async (w) => {
-    setWeekLogs(w);
-    await storage.set("athlete_weekLogs", w);
-  }, []);
+  const deleteWeekLog = useCallback(async (logId) => {
+    await deleteDoc(doc(db, "athletes", athleteId, "weekLogs", logId));
+    setWeekLogs(prev => prev.filter(l => l.id !== logId));
+  }, [athleteId]);
 
-  if (loading) return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: COLORS.bg }}>
-      <style>{css}</style>
-      <div className="spinner" />
-    </div>
-  );
+  const addSession = useCallback(async (sessionData) => {
+    const ref = await addDoc(collection(db, "athletes", athleteId, "sessions"), sessionData);
+    setSessionHistory(prev => [{ id: ref.id, ...sessionData }, ...prev]);
+  }, [athleteId]);
+
+  if (loading) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: COLORS.bg }}>
+        <style>{css}</style>
+        <div className="spinner" />
+      </div>
+    );
+  }
 
   return (
     <>
       <style>{css}</style>
       <div className="app">
         <div className="header">
-          <h1>Athlete OS</h1>
-          <p>Training Intelligence · {profile?.name || "Setup your athlete profile"} · Age 12 · Tennis + Cheer</p>
+          <div className="flex-between" style={{ alignItems: "flex-start" }}>
+            <h1>Athlete OS</h1>
+            <div style={{ display: "flex", gap: 8, paddingTop: 6 }}>
+              {onBack && (
+                <button className="btn btn-ghost btn-sm" onClick={onBack}>← Athletes</button>
+              )}
+              <button className="btn btn-ghost btn-sm" onClick={onSignOut}>Sign Out</button>
+            </div>
+          </div>
+          <p>Training Intelligence · {profile?.name || "Setup your athlete profile"} · Age 12 · Tennis + Cheer
+            {isParent && <span style={{ color: COLORS.yellow, marginLeft: 8 }}>· Parent View</span>}
+          </p>
         </div>
 
         <div className="tabs">
           {[
-            { id: "plan", label: "🎯 Sunday Plan" },
-            { id: "log", label: "📋 Log Activity" },
+            { id: "plan",     label: "🎯 Sunday Plan" },
+            { id: "log",      label: "📋 Log Activity" },
             { id: "strength", label: "💪 Log Strength" },
             { id: "progress", label: "📈 Progress" },
-            { id: "profile", label: "⚙️ Profile" },
+            { id: "profile",  label: "⚙️ Profile" },
           ].map(t => (
             <button key={t.id} className={`tab ${tab === t.id ? "active" : ""}`} onClick={() => setTab(t.id)}>
               {t.label}
@@ -304,11 +639,11 @@ export default function App() {
           ))}
         </div>
 
-        {tab === "plan" && <PlanTab profile={profile} weekLogs={weekLogs} sessionHistory={sessionHistory} aiLoading={aiLoading} setAiLoading={setAiLoading} planResult={planResult} setPlanResult={setPlanResult} />}
-        {tab === "log" && <LogTab weekLogs={weekLogs} saveWeekLogs={saveWeekLogs} />}
-        {tab === "strength" && <StrengthLogTab sessionHistory={sessionHistory} saveHistory={saveHistory} planResult={planResult} />}
+        {tab === "plan"     && <PlanTab profile={profile} weekLogs={weekLogs} sessionHistory={sessionHistory} aiLoading={aiLoading} setAiLoading={setAiLoading} planResult={planResult} setPlanResult={setPlanResult} />}
+        {tab === "log"      && <LogTab weekLogs={weekLogs} addWeekLog={addWeekLog} deleteWeekLog={deleteWeekLog} />}
+        {tab === "strength" && <StrengthLogTab sessionHistory={sessionHistory} addSession={addSession} planResult={planResult} />}
         {tab === "progress" && <ProgressTab sessionHistory={sessionHistory} weekLogs={weekLogs} />}
-        {tab === "profile" && <ProfileTab profile={profile} saveProfile={saveProfile} />}
+        {tab === "profile"  && <ProfileTab profile={profile} saveProfile={saveProfile} />}
       </div>
     </>
   );
@@ -327,7 +662,6 @@ function PlanTab({ profile, weekLogs, sessionHistory, aiLoading, setAiLoading, p
     setAiError("");
     setPlanResult(null);
 
-    // Only count this week's activity logs for load
     const weekStart = new Date();
     weekStart.setDate(weekStart.getDate() - weekStart.getDay());
     weekStart.setHours(0, 0, 0, 0);
@@ -336,7 +670,6 @@ function PlanTab({ profile, weekLogs, sessionHistory, aiLoading, setAiLoading, p
     const weekLoad = calculateWeekLoad(thisWeekLogs);
     const loadNotes = getLoadContext(weekLoad, tournament, sessionTime);
 
-    // Format this week's tennis + cheer sessions for AI
     const intensityLabel = ["", "Very light", "Light", "Moderate", "Hard", "Max effort"];
     const weekActivity = thisWeekLogs.length === 0
       ? "No tennis or cheer sessions logged this week."
@@ -345,19 +678,14 @@ function PlanTab({ profile, weekLogs, sessionHistory, aiLoading, setAiLoading, p
           .map(l => `  - ${l.date} ${l.time}: ${l.type === "tennis" ? "Tennis" : "Cheerleading"} — ${l.duration} min, intensity ${l.intensity}/5 (${intensityLabel[l.intensity]})${l.focus ? ", focus: " + l.focus : ""}`)
           .join("\n");
 
-    // Format recent strength session history for AI
     const recentSessions = [...(sessionHistory || [])]
       .sort((a, b) => new Date(b.date) - new Date(a.date))
       .slice(0, 6)
       .map(s => ({
         date: s.date,
         exercises: (s.exercises || []).map(e => ({
-          name: e.name,
-          sets: e.sets,
-          reps: e.reps,
-          weight: e.weight || null,
-          difficulty: e.difficulty,
-          completed: e.completed,
+          name: e.name, sets: e.sets, reps: e.reps,
+          weight: e.weight || null, difficulty: e.difficulty, completed: e.completed,
         }))
       }));
 
@@ -433,10 +761,9 @@ Respond with ONLY valid JSON, no other text:
       });
       const data = await res.json();
       console.log("API response:", JSON.stringify(data).slice(0, 500));
-      const raw = (data.content?.map(b => b.text || "").join("") || "").trim();
+      const raw  = (data.content?.map(b => b.text || "").join("") || "").trim();
       const text = raw.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
       const parsed = JSON.parse(text);
-      // Attach a slug id to each exercise for logging
       const plan = (parsed.plan || []).map(ex => ({
         ...ex,
         id: ex.name.toLowerCase().replace(/[^a-z0-9]+/g, "_"),
@@ -450,7 +777,7 @@ Respond with ONLY valid JSON, no other text:
   };
 
   const weekLoad = calculateWeekLoad(weekLogs);
-  const loadPct = Math.min(100, (weekLoad / 400) * 100);
+  const loadPct   = Math.min(100, (weekLoad / 400) * 100);
   const loadColor = weekLoad < 150 ? COLORS.accent : weekLoad < 300 ? COLORS.yellow : COLORS.red;
   const loadLabel = weekLoad < 150 ? "Low" : weekLoad < 300 ? "Medium" : "High";
 
@@ -501,7 +828,12 @@ Respond with ONLY valid JSON, no other text:
           }
         </div>
         <div className="mt16">
-          <button className="btn btn-primary" onClick={handleGenerate} style={{ width: "100%", justifyContent: "center", padding: "13px" }}>
+          <button
+            className="btn btn-primary"
+            onClick={handleGenerate}
+            disabled={aiLoading}
+            style={{ width: "100%", justifyContent: "center", padding: "13px" }}
+          >
             ⚡ Generate This Sunday's Plan
           </button>
         </div>
@@ -516,9 +848,7 @@ Respond with ONLY valid JSON, no other text:
         </div>
       )}
 
-      {aiError && (
-        <div className="note-box warn">{aiError}</div>
-      )}
+      {aiError && <div className="note-box warn">{aiError}</div>}
 
       {planResult && (
         <>
@@ -556,24 +886,26 @@ Respond with ONLY valid JSON, no other text:
 }
 
 // ─── LOG ACTIVITY TAB ─────────────────────────────────────────────────────────
-function LogTab({ weekLogs, saveWeekLogs }) {
-  const [type, setType] = useState("tennis");
+function LogTab({ weekLogs, addWeekLog, deleteWeekLog }) {
+  const [type, setType]         = useState("tennis");
   const [duration, setDuration] = useState("");
   const [intensity, setIntensity] = useState(3);
-  const [focus, setFocus] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
-  const [time, setTime] = useState(new Date().toTimeString().slice(0, 5));
-  const [saved, setSaved] = useState(false);
+  const [focus, setFocus]       = useState("");
+  const [date, setDate]         = useState(new Date().toISOString().split("T")[0]);
+  const [time, setTime]         = useState(new Date().toTimeString().slice(0, 5));
+  const [saving, setSaving]     = useState(false);
+  const [saved, setSaved]       = useState(false);
 
   const TENNIS_FOCUS = ["Baseline rallying", "Serve practice", "Footwork / movement", "Match play", "Volley / net", "Conditioning", "Full practice"];
-  const CHEER_FOCUS = ["Stunt practice", "Tumbling", "Dance / routine", "Competition prep", "Conditioning", "Full practice"];
+  const CHEER_FOCUS  = ["Stunt practice", "Tumbling", "Dance / routine", "Competition prep", "Conditioning", "Full practice"];
 
-  const handleLog = () => {
-    if (!duration) return;
-    const log = { id: Date.now(), type, duration: parseInt(duration), intensity, focus, date, time };
-    saveWeekLogs([...weekLogs, log]);
+  const handleLog = async () => {
+    if (!duration || saving) return;
+    setSaving(true);
+    await addWeekLog({ type, duration: parseInt(duration), intensity, focus, date, time });
     setSaved(true);
-    setDuration(""); setFocus(""); setSaved(false);
+    setDuration(""); setFocus("");
+    setSaving(false);
     setTimeout(() => setSaved(false), 2000);
   };
 
@@ -631,8 +963,13 @@ function LogTab({ weekLogs, saveWeekLogs }) {
           </select>
         </div>
 
-        <button className="btn btn-primary mt16" onClick={handleLog} style={{ width: "100%", justifyContent: "center", padding: "12px" }}>
-          {saved ? "✓ Logged!" : "Save Session"}
+        <button
+          className="btn btn-primary mt16"
+          onClick={handleLog}
+          disabled={saving || !duration}
+          style={{ width: "100%", justifyContent: "center", padding: "12px" }}
+        >
+          {saving ? "Saving…" : saved ? "✓ Logged!" : "Save Session"}
         </button>
       </div>
 
@@ -640,7 +977,7 @@ function LogTab({ weekLogs, saveWeekLogs }) {
         <div className="card-title">📅 This Week's Activity</div>
         {thisWeek.length === 0
           ? <div className="empty">No sessions logged this week yet</div>
-          : thisWeek.sort((a,b) => new Date(b.date)-new Date(a.date)).map(log => (
+          : [...thisWeek].sort((a,b) => new Date(b.date)-new Date(a.date)).map(log => (
               <div key={log.id} className="log-item">
                 <div>
                   <span className={`pill pill-${log.type}`}>{log.type === "tennis" ? "🎾 Tennis" : "📣 Cheer"}</span>
@@ -649,7 +986,7 @@ function LogTab({ weekLogs, saveWeekLogs }) {
                 </div>
                 <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                   <span style={{ fontSize: "0.8rem" }}>{"🔥".repeat(log.intensity)}</span>
-                  <button className="btn btn-danger btn-sm" onClick={() => saveWeekLogs(weekLogs.filter(l => l.id !== log.id))}>✕</button>
+                  <button className="btn btn-danger btn-sm" onClick={() => deleteWeekLog(log.id)}>✕</button>
                 </div>
               </div>
             ))
@@ -660,38 +997,43 @@ function LogTab({ weekLogs, saveWeekLogs }) {
 }
 
 // ─── STRENGTH LOG TAB ─────────────────────────────────────────────────────────
-function StrengthLogTab({ sessionHistory, saveHistory, planResult }) {
-  const [logExercises, setLogExercises] = useState([]);
-  const [sessionDate, setSessionDate] = useState(new Date().toISOString().split("T")[0]);
+function StrengthLogTab({ sessionHistory, addSession, planResult }) {
+  const [logExercises, setLogExercises]   = useState([]);
+  const [sessionDate, setSessionDate]     = useState(new Date().toISOString().split("T")[0]);
   const [sessionTimeLog, setSessionTimeLog] = useState(new Date().toTimeString().slice(0, 5));
-  const [saved, setSaved] = useState(false);
+  const [saving, setSaving]               = useState(false);
+  const [saved, setSaved]                 = useState(false);
 
   useEffect(() => {
     if (planResult?.plan && logExercises.length === 0) {
       setLogExercises(planResult.plan.map(ex => ({
         id: ex.id, name: ex.name,
-        sets: ex.sets || 2,
-        reps: ex.reps || 10,
+        sets: ex.sets || 2, reps: ex.reps || 10,
         weight: "", difficulty: 3, completed: true, notes: ""
       })));
     }
   }, [planResult]);
 
   const addExercise = () => {
-    setLogExercises(prev => [...prev, { id: `custom_${Date.now()}`, name: "", sets: 2, reps: 10, weight: "", difficulty: 3, completed: true, notes: "" }]);
+    setLogExercises(prev => [...prev, {
+      id: `custom_${Date.now()}`, name: "", sets: 2, reps: 10,
+      weight: "", difficulty: 3, completed: true, notes: ""
+    }]);
   };
 
   const updateEx = (idx, field, val) => {
     setLogExercises(prev => prev.map((e, i) => i === idx ? { ...e, [field]: val } : e));
   };
 
-  const handleSave = () => {
-    const session = {
-      id: Date.now(), date: sessionDate, time: sessionTimeLog,
-      exercises: logExercises.filter(e => e.name)
-    };
-    saveHistory([...sessionHistory, session]);
+  const handleSave = async () => {
+    setSaving(true);
+    await addSession({
+      date: sessionDate,
+      time: sessionTimeLog,
+      exercises: logExercises.filter(e => e.name),
+    });
     setSaved(true);
+    setSaving(false);
     setTimeout(() => setSaved(false), 2500);
   };
 
@@ -716,9 +1058,10 @@ function StrengthLogTab({ sessionHistory, saveHistory, planResult }) {
         <div key={idx} className="card">
           <div className="flex-between" style={{ marginBottom: 12 }}>
             <div style={{ fontWeight: 600, fontSize: "0.9rem", flex: 1 }}>
-              {ex.name || (
-                <input placeholder="Exercise name…" value={ex.name} onChange={e => updateEx(idx, "name", e.target.value)} style={{ fontWeight: 600 }} />
-              )}
+              {ex.name
+                ? ex.name
+                : <input placeholder="Exercise name…" value={ex.name} onChange={e => updateEx(idx, "name", e.target.value)} style={{ fontWeight: 600 }} />
+              }
             </div>
             <button className="btn btn-danger btn-sm" onClick={() => setLogExercises(prev => prev.filter((_, i) => i !== idx))}>✕</button>
           </div>
@@ -762,8 +1105,13 @@ function StrengthLogTab({ sessionHistory, saveHistory, planResult }) {
       <div className="flex" style={{ gap: 10, marginBottom: 16 }}>
         <button className="btn btn-ghost" onClick={addExercise} style={{ flex: 1, justifyContent: "center" }}>+ Add Exercise</button>
       </div>
-      <button className="btn btn-primary" onClick={handleSave} style={{ width: "100%", justifyContent: "center", padding: "13px" }}>
-        {saved ? "✓ Session Saved!" : "Save Strength Session"}
+      <button
+        className="btn btn-primary"
+        onClick={handleSave}
+        disabled={saving}
+        style={{ width: "100%", justifyContent: "center", padding: "13px" }}
+      >
+        {saving ? "Saving…" : saved ? "✓ Session Saved!" : "Save Strength Session"}
       </button>
     </div>
   );
@@ -777,14 +1125,17 @@ function ProgressTab({ sessionHistory, weekLogs }) {
   sessionHistory.forEach(session => {
     (session.exercises || []).forEach(ex => {
       if (!exMap[ex.id]) exMap[ex.id] = { name: ex.name, entries: [] };
-      exMap[ex.id].entries.push({ date: session.date, sets: ex.sets, reps: ex.reps, weight: ex.weight, difficulty: ex.difficulty, completed: ex.completed });
+      exMap[ex.id].entries.push({
+        date: session.date, sets: ex.sets, reps: ex.reps,
+        weight: ex.weight, difficulty: ex.difficulty, completed: ex.completed,
+      });
     });
   });
 
   const exIds = Object.keys(exMap);
-  const totalSessions = sessionHistory.length;
-  const totalTennisHours = weekLogs.filter(l => l.type === "tennis").reduce((a, l) => a + l.duration, 0);
-  const totalCheerHours = weekLogs.filter(l => l.type === "cheer").reduce((a, l) => a + l.duration, 0);
+  const totalSessions    = sessionHistory.length;
+  const totalTennisMin   = weekLogs.filter(l => l.type === "tennis").reduce((a, l) => a + l.duration, 0);
+  const totalCheerMin    = weekLogs.filter(l => l.type === "cheer").reduce((a, l) => a + l.duration, 0);
 
   return (
     <div>
@@ -796,11 +1147,11 @@ function ProgressTab({ sessionHistory, weekLogs }) {
             <div style={{ color: COLORS.muted, fontSize: "0.8rem" }}>Strength Sessions</div>
           </div>
           <div style={{ textAlign: "center", padding: "12px 0" }}>
-            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", color: COLORS.tennis }}>{Math.round(totalTennisHours / 60)}h</div>
+            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", color: COLORS.tennis }}>{Math.round(totalTennisMin / 60)}h</div>
             <div style={{ color: COLORS.muted, fontSize: "0.8rem" }}>Tennis Logged</div>
           </div>
           <div style={{ textAlign: "center", padding: "12px 0" }}>
-            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", color: COLORS.cheer }}>{Math.round(totalCheerHours / 60)}h</div>
+            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", color: COLORS.cheer }}>{Math.round(totalCheerMin / 60)}h</div>
             <div style={{ color: COLORS.muted, fontSize: "0.8rem" }}>Cheer Logged</div>
           </div>
           <div style={{ textAlign: "center", padding: "12px 0" }}>
@@ -835,7 +1186,7 @@ function ProgressTab({ sessionHistory, weekLogs }) {
                       </tr>
                     </thead>
                     <tbody>
-                      {exMap[selected].entries.sort((a,b) => new Date(b.date)-new Date(a.date)).map((e, i) => (
+                      {[...exMap[selected].entries].sort((a,b) => new Date(b.date)-new Date(a.date)).map((e, i) => (
                         <tr key={i}>
                           <td style={{ color: COLORS.muted }}>{e.date}</td>
                           <td><strong>{e.sets}×{e.reps}</strong></td>
@@ -857,14 +1208,16 @@ function ProgressTab({ sessionHistory, weekLogs }) {
         <div className="card-title">📅 Session History</div>
         {sessionHistory.length === 0
           ? <div className="empty">No strength sessions logged yet</div>
-          : sessionHistory.sort((a,b) => new Date(b.date)-new Date(a.date)).slice(0, 10).map(s => (
+          : [...sessionHistory].sort((a,b) => new Date(b.date)-new Date(a.date)).slice(0, 10).map(s => (
               <div key={s.id} className="log-item">
                 <div>
                   <span className="pill pill-strength">💪 Strength</span>
                   <span style={{ marginLeft: 8, fontSize: "0.85rem" }}>{s.exercises?.length || 0} exercises</span>
                   <div style={{ color: COLORS.muted, fontSize: "0.75rem", marginTop: 3 }}>{s.date} · {s.time}</div>
                 </div>
-                <div style={{ color: COLORS.accent, fontSize: "0.8rem" }}>{s.exercises?.map(e => e.name).slice(0,3).join(", ")}{s.exercises?.length > 3 ? "…" : ""}</div>
+                <div style={{ color: COLORS.accent, fontSize: "0.8rem" }}>
+                  {s.exercises?.map(e => e.name).slice(0,3).join(", ")}{s.exercises?.length > 3 ? "…" : ""}
+                </div>
               </div>
             ))
         }
@@ -877,16 +1230,13 @@ function ProgressTab({ sessionHistory, weekLogs }) {
 function ProfileTab({ profile, saveProfile }) {
   const [form, setForm] = useState(() => profile || {
     name: "", dob: "", gaps: [],
-    tennisSchedule: "", cheerSchedule: "",
-    coachNotes: ""
+    tennisSchedule: "", cheerSchedule: "", coachNotes: ""
   });
-  const [saved, setSaved] = useState(false);
+  const [saved, setSaved]         = useState(false);
   const [saveError, setSaveError] = useState(false);
 
   useEffect(() => {
-    if (profile && profile.name) {
-      setForm(profile);
-    }
+    if (profile && profile.name) setForm(profile);
   }, [profile]);
 
   const toggleGap = (id) => {
@@ -966,10 +1316,19 @@ function ProfileTab({ profile, saveProfile }) {
 
       <div className="card">
         <div className="card-title">📝 Coach / Parent Notes</div>
-        <textarea rows={4} placeholder="Any injuries, form concerns, exercises to avoid, or special instructions…" value={form.coachNotes} onChange={e => setForm(f => ({ ...f, coachNotes: e.target.value }))} />
+        <textarea
+          rows={4}
+          placeholder="Any injuries, form concerns, exercises to avoid, or special instructions…"
+          value={form.coachNotes}
+          onChange={e => setForm(f => ({ ...f, coachNotes: e.target.value }))}
+        />
       </div>
 
-      <button className="btn btn-primary" onClick={handleSave} style={{ width: "100%", justifyContent: "center", padding: "13px" }}>
+      <button
+        className="btn btn-primary"
+        onClick={handleSave}
+        style={{ width: "100%", justifyContent: "center", padding: "13px" }}
+      >
         {saved ? "✓ Profile Saved!" : saveError ? "⚠ Save Failed — Try Again" : "Save Profile"}
       </button>
     </div>
