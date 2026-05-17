@@ -663,7 +663,8 @@ function PlanTab({ athleteId, profile, weekLogs, sessionHistory, aiLoading, setA
     setPlanResult(null);
 
     const weekStart = new Date();
-    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+    const day = weekStart.getDay(); // 0=Sun,1=Mon,...
+    weekStart.setDate(weekStart.getDate() - (day === 0 ? 6 : day - 1));
     weekStart.setHours(0, 0, 0, 0);
     const thisWeekLogs = weekLogs.filter(l => new Date(l.date) >= weekStart);
 
@@ -914,7 +915,8 @@ function LogTab({ weekLogs, addWeekLog, deleteWeekLog }) {
   };
 
   const thisWeekStart = new Date();
-  thisWeekStart.setDate(thisWeekStart.getDate() - thisWeekStart.getDay());
+  const _day = thisWeekStart.getDay();
+  thisWeekStart.setDate(thisWeekStart.getDate() - (_day === 0 ? 6 : _day - 1));
   const thisWeek = weekLogs.filter(l => new Date(l.date) >= thisWeekStart);
 
   return (
