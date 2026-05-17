@@ -787,7 +787,13 @@ Respond with ONLY valid JSON, no other text:
       console.log("API response:", JSON.stringify(data).slice(0, 500));
       const raw  = (data.content?.map(b => b.text || "").join("") || "").trim();
       const text = raw.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
-      const parsed = JSON.parse(text);
+      // Fix literal control characters inside JSON string values (e.g. newlines in briefing)
+      const clean = text.replace(/"((?:[^"\\]|\\[\s\S])*)"/g, (_, inner) =>
+        '"' + inner
+          .replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t")
+          .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "") + '"'
+      );
+      const parsed = JSON.parse(clean);
       const plan = (parsed.plan || []).map(ex => ({
         ...ex,
         id: ex.name.toLowerCase().replace(/[^a-z0-9]+/g, "_"),
