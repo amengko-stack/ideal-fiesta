@@ -203,6 +203,8 @@ const css = `
   @keyframes spin { to { transform: rotate(360deg); } }
   .athlete-row { cursor: pointer; transition: background 0.15s; }
   .athlete-row:hover { background: ${COLORS.border}; border-radius: 8px; }
+  .av-big-label { font-size: 1rem; font-weight: 600; color: ${COLORS.text}; margin-bottom: 8px; }
+  .av-hint { font-size: 0.78rem; color: ${COLORS.muted}; margin-bottom: 10px; }
 `;
 
 // ─── AUTH ROUTER ─────────────────────────────────────────────────────────────
@@ -294,11 +296,9 @@ export default function App() {
 
   // authState === "athlete"
   return (
-    <AthleteMain
+    <AthleteView
       athleteId={athleteId}
-      isParent={false}
       user={user}
-      onBack={null}
       onSignOut={handleSignOut}
     />
   );
@@ -639,7 +639,7 @@ function AthleteMain({ athleteId, isParent, user, onBack, onSignOut }) {
           ))}
         </div>
 
-        {tab === "plan"     && <PlanTab profile={profile} weekLogs={weekLogs} sessionHistory={sessionHistory} aiLoading={aiLoading} setAiLoading={setAiLoading} planResult={planResult} setPlanResult={setPlanResult} />}
+        {tab === "plan"     && <PlanTab athleteId={athleteId} profile={profile} weekLogs={weekLogs} sessionHistory={sessionHistory} aiLoading={aiLoading} setAiLoading={setAiLoading} planResult={planResult} setPlanResult={setPlanResult} />}
         {tab === "log"      && <LogTab weekLogs={weekLogs} addWeekLog={addWeekLog} deleteWeekLog={deleteWeekLog} />}
         {tab === "strength" && <StrengthLogTab sessionHistory={sessionHistory} addSession={addSession} planResult={planResult} />}
         {tab === "progress" && <ProgressTab sessionHistory={sessionHistory} weekLogs={weekLogs} />}
@@ -650,7 +650,7 @@ function AthleteMain({ athleteId, isParent, user, onBack, onSignOut }) {
 }
 
 // ─── PLAN TAB ─────────────────────────────────────────────────────────────────
-function PlanTab({ profile, weekLogs, sessionHistory, aiLoading, setAiLoading, planResult, setPlanResult }) {
+function PlanTab({ athleteId, profile, weekLogs, sessionHistory, aiLoading, setAiLoading, planResult, setPlanResult }) {
   const [tournament, setTournament] = useState("none");
   const [sessionTime, setSessionTime] = useState("10:00");
   const [aiError, setAiError] = useState("");
@@ -768,7 +768,11 @@ Respond with ONLY valid JSON, no other text:
         ...ex,
         id: ex.name.toLowerCase().replace(/[^a-z0-9]+/g, "_"),
       }));
-      setPlanResult({ plan, briefing: parsed.briefing, weekLoad });
+      const planData = { plan, briefing: parsed.briefing, weekLoad, generatedAt: new Date().toISOString() };
+      setPlanResult(planData);
+      if (athleteId) {
+        await setDoc(doc(db, "plans", athleteId), planData);
+      }
     } catch (e) {
       console.error("Plan generation error:", e);
       setAiError(`Could not generate plan — ${e.message}`);
@@ -1331,6 +1335,352 @@ function ProfileTab({ profile, saveProfile }) {
       >
         {saved ? "✓ Profile Saved!" : saveError ? "⚠ Save Failed — Try Again" : "Save Profile"}
       </button>
+    </div>
+  );
+}
+
+// ─── ATHLETE VIEW (mobile-first) ─────────────────────────────────────────────
+function AthleteView({ athleteId, user, onSignOut }) {
+  const [section, setSection]     = useState("log");
+  const [currentPlan, setPlan]    = useState(null);
+  const [planLoading, setPlanLoading] = useState(true);
+
+  useEffect(() => {
+    getDoc(doc(db, "plans", athleteId))
+      .then(snap => { if (snap.exists()) setPlan(snap.data()); })
+      .catch(e => console.error("Load plan error:", e))
+      .finally(() => setPlanLoading(false));
+  }, [athleteId]);
+
+  const NAV = [
+    { id: "log",       icon: "📋", label: "Log Session" },
+    { id: "wellbeing", icon: "💚", label: "Wellbeing" },
+    { id: "plan",      icon: "🎯", label: "My Plan" },
+  ];
+
+  return (
+    <div style={{ minHeight: "100vh", background: COLORS.bg }}>
+      <style>{css}</style>
+
+      <div style={{ padding: "20px 16px 14px", borderBottom: `1px solid ${COLORS.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h1 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", color: COLORS.accent, lineHeight: 1 }}>Athlete OS</h1>
+        <button className="btn btn-ghost btn-sm" onClick={onSignOut}>Sign Out</button>
+      </div>
+
+      <div style={{ padding: "20px 16px 110px", maxWidth: 480, margin: "0 auto" }}>
+        {section === "log"       && <AVLogSession athleteId={athleteId} />}
+        {section === "wellbeing" && <AVWellbeing  athleteId={athleteId} />}
+        {section === "plan"      && <AVPlan plan={currentPlan} loading={planLoading} />}
+      </div>
+
+      <div style={{
+        position: "fixed", bottom: 0, left: 0, right: 0,
+        background: COLORS.surface, borderTop: `1px solid ${COLORS.border}`,
+        display: "flex", zIndex: 100,
+      }}>
+        {NAV.map(s => (
+          <button
+            key={s.id}
+            onClick={() => setSection(s.id)}
+            style={{
+              flex: 1, padding: "12px 4px 20px", border: "none",
+              background: "transparent",
+              color: section === s.id ? COLORS.accent : COLORS.muted,
+              fontFamily: "'DM Sans', sans-serif", fontSize: "0.72rem", fontWeight: 600,
+              cursor: "pointer", display: "flex", flexDirection: "column",
+              alignItems: "center", gap: 5, transition: "color 0.15s",
+            }}
+          >
+            <span style={{ fontSize: "1.5rem", lineHeight: 1 }}>{s.icon}</span>
+            {s.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── AV: LOG SESSION ──────────────────────────────────────────────────────────
+function AVLogSession({ athleteId }) {
+  const [type, setType]         = useState("tennis");
+  const [duration, setDuration] = useState("");
+  const [rpe, setRpe]           = useState(null);
+  const [focus, setFocus]       = useState("");
+  const [date, setDate]         = useState(new Date().toISOString().split("T")[0]);
+  const [saving, setSaving]     = useState(false);
+  const [saved, setSaved]       = useState(false);
+
+  const TENNIS_FOCUS = ["Baseline rallying", "Serve practice", "Footwork / movement", "Match play", "Volley / net", "Conditioning", "Full practice"];
+  const CHEER_FOCUS  = ["Stunt practice", "Tumbling", "Dance / routine", "Competition prep", "Conditioning", "Full practice"];
+
+  const handleSave = async () => {
+    if (!duration || !rpe || saving) return;
+    setSaving(true);
+    await addDoc(collection(db, "athletes", athleteId, "weekLogs"), {
+      type, duration: parseInt(duration),
+      intensity: Math.ceil(rpe / 2), rpe,
+      focus, date, time: new Date().toTimeString().slice(0, 5),
+    });
+    setSaved(true); setDuration(""); setRpe(null); setFocus("");
+    setSaving(false);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const TypeBtn = ({ t, icon, label, color }) => (
+    <button
+      onClick={() => setType(t)}
+      style={{
+        flex: 1, padding: "18px 8px", borderRadius: 14,
+        border: `2px solid ${type === t ? color : COLORS.border}`,
+        background: type === t ? `${color}14` : "transparent",
+        color: type === t ? color : COLORS.muted,
+        fontFamily: "'DM Sans', sans-serif", fontSize: "1rem", fontWeight: 700,
+        cursor: "pointer", transition: "all 0.15s",
+      }}
+    >
+      <div style={{ fontSize: "1.8rem", marginBottom: 4 }}>{icon}</div>
+      {label}
+    </button>
+  );
+
+  return (
+    <div>
+      <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", color: COLORS.text, marginBottom: 20 }}>Log Session</div>
+
+      <div style={{ marginBottom: 22 }}>
+        <div className="av-big-label">Activity</div>
+        <div style={{ display: "flex", gap: 12 }}>
+          <TypeBtn t="tennis" icon="🎾" label="Tennis"      color={COLORS.tennis} />
+          <TypeBtn t="cheer"  icon="📣" label="Cheerleading" color={COLORS.cheer}  />
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 22 }}>
+        <div className="av-big-label">Duration (minutes)</div>
+        <input
+          type="number" placeholder="e.g. 90"
+          value={duration} onChange={e => setDuration(e.target.value)}
+          min="10" max="300"
+          style={{ fontSize: "1.2rem", padding: "14px 16px" }}
+        />
+      </div>
+
+      <div style={{ marginBottom: 22 }}>
+        <div className="av-big-label">How hard was it? (RPE 1–10)</div>
+        <div className="av-hint">1 = very easy · 5 = moderate · 10 = max effort</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8 }}>
+          {[1,2,3,4,5,6,7,8,9,10].map(n => (
+            <button
+              key={n}
+              onClick={() => setRpe(n)}
+              style={{
+                padding: "16px 4px", borderRadius: 10,
+                border: `2px solid ${rpe === n ? COLORS.accent : COLORS.border}`,
+                background: rpe === n ? COLORS.accentMuted : "transparent",
+                color: rpe === n ? COLORS.accent : COLORS.muted,
+                fontFamily: "'DM Sans', sans-serif", fontSize: "1.15rem", fontWeight: 700,
+                cursor: "pointer", transition: "all 0.15s",
+              }}
+            >{n}</button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 22 }}>
+        <div className="av-big-label">Session Focus</div>
+        <select value={focus} onChange={e => setFocus(e.target.value)} style={{ fontSize: "1rem", padding: "13px 14px" }}>
+          <option value="">Select focus…</option>
+          {(type === "tennis" ? TENNIS_FOCUS : CHEER_FOCUS).map(f => (
+            <option key={f} value={f}>{f}</option>
+          ))}
+        </select>
+      </div>
+
+      <div style={{ marginBottom: 28 }}>
+        <div className="av-big-label">Date</div>
+        <input type="date" value={date} onChange={e => setDate(e.target.value)} style={{ fontSize: "1rem", padding: "13px 14px" }} />
+      </div>
+
+      <button
+        className="btn btn-primary"
+        onClick={handleSave}
+        disabled={saving || !duration || !rpe}
+        style={{ width: "100%", justifyContent: "center", padding: "18px", fontSize: "1rem" }}
+      >
+        {saving ? "Saving…" : saved ? "✓ Session Logged!" : "Save Session"}
+      </button>
+    </div>
+  );
+}
+
+// ─── AV: WELLBEING CHECK ──────────────────────────────────────────────────────
+function AVWellbeing({ athleteId }) {
+  const [sleep, setSleep]       = useState(null);
+  const [mood, setMood]         = useState(null);
+  const [soreness, setSoreness] = useState(null);
+  const [saving, setSaving]     = useState(false);
+  const [saved, setSaved]       = useState(false);
+
+  const handleSave = async () => {
+    if (!sleep || !mood || !soreness || saving) return;
+    setSaving(true);
+    await addDoc(collection(db, "athletes", athleteId, "wellbeing"), {
+      sleep, mood, soreness,
+      date: new Date().toISOString().split("T")[0],
+      time: new Date().toTimeString().slice(0, 5),
+    });
+    setSaved(true); setSaving(false);
+    setTimeout(() => setSaved(false), 2500);
+  };
+
+  const MOODS    = ["😞","😕","😐","🙂","😄"];
+  const SORENESS_OPTIONS = [
+    { icon: "💚", label: "None" }, { icon: "🟡", label: "Mild" },
+    { icon: "🟠", label: "Mod"  }, { icon: "🔴", label: "Sore" },
+    { icon: "🆘", label: "Bad"  },
+  ];
+
+  return (
+    <div>
+      <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", color: COLORS.text, marginBottom: 20 }}>Daily Check-In</div>
+
+      <div className="card" style={{ marginBottom: 14 }}>
+        <div className="av-big-label">🌙 Sleep last night — how many hours?</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8 }}>
+          {[1,2,3,4,5,6,7,8,9,10].map(n => (
+            <button
+              key={n}
+              onClick={() => setSleep(n)}
+              style={{
+                padding: "14px 4px", borderRadius: 10,
+                border: `2px solid ${sleep === n ? COLORS.accent : COLORS.border}`,
+                background: sleep === n ? COLORS.accentMuted : "transparent",
+                color: sleep === n ? COLORS.accent : COLORS.muted,
+                fontFamily: "'DM Sans', sans-serif", fontSize: "1.1rem", fontWeight: 700,
+                cursor: "pointer", transition: "all 0.15s",
+              }}
+            >{n}</button>
+          ))}
+        </div>
+        {sleep && <div style={{ marginTop: 10, color: COLORS.muted, fontSize: "0.85rem", textAlign: "center" }}>{sleep} hour{sleep !== 1 ? "s" : ""}</div>}
+      </div>
+
+      <div className="card" style={{ marginBottom: 14 }}>
+        <div className="av-big-label">😊 How are you feeling today?</div>
+        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+          {MOODS.map((emoji, i) => {
+            const n = i + 1;
+            return (
+              <button
+                key={n}
+                onClick={() => setMood(n)}
+                style={{
+                  flex: 1, padding: "14px 4px", borderRadius: 12,
+                  border: `2px solid ${mood === n ? COLORS.yellow : COLORS.border}`,
+                  background: mood === n ? "rgba(245,197,24,0.12)" : "transparent",
+                  fontSize: "1.6rem", cursor: "pointer", transition: "all 0.15s",
+                  display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
+                }}
+              >
+                {emoji}
+                <span style={{ fontSize: "0.65rem", color: mood === n ? COLORS.yellow : COLORS.muted, fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>{n}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: 28 }}>
+        <div className="av-big-label">💪 Body soreness?</div>
+        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+          {SORENESS_OPTIONS.map(({ icon, label }, i) => {
+            const n = i + 1;
+            return (
+              <button
+                key={n}
+                onClick={() => setSoreness(n)}
+                style={{
+                  flex: 1, padding: "14px 4px", borderRadius: 12,
+                  border: `2px solid ${soreness === n ? COLORS.red : COLORS.border}`,
+                  background: soreness === n ? "rgba(255,77,109,0.1)" : "transparent",
+                  fontSize: "1.4rem", cursor: "pointer", transition: "all 0.15s",
+                  display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
+                }}
+              >
+                {icon}
+                <span style={{ fontSize: "0.65rem", color: COLORS.muted, fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>{label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <button
+        className="btn btn-primary"
+        onClick={handleSave}
+        disabled={saving || !sleep || !mood || !soreness}
+        style={{ width: "100%", justifyContent: "center", padding: "18px", fontSize: "1rem" }}
+      >
+        {saving ? "Saving…" : saved ? "✓ Check-in Saved!" : "Save Check-in"}
+      </button>
+    </div>
+  );
+}
+
+// ─── AV: MY PLAN (read-only) ──────────────────────────────────────────────────
+function AVPlan({ plan, loading }) {
+  if (loading) return <div className="empty" style={{ paddingTop: 60 }}><div className="spinner" /></div>;
+
+  if (!plan) return (
+    <div>
+      <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", color: COLORS.text, marginBottom: 20 }}>My Plan</div>
+      <div className="card" style={{ textAlign: "center", padding: 40 }}>
+        <div style={{ fontSize: "2.5rem", marginBottom: 12 }}>🎯</div>
+        <div style={{ color: COLORS.muted, fontSize: "0.9rem", lineHeight: 1.6 }}>No plan yet.<br />Your coach will generate one for you.</div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", color: COLORS.text, marginBottom: 4 }}>My Plan</div>
+      {plan.generatedAt && (
+        <div style={{ fontSize: "0.75rem", color: COLORS.muted, marginBottom: 16 }}>
+          Generated {new Date(plan.generatedAt).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
+        </div>
+      )}
+
+      {plan.briefing && (
+        <div className="card" style={{ borderColor: COLORS.accentDim, marginBottom: 16 }}>
+          <div style={{ fontSize: "0.72rem", color: COLORS.accentDim, fontWeight: 700, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.06em" }}>Coach's Note</div>
+          <p style={{ fontSize: "0.9rem", lineHeight: 1.7, color: COLORS.text }}>{plan.briefing}</p>
+        </div>
+      )}
+
+      {(plan.plan || []).map((ex, i) => (
+        <div
+          key={i}
+          style={{
+            background: COLORS.card, border: `1px solid ${COLORS.border}`,
+            borderRadius: 14, padding: "16px", marginBottom: 10,
+            display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12,
+          }}
+        >
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: "1rem", marginBottom: 6 }}>{ex.name}</div>
+            <span className="badge badge-gray">{ex.category}</span>
+            {ex.note && <div style={{ fontSize: "0.78rem", color: COLORS.accentDim, marginTop: 8, lineHeight: 1.5 }}>→ {ex.note}</div>}
+          </div>
+          <div style={{ textAlign: "right", flexShrink: 0 }}>
+            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.2rem", color: COLORS.accent, lineHeight: 1 }}>
+              {ex.sets}×{ex.reps}{ex.unit === "seconds" ? "s" : ""}
+            </div>
+            <div style={{ fontSize: "0.65rem", color: COLORS.muted, marginTop: 2 }}>
+              sets × {ex.unit === "seconds" ? "sec" : ex.unit || "reps"}
+            </div>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
