@@ -1,0 +1,33 @@
+{
+  "name": "mengko-family",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "firebase": "^12.13.0",
+    "prop-types": "^15.8.1",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "react-router-dom": "^7.6.1",
+    "react-simple-maps": "^3.0.0",
+    "topojson-client": "^3.1.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@tailwindcss/vite": "^4.1.8",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "eslint": "^9.0.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "globals": "^16.0.0",
+    "tailwindcss": "^4.1.8",
+    "vite": "^6.3.5"
+  }
+}
