@@ -254,6 +254,7 @@ const css = `
   .pill-tennis { background: rgba(200,245,100,0.15); color: ${COLORS.tennis}; }
   .pill-cheer { background: rgba(245,100,200,0.15); color: ${COLORS.cheer}; }
   .pill-strength { background: rgba(0,229,160,0.12); color: ${COLORS.accent}; }
+  .pill-other { background: rgba(245,197,24,0.15); color: ${COLORS.yellow}; }
   .load-bar-wrap { height: 8px; background: ${COLORS.surface}; border-radius: 4px; overflow: hidden; margin-top: 6px; }
   .load-bar { height: 100%; border-radius: 4px; transition: width 0.4s; }
   .section-label { font-family: 'Bebas Neue', sans-serif; font-size: 0.85rem; letter-spacing: 0.1em; color: ${COLORS.muted}; margin: 18px 0 10px; }
@@ -1169,7 +1170,7 @@ function LogTab({ weekLogs, addWeekLog, deleteWeekLog }) {
         {thisWeek.length === 0
           ? <div className="empty">No sessions logged this week yet</div>
           : [...thisWeek].sort((a,b) => new Date(b.date)-new Date(a.date)).map(log => {
-              const pillClass = log.type === "tennis" ? "pill-tennis" : log.type === "cheer" ? "pill-cheer" : "pill-strength";
+              const pillClass = log.type === "tennis" ? "pill-tennis" : log.type === "cheer" ? "pill-cheer" : "pill-other";
               const typeLabel = log.type === "tennis" ? "🎾 Tennis" : log.type === "cheer" ? "📣 Cheer" : `🏃 ${log.sportName || "Other"}`;
               const rpeDisplay = log.rpe != null ? log.rpe : (log.intensity ? log.intensity * 2 : "?");
               return (
@@ -1326,9 +1327,10 @@ function ProgressTab({ sessionHistory, weekLogs }) {
   });
 
   const exIds = Object.keys(exMap);
-  const totalSessions    = sessionHistory.length;
-  const totalTennisMin   = weekLogs.filter(l => l.type === "tennis").reduce((a, l) => a + l.duration, 0);
-  const totalCheerMin    = weekLogs.filter(l => l.type === "cheer").reduce((a, l) => a + l.duration, 0);
+  const totalSessions  = sessionHistory.length;
+  const totalTennisMin = weekLogs.filter(l => l.type === "tennis").reduce((a, l) => a + l.duration, 0);
+  const totalCheerMin  = weekLogs.filter(l => l.type === "cheer").reduce((a, l) => a + l.duration, 0);
+  const totalOtherMin  = weekLogs.filter(l => l.type === "other").reduce((a, l) => a + l.duration, 0);
 
   return (
     <div>
@@ -1347,6 +1349,12 @@ function ProgressTab({ sessionHistory, weekLogs }) {
             <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", color: COLORS.cheer }}>{Math.round(totalCheerMin / 60)}h</div>
             <div style={{ color: COLORS.muted, fontSize: "0.8rem" }}>Cheer Logged</div>
           </div>
+          {totalOtherMin > 0 && (
+            <div style={{ textAlign: "center", padding: "12px 0" }}>
+              <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", color: COLORS.yellow }}>{Math.round(totalOtherMin / 60)}h</div>
+              <div style={{ color: COLORS.muted, fontSize: "0.8rem" }}>Other Sports</div>
+            </div>
+          )}
           <div style={{ textAlign: "center", padding: "12px 0" }}>
             <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", color: COLORS.yellow }}>{exIds.length}</div>
             <div style={{ color: COLORS.muted, fontSize: "0.8rem" }}>Exercises Tracked</div>
