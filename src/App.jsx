@@ -95,28 +95,95 @@ const TENNIS_GAPS = [
 ];
 
 // ─── LOAD CALCULATOR ──────────────────────────────────────────────────────────
-function calculateWeekLoad(weekLogs) {
-  let score = 0;
-  (weekLogs || []).forEach(log => {
-    const base = log.duration || 60;
-    const intensity = log.intensity || 3;
-    score += base * (intensity / 3);
-  });
-  return score;
+function getWeekBounds(weeksAgo) {
+  const now = new Date();
+  const day = now.getDay();
+  const daysToMonday = day === 0 ? 6 : day - 1;
+  const start = new Date(now);
+  start.setDate(now.getDate() - daysToMonday - weeksAgo * 7);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 7);
+  return {
+    start: start.toISOString().split("T")[0],
+    end:   end.toISOString().split("T")[0],
+  };
 }
 
-function getLoadContext(weekLoad, tournamentStatus, sessionTime) {
+function sessionSRPE(log) {
+  const rpe        = log.rpe ?? (log.intensity ? log.intensity * 2 : 5);
+  const duration   = log.duration || 60;
+  const multiplier = log.type === "other" ? 0.6 : 1.0;
+  return rpe * duration * multiplier;
+}
+
+function calculateMetrics(logs, wellbeing) {
+  const weekSRPEs = [0, 1, 2, 3].map(weeksAgo => {
+    const { start, end } = getWeekBounds(weeksAgo);
+    return (logs || [])
+      .filter(l => l.date >= start && l.date < end)
+      .reduce((sum, l) => sum + sessionSRPE(l), 0);
+  });
+
+  const thisWeekSRPE = weekSRPEs[0];
+  const fourWeekAvg  = weekSRPEs.reduce((a, b) => a + b, 0) / 4;
+  const acwr = fourWeekAvg > 0
+    ? Math.round((thisWeekSRPE / fourWeekAvg) * 100) / 100
+    : null;
+
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  const sevenDaysAgoStr = sevenDaysAgo.toISOString().split("T")[0];
+
+  const byDate = {};
+  (wellbeing || [])
+    .filter(w => w.date >= sevenDaysAgoStr)
+    .forEach(w => {
+      if (!byDate[w.date] || (w.time || "") > (byDate[w.date].time || ""))
+        byDate[w.date] = w;
+    });
+  const dailyEntries = Object.values(byDate);
+
+  const avg = field => {
+    const vals = dailyEntries.filter(w => w[field] != null).map(w => w[field]);
+    return vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1) : null;
+  };
+
+  return {
+    thisWeekSRPE:  Math.round(thisWeekSRPE),
+    weekSRPEs:     weekSRPEs.map(Math.round),
+    fourWeekAvg:   Math.round(fourWeekAvg),
+    acwr,
+    avgSleep:      avg("sleep"),
+    avgMood:       avg("mood"),
+    avgSoreness:   avg("soreness"),
+    wellbeingDays: dailyEntries.length,
+  };
+}
+
+function getACWRContext(acwr, tournamentStatus, sessionTime) {
   const notes = [];
-  if (tournamentStatus === "pre")       notes.push("Pre-tournament (next 7 days): reduce volume by ~35%, use only familiar exercises, no new movements");
-  if (tournamentStatus === "week_of")   notes.push("Tournament THIS week: activation only, max 6 exercises, very low volume, nothing that causes soreness");
-  if (tournamentStatus === "post_hard") notes.push("Post heavy tournament: reduce volume by ~25%, prioritise mobility and recovery exercises");
+  if (tournamentStatus === "pre")       notes.push("Pre-tournament (next 7 days): reduce volume ~35%, familiar exercises only, no new movements");
+  if (tournamentStatus === "week_of")   notes.push("Tournament THIS week: activation only, max 6 exercises, nothing causing soreness");
+  if (tournamentStatus === "post_hard") notes.push("Post heavy tournament: reduce volume ~25%, prioritise mobility and recovery");
   if (tournamentStatus === "post_easy") notes.push("Post light tournament: normal plan, monitor energy");
-  if (weekLoad > 300) notes.push("HIGH weekly load from tennis+cheer: reduce total sets, protect legs");
-  else if (weekLoad < 100) notes.push("Light training week: can push volume and introduce progressive overload");
+
+  if (acwr === null) {
+    notes.push("Not enough load history yet — use conservative volume, focus on movement quality");
+  } else if (acwr > 1.5) {
+    notes.push(`ACWR ${acwr} — DANGER ZONE: significantly reduce volume, recovery and mobility only`);
+  } else if (acwr > 1.3) {
+    notes.push(`ACWR ${acwr} — CAUTION: reduce sets by 1–2, avoid new high-intensity exercises`);
+  } else if (acwr < 0.8) {
+    notes.push(`ACWR ${acwr} — UNDERLOADED: athlete can handle more volume and harder progressions`);
+  } else {
+    notes.push(`ACWR ${acwr} — OPTIMAL (0.8–1.3): normal progression, standard volume`);
+  }
+
   if (sessionTime) {
     const h = parseInt(sessionTime.split(":")[0]);
     if (h < 10) notes.push("Morning session: CNS not fully activated, add extra warmup time");
-    if (h >= 19) notes.push("Evening session: avoid high-intensity plyometrics after 7pm for sleep quality");
+    if (h >= 19) notes.push("Evening session: avoid high-intensity plyometrics after 7pm");
   }
   return notes;
 }
@@ -668,21 +735,20 @@ function PlanTab({ athleteId, profile, weekLogs, sessionHistory, wellbeing, aiLo
     setAiError("");
     setPlanResult(null);
 
-    const weekStart = new Date();
-    const day = weekStart.getDay(); // 0=Sun,1=Mon,...
-    weekStart.setDate(weekStart.getDate() - (day === 0 ? 6 : day - 1));
-    weekStart.setHours(0, 0, 0, 0);
-    const thisWeekLogs = weekLogs.filter(l => new Date(l.date) >= weekStart);
+    const metrics   = calculateMetrics(weekLogs, wellbeing);
+    const loadNotes = getACWRContext(metrics.acwr, tournament, sessionTime);
 
-    const weekLoad = calculateWeekLoad(thisWeekLogs);
-    const loadNotes = getLoadContext(weekLoad, tournament, sessionTime);
-
-    const intensityLabel = ["", "Very light", "Light", "Moderate", "Hard", "Max effort"];
+    const { start: thisWeekStart } = getWeekBounds(0);
+    const thisWeekLogs = weekLogs.filter(l => l.date >= thisWeekStart);
+    const typeLabel = { tennis: "Tennis", cheer: "Cheerleading", other: "Other sport" };
     const weekActivity = thisWeekLogs.length === 0
-      ? "No tennis or cheer sessions logged this week."
-      : thisWeekLogs
-          .sort((a, b) => new Date(a.date) - new Date(b.date))
-          .map(l => `  - ${l.date} ${l.time}: ${l.type === "tennis" ? "Tennis" : "Cheerleading"} — ${l.duration} min, intensity ${l.intensity}/5 (${intensityLabel[l.intensity]})${l.focus ? ", focus: " + l.focus : ""}`)
+      ? "No activity sessions logged this week."
+      : [...thisWeekLogs]
+          .sort((a, b) => a.date.localeCompare(b.date))
+          .map(l => {
+            const rpe = l.rpe ?? (l.intensity ? l.intensity * 2 : "?");
+            return `  - ${l.date} ${l.time}: ${typeLabel[l.type] || l.type}${l.sportName ? ` (${l.sportName})` : ""} — ${l.duration} min, RPE ${rpe}/10${l.focus ? ", focus: " + l.focus : ""}${l.type === "other" ? " [0.6× load multiplier]" : ""}`;
+          })
           .join("\n");
 
     const recentSessions = [...(sessionHistory || [])]
@@ -725,14 +791,25 @@ ATHLETE:
 - Sports: Tennis (primary) + Cheerleading
 - Tennis areas to develop: ${gapLabels.join(", ") || "general athletic development"}
 
-THIS WEEK'S TENNIS + CHEER ACTIVITY (logged sessions Mon–Sat):
+THIS WEEK'S ACTIVITY (logged sessions Mon–Sat):
 ${weekActivity}
-- Total weekly load score: ${Math.round(weekLoad)} (0–150 = low, 150–300 = medium, 300+ = high)
+
+TRAINING LOAD ANALYSIS (sRPE = RPE × duration in minutes; other sports weighted 0.6×):
+- This week sRPE: ${metrics.thisWeekSRPE}
+- Weekly sRPE last 4 weeks (oldest → newest): ${[...metrics.weekSRPEs].reverse().join(" → ")}
+- 4-week average sRPE: ${metrics.fourWeekAvg}
+- Acute:Chronic Workload Ratio (ACWR): ${metrics.acwr !== null ? metrics.acwr : "insufficient data — less than 4 weeks of history"}
+  Optimal ACWR = 0.8–1.3 | Caution > 1.3 | Danger > 1.5 | Underload < 0.8
+
+7-DAY WELLBEING AVERAGES (${metrics.wellbeingDays} days logged):
+- Average sleep: ${metrics.avgSleep !== null ? metrics.avgSleep + "h" : "no data"}
+- Average mood: ${metrics.avgMood !== null ? metrics.avgMood + "/5" : "no data"}
+- Average soreness: ${metrics.avgSoreness !== null ? metrics.avgSoreness + "/5" : "no data"}
 
 SESSION CONTEXT:
 - Tournament status: ${tournament === "none" ? "Normal week" : tournament}
 - Session time today: ${sessionTime}
-- Load-based notes: ${loadNotes.length ? loadNotes.join(" | ") : "None"}
+- Load guidance: ${loadNotes.join(" | ")}
 
 ATHLETE WELLBEING (last ${recentWellbeing.length} check-ins, most recent first):
 ${wellbeingText}
@@ -808,7 +885,7 @@ Respond with ONLY valid JSON, no other text:
         ...ex,
         id: ex.name.toLowerCase().replace(/[^a-z0-9]+/g, "_"),
       }));
-      const planData = { plan, briefing: parsed.briefing, weekLoad, generatedAt: new Date().toISOString() };
+      const planData = { plan, briefing: parsed.briefing, metrics, generatedAt: new Date().toISOString() };
       setPlanResult(planData);
       if (athleteId) {
         await setDoc(doc(db, "plans", athleteId), planData);
@@ -820,24 +897,65 @@ Respond with ONLY valid JSON, no other text:
     setAiLoading(false);
   };
 
-  const weekLoad = calculateWeekLoad(weekLogs);
-  const loadPct   = Math.min(100, (weekLoad / 400) * 100);
-  const loadColor = weekLoad < 150 ? COLORS.accent : weekLoad < 300 ? COLORS.yellow : COLORS.red;
-  const loadLabel = weekLoad < 150 ? "Low" : weekLoad < 300 ? "Medium" : "High";
+  const metrics = calculateMetrics(weekLogs, wellbeing);
+  const { start: _thisWeekStart } = getWeekBounds(0);
+  const thisWeekLogs = weekLogs.filter(l => l.date >= _thisWeekStart);
+  const acwrColor = metrics.acwr === null ? COLORS.muted
+    : metrics.acwr > 1.5 ? COLORS.red
+    : metrics.acwr > 1.3 ? COLORS.yellow
+    : metrics.acwr < 0.8 ? "#6eb5ff"
+    : COLORS.accent;
+  const acwrLabel = metrics.acwr === null ? "No data yet"
+    : metrics.acwr > 1.5 ? "Danger zone"
+    : metrics.acwr > 1.3 ? "Caution"
+    : metrics.acwr < 0.8 ? "Underloaded"
+    : "Optimal";
 
   return (
     <div>
       <div className="card">
-        <div className="card-title">📊 This Week's Load</div>
-        <div className="flex-between">
-          <span style={{ fontSize: "0.85rem", color: COLORS.muted }}>Tennis + Cheer accumulated load</span>
-          <span className="badge" style={{ background: `${loadColor}22`, color: loadColor }}>{loadLabel}</span>
+        <div className="card-title">📊 Training Load Analysis</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+          <div style={{ background: COLORS.surface, borderRadius: 10, padding: "12px 14px" }}>
+            <div style={{ fontSize: "0.7rem", color: COLORS.muted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>This week sRPE</div>
+            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", color: COLORS.text, lineHeight: 1 }}>{metrics.thisWeekSRPE}</div>
+          </div>
+          <div style={{ background: COLORS.surface, borderRadius: 10, padding: "12px 14px" }}>
+            <div style={{ fontSize: "0.7rem", color: COLORS.muted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>4-week avg sRPE</div>
+            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", color: COLORS.text, lineHeight: 1 }}>{metrics.fourWeekAvg || "—"}</div>
+          </div>
         </div>
-        <div className="load-bar-wrap mt8">
-          <div className="load-bar" style={{ width: `${loadPct}%`, background: loadColor }} />
+        <div style={{ background: COLORS.surface, borderRadius: 10, padding: "12px 14px", marginBottom: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <div style={{ fontSize: "0.7rem", color: COLORS.muted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Acute:Chronic Ratio (ACWR)</div>
+              <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.2rem", color: acwrColor, lineHeight: 1 }}>
+                {metrics.acwr !== null ? metrics.acwr : "—"}
+              </div>
+            </div>
+            <span className="badge" style={{ background: `${acwrColor}22`, color: acwrColor, fontSize: "0.75rem" }}>{acwrLabel}</span>
+          </div>
+          <div style={{ fontSize: "0.7rem", color: COLORS.muted, marginTop: 6 }}>
+            Optimal 0.8–1.3 · Caution &gt;1.3 · Danger &gt;1.5 · Underload &lt;0.8
+          </div>
         </div>
-        <div style={{ fontSize: "0.75rem", color: COLORS.muted, marginTop: 6 }}>
-          {weekLogs.length} sessions logged this week · Load score: {Math.round(weekLoad)}
+        {(metrics.avgSleep || metrics.avgMood || metrics.avgSoreness) && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+            {[
+              { label: "Avg Sleep", value: metrics.avgSleep ? `${metrics.avgSleep}h` : "—", icon: "🌙" },
+              { label: "Avg Mood",  value: metrics.avgMood  ? `${metrics.avgMood}/5` : "—", icon: "😊" },
+              { label: "Avg Soreness", value: metrics.avgSoreness ? `${metrics.avgSoreness}/5` : "—", icon: "💪" },
+            ].map(s => (
+              <div key={s.label} style={{ background: COLORS.surface, borderRadius: 8, padding: "10px 8px", textAlign: "center" }}>
+                <div style={{ fontSize: "1rem", marginBottom: 2 }}>{s.icon}</div>
+                <div style={{ fontWeight: 700, fontSize: "0.9rem", color: COLORS.text }}>{s.value}</div>
+                <div style={{ fontSize: "0.62rem", color: COLORS.muted, marginTop: 1 }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{ fontSize: "0.7rem", color: COLORS.muted, marginTop: 10 }}>
+          {thisWeekLogs.length} sessions this week · {metrics.wellbeingDays} days of wellbeing data (7-day avg)
         </div>
       </div>
 
@@ -932,8 +1050,9 @@ Respond with ONLY valid JSON, no other text:
 // ─── LOG ACTIVITY TAB ─────────────────────────────────────────────────────────
 function LogTab({ weekLogs, addWeekLog, deleteWeekLog }) {
   const [type, setType]         = useState("tennis");
+  const [sportName, setSportName] = useState("");
   const [duration, setDuration] = useState("");
-  const [intensity, setIntensity] = useState(3);
+  const [rpe, setRpe]           = useState(null);
   const [focus, setFocus]       = useState("");
   const [date, setDate]         = useState(new Date().toISOString().split("T")[0]);
   const [time, setTime]         = useState(new Date().toTimeString().slice(0, 5));
@@ -942,13 +1061,16 @@ function LogTab({ weekLogs, addWeekLog, deleteWeekLog }) {
 
   const TENNIS_FOCUS = ["Baseline rallying", "Serve practice", "Footwork / movement", "Match play", "Volley / net", "Conditioning", "Full practice"];
   const CHEER_FOCUS  = ["Stunt practice", "Tumbling", "Dance / routine", "Competition prep", "Conditioning", "Full practice"];
+  const OTHER_FOCUS  = ["Practice / Training", "Competition", "Conditioning", "Full session"];
 
   const handleLog = async () => {
-    if (!duration || saving) return;
+    if (!duration || !rpe || saving) return;
     setSaving(true);
-    await addWeekLog({ type, duration: parseInt(duration), intensity, focus, date, time });
+    const entry = { type, duration: parseInt(duration), rpe, intensity: Math.ceil(rpe / 2), focus, date, time };
+    if (type === "other" && sportName.trim()) entry.sportName = sportName.trim();
+    await addWeekLog(entry);
     setSaved(true);
-    setDuration(""); setFocus("");
+    setDuration(""); setFocus(""); setRpe(null); setSportName("");
     setSaving(false);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -961,13 +1083,14 @@ function LogTab({ weekLogs, addWeekLog, deleteWeekLog }) {
   return (
     <div>
       <div className="card">
-        <div className="card-title">➕ Log Tennis or Cheer Session</div>
+        <div className="card-title">➕ Log Activity</div>
         <div className="grid2">
           <div>
             <div className="label">Activity Type</div>
-            <select value={type} onChange={e => setType(e.target.value)}>
+            <select value={type} onChange={e => { setType(e.target.value); setFocus(""); setSportName(""); }}>
               <option value="tennis">🎾 Tennis</option>
               <option value="cheer">📣 Cheerleading</option>
+              <option value="other">🏃 Other Sport</option>
             </select>
           </div>
           <div>
@@ -984,17 +1107,40 @@ function LogTab({ weekLogs, addWeekLog, deleteWeekLog }) {
           </div>
         </div>
 
+        {type === "other" && (
+          <div className="mt16">
+            <div className="label">Sport Name</div>
+            <input
+              placeholder="e.g. Swimming, Basketball, Dance…"
+              value={sportName}
+              onChange={e => setSportName(e.target.value)}
+            />
+            <div style={{ fontSize: "0.72rem", color: COLORS.muted, marginTop: 4 }}>
+              Other sport sessions are weighted at 0.6× in load calculations.
+            </div>
+          </div>
+        )}
+
         <div className="mt16">
-          <div className="label">Intensity</div>
-          <div className="star-row mt8">
-            {[1,2,3,4,5].map(n => (
-              <span key={n} className={`star ${intensity >= n ? "lit" : ""}`} onClick={() => setIntensity(n)}>
-                {intensity >= n ? "🔥" : "○"}
-              </span>
+          <div className="label">RPE (how hard? 1–10)</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6, marginTop: 8 }}>
+            {[1,2,3,4,5,6,7,8,9,10].map(n => (
+              <button
+                key={n}
+                onClick={() => setRpe(n)}
+                style={{
+                  padding: "10px 4px", borderRadius: 8,
+                  border: `2px solid ${rpe === n ? COLORS.accent : COLORS.border}`,
+                  background: rpe === n ? COLORS.accentMuted : "transparent",
+                  color: rpe === n ? COLORS.accent : COLORS.muted,
+                  fontFamily: "'DM Sans', sans-serif", fontSize: "1rem", fontWeight: 700,
+                  cursor: "pointer", transition: "all 0.15s",
+                }}
+              >{n}</button>
             ))}
-            <span style={{ color: COLORS.muted, fontSize: "0.8rem", marginLeft: 6 }}>
-              {["","Very light","Light","Moderate","Hard","Max effort"][intensity]}
-            </span>
+          </div>
+          <div style={{ fontSize: "0.72rem", color: COLORS.muted, marginTop: 4 }}>
+            {rpe ? ["","Very easy","Easy","Moderate","Somewhat hard","Hard","Hard","Very hard","Very hard","Max","Max"][rpe] + ` (RPE ${rpe}/10)` : "1 = very easy · 5 = moderate · 10 = max effort"}
           </div>
         </div>
 
@@ -1002,7 +1148,7 @@ function LogTab({ weekLogs, addWeekLog, deleteWeekLog }) {
           <div className="label">Session Focus</div>
           <select value={focus} onChange={e => setFocus(e.target.value)}>
             <option value="">Select focus…</option>
-            {(type === "tennis" ? TENNIS_FOCUS : CHEER_FOCUS).map(f => (
+            {(type === "tennis" ? TENNIS_FOCUS : type === "cheer" ? CHEER_FOCUS : OTHER_FOCUS).map(f => (
               <option key={f} value={f}>{f}</option>
             ))}
           </select>
@@ -1011,7 +1157,7 @@ function LogTab({ weekLogs, addWeekLog, deleteWeekLog }) {
         <button
           className="btn btn-primary mt16"
           onClick={handleLog}
-          disabled={saving || !duration}
+          disabled={saving || !duration || !rpe}
           style={{ width: "100%", justifyContent: "center", padding: "12px" }}
         >
           {saving ? "Saving…" : saved ? "✓ Logged!" : "Save Session"}
@@ -1022,19 +1168,21 @@ function LogTab({ weekLogs, addWeekLog, deleteWeekLog }) {
         <div className="card-title">📅 This Week's Activity</div>
         {thisWeek.length === 0
           ? <div className="empty">No sessions logged this week yet</div>
-          : [...thisWeek].sort((a,b) => new Date(b.date)-new Date(a.date)).map(log => (
-              <div key={log.id} className="log-item">
-                <div>
-                  <span className={`pill pill-${log.type}`}>{log.type === "tennis" ? "🎾 Tennis" : "📣 Cheer"}</span>
-                  <span style={{ marginLeft: 8, fontSize: "0.85rem" }}>{log.focus || "Session"}</span>
-                  <div style={{ color: COLORS.muted, fontSize: "0.75rem", marginTop: 3 }}>{log.date} · {log.time} · {log.duration}min</div>
-                </div>
-                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                  <span style={{ fontSize: "0.8rem" }}>{"🔥".repeat(log.intensity)}</span>
+          : [...thisWeek].sort((a,b) => new Date(b.date)-new Date(a.date)).map(log => {
+              const pillClass = log.type === "tennis" ? "pill-tennis" : log.type === "cheer" ? "pill-cheer" : "pill-strength";
+              const typeLabel = log.type === "tennis" ? "🎾 Tennis" : log.type === "cheer" ? "📣 Cheer" : `🏃 ${log.sportName || "Other"}`;
+              const rpeDisplay = log.rpe != null ? log.rpe : (log.intensity ? log.intensity * 2 : "?");
+              return (
+                <div key={log.id} className="log-item">
+                  <div>
+                    <span className={`pill ${pillClass}`}>{typeLabel}</span>
+                    <span style={{ marginLeft: 8, fontSize: "0.85rem" }}>{log.focus || "Session"}</span>
+                    <div style={{ color: COLORS.muted, fontSize: "0.75rem", marginTop: 3 }}>{log.date} · {log.time} · {log.duration}min · RPE {rpeDisplay}/10</div>
+                  </div>
                   <button className="btn btn-danger btn-sm" onClick={() => deleteWeekLog(log.id)}>✕</button>
                 </div>
-              </div>
-            ))
+              );
+            })
         }
       </div>
     </div>
@@ -1443,43 +1591,47 @@ function AthleteView({ athleteId, user, onSignOut }) {
 
 // ─── AV: LOG SESSION ──────────────────────────────────────────────────────────
 function AVLogSession({ athleteId }) {
-  const [type, setType]         = useState("tennis");
-  const [duration, setDuration] = useState("");
-  const [rpe, setRpe]           = useState(null);
-  const [focus, setFocus]       = useState("");
-  const [date, setDate]         = useState(new Date().toISOString().split("T")[0]);
-  const [saving, setSaving]     = useState(false);
-  const [saved, setSaved]       = useState(false);
+  const [type, setType]           = useState("tennis");
+  const [sportName, setSportName] = useState("");
+  const [duration, setDuration]   = useState("");
+  const [rpe, setRpe]             = useState(null);
+  const [focus, setFocus]         = useState("");
+  const [date, setDate]           = useState(new Date().toISOString().split("T")[0]);
+  const [saving, setSaving]       = useState(false);
+  const [saved, setSaved]         = useState(false);
 
   const TENNIS_FOCUS = ["Baseline rallying", "Serve practice", "Footwork / movement", "Match play", "Volley / net", "Conditioning", "Full practice"];
   const CHEER_FOCUS  = ["Stunt practice", "Tumbling", "Dance / routine", "Competition prep", "Conditioning", "Full practice"];
+  const OTHER_FOCUS  = ["Practice / Training", "Competition", "Conditioning", "Full session"];
 
   const handleSave = async () => {
     if (!duration || !rpe || saving) return;
     setSaving(true);
-    await addDoc(collection(db, "athletes", athleteId, "weekLogs"), {
+    const entry = {
       type, duration: parseInt(duration),
       intensity: Math.ceil(rpe / 2), rpe,
       focus, date, time: new Date().toTimeString().slice(0, 5),
-    });
-    setSaved(true); setDuration(""); setRpe(null); setFocus("");
+    };
+    if (type === "other" && sportName.trim()) entry.sportName = sportName.trim();
+    await addDoc(collection(db, "athletes", athleteId, "weekLogs"), entry);
+    setSaved(true); setDuration(""); setRpe(null); setFocus(""); setSportName("");
     setSaving(false);
     setTimeout(() => setSaved(false), 2000);
   };
 
   const TypeBtn = ({ t, icon, label, color }) => (
     <button
-      onClick={() => setType(t)}
+      onClick={() => { setType(t); setFocus(""); setSportName(""); }}
       style={{
-        flex: 1, padding: "18px 8px", borderRadius: 14,
+        flex: 1, padding: "16px 6px", borderRadius: 14,
         border: `2px solid ${type === t ? color : COLORS.border}`,
         background: type === t ? `${color}14` : "transparent",
         color: type === t ? color : COLORS.muted,
-        fontFamily: "'DM Sans', sans-serif", fontSize: "1rem", fontWeight: 700,
+        fontFamily: "'DM Sans', sans-serif", fontSize: "0.9rem", fontWeight: 700,
         cursor: "pointer", transition: "all 0.15s",
       }}
     >
-      <div style={{ fontSize: "1.8rem", marginBottom: 4 }}>{icon}</div>
+      <div style={{ fontSize: "1.6rem", marginBottom: 4 }}>{icon}</div>
       {label}
     </button>
   );
@@ -1490,11 +1642,25 @@ function AVLogSession({ athleteId }) {
 
       <div style={{ marginBottom: 22 }}>
         <div className="av-big-label">Activity</div>
-        <div style={{ display: "flex", gap: 12 }}>
+        <div style={{ display: "flex", gap: 10 }}>
           <TypeBtn t="tennis" icon="🎾" label="Tennis"      color={COLORS.tennis} />
           <TypeBtn t="cheer"  icon="📣" label="Cheerleading" color={COLORS.cheer}  />
+          <TypeBtn t="other"  icon="🏃" label="Other Sport"  color={COLORS.yellow} />
         </div>
       </div>
+
+      {type === "other" && (
+        <div style={{ marginBottom: 22 }}>
+          <div className="av-big-label">Sport Name</div>
+          <input
+            placeholder="e.g. Swimming, Basketball…"
+            value={sportName}
+            onChange={e => setSportName(e.target.value)}
+            style={{ fontSize: "1rem", padding: "13px 14px" }}
+          />
+          <div className="av-hint" style={{ marginTop: 6 }}>Weighted at 0.6× in load calculations</div>
+        </div>
+      )}
 
       <div style={{ marginBottom: 22 }}>
         <div className="av-big-label">Duration (minutes)</div>
@@ -1531,7 +1697,7 @@ function AVLogSession({ athleteId }) {
         <div className="av-big-label">Session Focus</div>
         <select value={focus} onChange={e => setFocus(e.target.value)} style={{ fontSize: "1rem", padding: "13px 14px" }}>
           <option value="">Select focus…</option>
-          {(type === "tennis" ? TENNIS_FOCUS : CHEER_FOCUS).map(f => (
+          {(type === "tennis" ? TENNIS_FOCUS : type === "cheer" ? CHEER_FOCUS : OTHER_FOCUS).map(f => (
             <option key={f} value={f}>{f}</option>
           ))}
         </select>
