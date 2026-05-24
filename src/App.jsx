@@ -1674,8 +1674,7 @@ function AVLogSession({ athleteId }) {
 
       <div style={{ marginBottom: 22 }}>
         <div className="av-big-label">How hard was it? (RPE 1–10)</div>
-        <div className="av-hint">1 = very easy · 5 = moderate · 10 = max effort</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8, marginBottom: 10 }}>
           {[1,2,3,4,5,6,7,8,9,10].map(n => (
             <button
               key={n}
@@ -1691,6 +1690,37 @@ function AVLogSession({ athleteId }) {
             >{n}</button>
           ))}
         </div>
+        {rpe ? (
+          <div style={{
+            background: COLORS.accentMuted, border: `1px solid ${COLORS.accentDim}`,
+            borderRadius: 10, padding: "10px 14px", textAlign: "center",
+          }}>
+            <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", color: COLORS.accent }}>RPE {rpe} — </span>
+            <span style={{ fontSize: "0.9rem", color: COLORS.text, fontWeight: 500 }}>
+              {[,"Very easy — barely moving","Easy — could do this all day","Moderate — comfortable but working","Somewhat hard","Hard — starting to breathe heavy","Hard","Very hard — difficult to maintain","Very very hard","Almost max — can barely speak","Maximum — couldn't do more"][rpe]}
+            </span>
+          </div>
+        ) : (
+          <div style={{ background: COLORS.surface, borderRadius: 10, padding: "10px 14px" }}>
+            {[
+              [1,"Very easy — barely moving"],
+              [2,"Easy — could do this all day"],
+              [3,"Moderate — comfortable but working"],
+              [4,"Somewhat hard"],
+              [5,"Hard — starting to breathe heavy"],
+              [6,"Hard"],
+              [7,"Very hard — difficult to maintain"],
+              [8,"Very very hard"],
+              [9,"Almost max — can barely speak"],
+              [10,"Maximum — couldn't do more"],
+            ].map(([n, desc]) => (
+              <div key={n} style={{ display: "flex", gap: 10, alignItems: "baseline", padding: "3px 0" }}>
+                <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1rem", color: COLORS.accent, minWidth: 20 }}>{n}</span>
+                <span style={{ fontSize: "0.78rem", color: COLORS.muted }}>{desc}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div style={{ marginBottom: 22 }}>
