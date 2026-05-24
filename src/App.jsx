@@ -424,6 +424,7 @@ function RoleSetup({ user, onComplete }) {
         const ref = await addDoc(collection(db, "athletes"), {
           name: athleteName.trim(), dob: "", gaps: [],
           tennisSchedule: "", cheerSchedule: "", coachNotes: "",
+          weight: null, height: null, measurements: [],
           createdBy: user.uid,
         });
         await onComplete("athlete", ref.id);
@@ -520,6 +521,7 @@ function ParentDashboard({ user, onSelectAthlete, onSignOut }) {
       const ref = await addDoc(collection(db, "athletes"), {
         name: newName.trim(), dob: "", gaps: [],
         tennisSchedule: "", cheerSchedule: "", coachNotes: "",
+        weight: null, height: null, measurements: [],
         createdBy: user.uid,
       });
       setAthletes(prev => [...prev, { id: ref.id, name: newName.trim(), gaps: [] }]);
@@ -1519,7 +1521,12 @@ function ProfileTab({ profile, saveProfile }) {
         if (w > 0) entry.weight = w;
         if (h > 0) entry.height = h;
         const prev = (form.measurements || []).filter(m => m.date !== entry.date);
-        updatedForm = { ...updatedForm, measurements: [entry, ...prev].slice(0, 12) };
+        updatedForm = {
+          ...updatedForm,
+          weight: w > 0 ? w : (updatedForm.weight || null),
+          height: h > 0 ? h : (updatedForm.height || null),
+          measurements: [entry, ...prev].slice(0, 12),
+        };
         setForm(updatedForm);
       }
       await saveProfile(updatedForm);
@@ -1727,7 +1734,13 @@ function AVLogSession({ athleteId }) {
       collection(db, "athletes", athleteId, "weekLogs"),
       orderBy("date", "desc"), limit(5)
     ))
-      .then(snap => setRecentLogs(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+      .then(snap => {
+        const logs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        logs.sort((a, b) =>
+          `${b.date}${b.time || ""}`.localeCompare(`${a.date}${a.time || ""}`)
+        );
+        setRecentLogs(logs);
+      })
       .catch(() => {});
   }, [athleteId]);
 
@@ -1745,7 +1758,13 @@ function AVLogSession({ athleteId }) {
     };
     if (type === "other" && sportName.trim()) entry.sportName = sportName.trim();
     const ref = await addDoc(collection(db, "athletes", athleteId, "weekLogs"), entry);
-    setRecentLogs(prev => [{ id: ref.id, ...entry }, ...prev].slice(0, 5));
+    setRecentLogs(prev => {
+      const updated = [{ id: ref.id, ...entry }, ...prev];
+      updated.sort((a, b) =>
+        `${b.date}${b.time || ""}`.localeCompare(`${a.date}${a.time || ""}`)
+      );
+      return updated.slice(0, 5);
+    });
     setSaved(true); setDuration(""); setRpe(null); setFocus(""); setSportName("");
     setSaving(false);
     setTimeout(() => setSaved(false), 2000);
