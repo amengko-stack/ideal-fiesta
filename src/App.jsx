@@ -635,7 +635,7 @@ function AthleteMain({ athleteId, isParent, user, onBack, onSignOut }) {
           )),
           getDocs(query(
             collection(db, "athletes", athleteId, "wellbeing"),
-            orderBy("date", "desc"), limit(14)
+            orderBy("date", "desc"), limit(28)
           )),
         ]);
         if (profileSnap.exists()) setProfile(profileSnap.data());
@@ -785,22 +785,76 @@ function PlanTab({ athleteId, profile, weekLogs, sessionHistory, wellbeing, aiLo
           return `  - ${w.date} [${label}]: ${parts.join(" · ")}`;
         }).join("\n");
 
-    const prompt = `You are an expert youth sports conditioning coach. Design a complete Sunday strength training session for this athlete.
+    const measurementText = (() => {
+      const hist = profile?.measurements || [];
+      if (hist.length === 0) return "Not yet recorded.";
+      return hist.slice(0, 2).map(m =>
+        `  ${m.date}: ${m.weight ? m.weight + " kg" : ""}${m.weight && m.height ? " · " : ""}${m.height ? m.height + " cm" : ""}`
+      ).join("\n");
+    })();
 
-ATHLETE:
-- Age: 12, Female
-- Sports: Tennis (primary) + Cheerleading
+    const prompt = `You are an expert youth sports conditioning coach specialising in adolescent female multi-sport athletes. Design a complete Sunday strength training session for this athlete.
+
+═══════════════════════════════════════════
+ATHLETE PROFILE
+═══════════════════════════════════════════
+- Name: ${profile?.name || "Athlete"}
+- Age: 12 · Female · Growth phase (growth plates NOT yet fused)
+- Primary sport: Tennis | Secondary sport: Cheerleading
+- Training age: youth athlete, still developing fundamental movement patterns
 - Tennis areas to develop: ${gapLabels.join(", ") || "general athletic development"}
 
-THIS WEEK'S ACTIVITY (logged sessions Mon–Sat):
+PHYSICAL MEASUREMENTS (last 2 recorded):
+${measurementText}
+Note: Use for loading context only. Do NOT comment on body composition.
+
+COACH / PARENT NOTES:
+${profile?.coachNotes?.trim() || "None"}
+⚠ Treat any mentioned injuries or pain areas as HARD restrictions — do not include exercises that stress those areas.
+
+═══════════════════════════════════════════
+AGE & DEVELOPMENT RULES — APPLY TO EVERY SESSION
+═══════════════════════════════════════════
+- Growth plates are open: NO heavy axial loading (no barbell squats/deadlifts, no heavy overhead pressing)
+- Equipment allowed: bodyweight, light dumbbells, resistance bands, medicine ball, kettlebell ONLY
+- Prioritise movement quality and body control over load — technique always beats weight
+- Plyometrics are appropriate but capped: max 2 plyometric exercises per session
+- This is a critical motor-pattern window; every session should reinforce correct mechanics
+
+FEMALE ATHLETE MANDATORY INCLUSIONS:
+- ACL injury risk is significantly elevated in 12-year-old female athletes (growth, hormones, biomechanics)
+- EVERY session must include at least one landing-mechanics or single-leg stability exercise
+- Emphasise hip abductors and glute strength — weakness here is the #1 predictor of knee injury in female athletes
+- Watch for and cue against valgus collapse (knees caving in) on all landings and single-leg work
+- Shoulder health: monitor for impingement patterns given overhead cheerleading demands
+
+MULTI-SPORT ATHLETE CONTEXT:
+- She trains more total hours than single-sport peers her age — cumulative fatigue is a real risk
+- Tennis + cheerleading together create high rotational, overhead, and lower-limb demands
+- Overuse injury risk is elevated: do NOT add volume just because ACWR looks low; quality > quantity
+- Sunday strength session must complement the week, not compete with it
+
+CHEERLEADING-SPECIFIC DEMANDS (factor into exercise selection):
+- Stunting: requires full-body tension, core stability, wrist and shoulder strength (basing or flying)
+- Tumbling (back handsprings, round-offs): explosive hip extension, shoulder stability, wrist loading
+- Basing: high ground-reaction forces through wrists — include wrist mobility/prehab when cheer was heavy
+- Cheerleading overlaps with tennis on: rotational power, core anti-rotation, shoulder health, landing mechanics
+
+═══════════════════════════════════════════
+THIS WEEK'S ACTIVITY (Mon–Sat logged sessions)
+═══════════════════════════════════════════
 ${weekActivity}
 
-TRAINING LOAD ANALYSIS (sRPE = RPE × duration in minutes; other sports weighted 0.6×):
+═══════════════════════════════════════════
+TRAINING LOAD ANALYSIS
+═══════════════════════════════════════════
+sRPE = RPE × duration in minutes | Other sports weighted 0.6×
+
 - This week sRPE: ${metrics.thisWeekSRPE}
 - Weekly sRPE last 4 weeks (oldest → newest): ${[...metrics.weekSRPEs].reverse().join(" → ")}
 - 4-week average sRPE: ${metrics.fourWeekAvg}
 - Acute:Chronic Workload Ratio (ACWR): ${metrics.acwr !== null ? metrics.acwr : "insufficient data — less than 4 weeks of history"}
-  Optimal ACWR = 0.8–1.3 | Caution > 1.3 | Danger > 1.5 | Underload < 0.8
+  Optimal 0.8–1.3 | Caution >1.3 | Danger >1.5 | Underload <0.8
 
 7-DAY WELLBEING AVERAGES (${metrics.wellbeingDays} days logged):
 - Average sleep: ${metrics.avgSleep !== null ? metrics.avgSleep + "h" : "no data"}
@@ -812,44 +866,51 @@ SESSION CONTEXT:
 - Session time today: ${sessionTime}
 - Load guidance: ${loadNotes.join(" | ")}
 
-ATHLETE WELLBEING (last ${recentWellbeing.length} check-ins, most recent first):
+═══════════════════════════════════════════
+ATHLETE WELLBEING (last ${recentWellbeing.length} check-ins, most recent first)
+═══════════════════════════════════════════
 ${wellbeingText}
-- If soreness 3+ (morning or night): reduce impact exercises, prioritise mobility and recovery
-- If sleep under 7h: avoid max-effort work, keep intensity moderate
-- If energy 1–2 (night before): scale back volume next session
-- If mood 1–2: keep session positive and light, no new hard exercises
-- If athlete noted pain or tightness in notes: avoid exercises that stress that area
 
-PAST STRENGTH TRAINING HISTORY (last ${recentSessions.length} sessions, most recent first):
+Wellbeing rules:
+- Soreness 3+: reduce impact and plyometrics, prioritise mobility and recovery
+- Sleep under 7h: avoid max-effort work, keep intensity moderate
+- Energy 1–2 (night before): scale back volume
+- Mood 1–2: keep session positive and light, no new hard exercises
+- Any noted pain or tightness: avoid exercises that load that area
+
+═══════════════════════════════════════════
+PAST STRENGTH TRAINING HISTORY (last ${recentSessions.length} sessions)
+═══════════════════════════════════════════
 ${recentSessions.length === 0
-  ? "No strength history yet — this is the first session."
+  ? "No strength history yet — this is the first session. Start conservative, focus on form."
   : recentSessions.map(s =>
       `${s.date}:\n${s.exercises.map(e =>
         `  - ${e.name}: ${e.sets}×${e.reps}${e.weight ? " @ " + e.weight : ""} | difficulty ${e.difficulty}/5 | ${e.completed ? "completed" : "did NOT complete"}`
       ).join("\n")}`
     ).join("\n\n")}
 
-FAMILIAR EXERCISES (exercises the athlete already knows — use as reference, not a strict limit):
+FAMILIAR EXERCISES (athlete knows these — use as base, not a ceiling):
 ${familiarExercises}
 
-YOUR TASK:
-Design the best possible Sunday training session. Use ALL the context above:
-- If she had a heavy tennis/cheer week, reduce strength volume to avoid overtraining
-- If she had a light week, she can handle more volume and harder exercises
-- Use past strength history to progress exercises (easy last time → increase; hard → hold or reduce)
-- Choose exercises that target her tennis development gaps
-- You are free to introduce new exercises beyond the familiar list when appropriate
+═══════════════════════════════════════════
+YOUR TASK
+═══════════════════════════════════════════
+Design the best possible Sunday session using ALL context above:
+- Heavy tennis/cheer week → reduce strength volume to prevent overtraining
+- Light week → can handle more volume and harder progressions
+- Progress exercises from history: easy last time → increase; hard → hold or reduce
+- Always target her tennis development gaps
+- Always include ACL-risk mitigation (hip/glute work + landing mechanics)
+- You may introduce new exercises beyond the familiar list when appropriate
 
-RULES:
-- Age-appropriate only: bodyweight, light dumbbells, bands, medicine ball, kettlebell — no heavy barbells
+SESSION STRUCTURE:
 - Order: Warmup → Mobility → Plyometrics → Power → Strength → Core → Agility → Conditioning → Recovery
-- Total exercises: 8–12
-- Always start with at least 2 warmup/mobility exercises
-- Tournament week: max 6 exercises, activation only, nothing causing soreness
+- Total exercises: 8–12 | At least 2 warmup/mobility to open
+- Tournament week: max 6 exercises, activation only, nothing that causes soreness next day
 
 Respond with ONLY valid JSON, no other text:
 {
-  "briefing": "4–6 sentences. Warm, direct coach voice. Specifically mention what the week's tennis/cheer load means for today, what the session focuses on, and any safety notes.",
+  "briefing": "4–6 sentences. Warm, direct coach voice. Mention what her tennis/cheer week means for today, what the session focuses on, and one female-athlete or age-specific safety point relevant to this session.",
   "plan": [
     {
       "name": "Exercise Name",
@@ -857,7 +918,7 @@ Respond with ONLY valid JSON, no other text:
       "sets": 2,
       "reps": 10,
       "unit": "reps|seconds|meters",
-      "note": "Coaching cue or specific reason this was chosen based on her week or history"
+      "note": "Specific coaching cue or reason chosen based on her week, history, or development needs"
     }
   ]
 }`;
@@ -1431,7 +1492,8 @@ function ProgressTab({ sessionHistory, weekLogs }) {
 function ProfileTab({ profile, saveProfile }) {
   const [form, setForm] = useState(() => profile || {
     name: "", dob: "", gaps: [],
-    tennisSchedule: "", cheerSchedule: "", coachNotes: ""
+    tennisSchedule: "", cheerSchedule: "", coachNotes: "",
+    weight: "", height: "", measurements: [],
   });
   const [saved, setSaved]         = useState(false);
   const [saveError, setSaveError] = useState(false);
@@ -1449,7 +1511,18 @@ function ProfileTab({ profile, saveProfile }) {
   const handleSave = async () => {
     setSaved(false); setSaveError(false);
     try {
-      await saveProfile(form);
+      let updatedForm = { ...form };
+      const w = parseFloat(form.weight);
+      const h = parseFloat(form.height);
+      if (w > 0 || h > 0) {
+        const entry = { date: new Date().toISOString().split("T")[0] };
+        if (w > 0) entry.weight = w;
+        if (h > 0) entry.height = h;
+        const prev = (form.measurements || []).filter(m => m.date !== entry.date);
+        updatedForm = { ...updatedForm, measurements: [entry, ...prev].slice(0, 12) };
+        setForm(updatedForm);
+      }
+      await saveProfile(updatedForm);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch(e) {
@@ -1488,6 +1561,46 @@ function ProfileTab({ profile, saveProfile }) {
         </div>
         <div className="note-box mt16">
           💡 These are for reference. The app uses actual logged sessions for load calculations.
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-title">📏 Physical Measurements</div>
+        <p style={{ color: COLORS.muted, fontSize: "0.83rem", marginBottom: 14 }}>Log monthly. The AI uses this to adjust loading recommendations as she grows.</p>
+        <div className="grid2">
+          <div>
+            <div className="label">Weight (kg)</div>
+            <input
+              type="number" placeholder="e.g. 42" min="20" max="120" step="0.1"
+              value={form.weight || ""}
+              onChange={e => setForm(f => ({ ...f, weight: e.target.value }))}
+            />
+          </div>
+          <div>
+            <div className="label">Height (cm)</div>
+            <input
+              type="number" placeholder="e.g. 155" min="100" max="220" step="0.5"
+              value={form.height || ""}
+              onChange={e => setForm(f => ({ ...f, height: e.target.value }))}
+            />
+          </div>
+        </div>
+        {(form.measurements || []).length > 0 && (
+          <div style={{ marginTop: 14 }}>
+            <div className="label" style={{ marginBottom: 8 }}>Measurement History</div>
+            {(form.measurements || []).slice(0, 6).map((m, i) => (
+              <div key={i} className="stat-row" style={{ fontSize: "0.82rem" }}>
+                <span style={{ color: COLORS.muted }}>{m.date}</span>
+                <span>
+                  {m.weight ? <span style={{ color: COLORS.text, marginRight: 12 }}>{m.weight} kg</span> : null}
+                  {m.height ? <span style={{ color: COLORS.text }}>{m.height} cm</span> : null}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="note-box mt16">
+          💡 Save the profile each time you update measurements. A new entry is recorded with today's date.
         </div>
       </div>
 
@@ -1607,6 +1720,16 @@ function AVLogSession({ athleteId }) {
   const [date, setDate]           = useState(new Date().toISOString().split("T")[0]);
   const [saving, setSaving]       = useState(false);
   const [saved, setSaved]         = useState(false);
+  const [recentLogs, setRecentLogs] = useState([]);
+
+  useEffect(() => {
+    getDocs(query(
+      collection(db, "athletes", athleteId, "weekLogs"),
+      orderBy("date", "desc"), limit(5)
+    ))
+      .then(snap => setRecentLogs(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+      .catch(() => {});
+  }, [athleteId]);
 
   const TENNIS_FOCUS = ["Baseline rallying", "Serve practice", "Footwork / movement", "Match play", "Volley / net", "Conditioning", "Full practice"];
   const CHEER_FOCUS  = ["Stunt practice", "Tumbling", "Dance / routine", "Competition prep", "Conditioning", "Full practice"];
@@ -1621,7 +1744,8 @@ function AVLogSession({ athleteId }) {
       focus, date, time: new Date().toTimeString().slice(0, 5),
     };
     if (type === "other" && sportName.trim()) entry.sportName = sportName.trim();
-    await addDoc(collection(db, "athletes", athleteId, "weekLogs"), entry);
+    const ref = await addDoc(collection(db, "athletes", athleteId, "weekLogs"), entry);
+    setRecentLogs(prev => [{ id: ref.id, ...entry }, ...prev].slice(0, 5));
     setSaved(true); setDuration(""); setRpe(null); setFocus(""); setSportName("");
     setSaving(false);
     setTimeout(() => setSaved(false), 2000);
@@ -1754,6 +1878,34 @@ function AVLogSession({ athleteId }) {
       >
         {saving ? "Saving…" : saved ? "✓ Session Logged!" : "Save Session"}
       </button>
+
+      {recentLogs.length > 0 && (
+        <div style={{ marginTop: 28 }}>
+          <div style={{ fontSize: "0.72rem", color: COLORS.muted, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10 }}>Recent Sessions</div>
+          {recentLogs.map(log => {
+            const typeColor = log.type === "tennis" ? COLORS.tennis : log.type === "cheer" ? COLORS.cheer : COLORS.yellow;
+            const typeLabel = log.type === "tennis" ? "🎾 Tennis" : log.type === "cheer" ? "📣 Cheer" : `🏃 ${log.sportName || "Other"}`;
+            const rpeVal = log.rpe ?? (log.intensity ? log.intensity * 2 : "?");
+            return (
+              <div key={log.id} style={{
+                background: COLORS.card, border: `1px solid ${COLORS.border}`,
+                borderRadius: 12, padding: "12px 14px", marginBottom: 8,
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+              }}>
+                <div>
+                  <span style={{ fontWeight: 700, fontSize: "0.9rem", color: typeColor }}>{typeLabel}</span>
+                  {log.focus && <span style={{ color: COLORS.muted, fontSize: "0.8rem", marginLeft: 8 }}>{log.focus}</span>}
+                  <div style={{ color: COLORS.muted, fontSize: "0.72rem", marginTop: 3 }}>{log.date} · {log.duration} min</div>
+                </div>
+                <div style={{
+                  fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.3rem",
+                  color: COLORS.accent, textAlign: "right",
+                }}>RPE {rpeVal}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
