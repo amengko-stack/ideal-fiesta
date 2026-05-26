@@ -210,8 +210,8 @@ const css = `
   body { background: ${COLORS.bg}; color: ${COLORS.text}; font-family: 'DM Sans', sans-serif; min-height: 100vh; }
   .app { max-width: 900px; margin: 0 auto; padding: 0 16px 80px; }
   h1, h2, h3 { font-family: 'Bebas Neue', sans-serif; letter-spacing: 0.04em; }
-  .header { padding: 32px 0 24px; border-bottom: 1px solid ${COLORS.border}; margin-bottom: 28px; }
-  .header h1 { font-size: clamp(2.4rem, 6vw, 4rem); color: ${COLORS.accent}; line-height: 1; }
+  .header { padding: 16px 0 14px; border-bottom: 1px solid ${COLORS.border}; margin-bottom: 22px; }
+  .header h1 { font-size: clamp(1.4rem, 3.5vw, 2rem); color: ${COLORS.accent}; line-height: 1; letter-spacing: 0.06em; }
   .header p { color: ${COLORS.muted}; font-size: 0.9rem; margin-top: 6px; }
   .tabs { display: flex; gap: 4px; background: ${COLORS.surface}; border-radius: 10px; padding: 4px; margin-bottom: 28px; flex-wrap: wrap; }
   .tab { flex: 1; min-width: 100px; padding: 10px 12px; border: none; border-radius: 7px; cursor: pointer; font-family: 'DM Sans', sans-serif; font-size: 0.8rem; font-weight: 500; color: ${COLORS.muted}; background: transparent; transition: all 0.18s; text-align: center; }
@@ -398,8 +398,8 @@ function LoginScreen() {
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: COLORS.bg, padding: 16 }}>
       <style>{css}</style>
       <div className="card" style={{ maxWidth: 420, width: "100%", textAlign: "center", padding: "40px 32px" }}>
-        <h1 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.5rem", color: COLORS.accent, marginBottom: 8 }}>Athlete OS</h1>
-        <p style={{ color: COLORS.muted, fontSize: "0.88rem", marginBottom: 36 }}>Training Intelligence · Tennis + Cheerleading</p>
+        <h1 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.2rem", color: COLORS.accent, marginBottom: 6, letterSpacing: "0.06em" }}>Performance Tracker</h1>
+        <p style={{ color: COLORS.muted, fontSize: "0.82rem", marginBottom: 36 }}>Tennis · Cheerleading · Strength</p>
         <button
           className="btn btn-primary"
           onClick={handleGoogle}
@@ -544,10 +544,13 @@ function ParentDashboard({ user, onSelectAthlete, onSignOut }) {
       <style>{css}</style>
       <div className="app">
         <div className="header">
-          <div className="flex-between">
+          <div className="flex-between" style={{ alignItems: "center" }}>
             <div>
-              <h1>Athlete OS</h1>
-              <p>Parent Dashboard · {user.displayName}</p>
+              <h1>Performance Tracker</h1>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 5, flexWrap: "wrap" }}>
+                <span style={{ fontSize: "0.7rem", background: COLORS.accentMuted, color: COLORS.accent, padding: "2px 8px", borderRadius: 20, fontWeight: 600 }}>Parent</span>
+                <span style={{ fontSize: "0.75rem", color: COLORS.muted }}>{user.displayName}</span>
+              </div>
             </div>
             <button className="btn btn-ghost btn-sm" onClick={onSignOut}>Sign Out</button>
           </div>
@@ -693,18 +696,30 @@ function AthleteMain({ athleteId, isParent, user, onBack, onSignOut }) {
       <style>{css}</style>
       <div className="app">
         <div className="header">
-          <div className="flex-between" style={{ alignItems: "flex-start" }}>
-            <h1>Athlete OS</h1>
-            <div style={{ display: "flex", gap: 8, paddingTop: 6 }}>
+          <div className="flex-between" style={{ alignItems: "center" }}>
+            <h1>Performance Tracker</h1>
+            <div style={{ display: "flex", gap: 8 }}>
               {onBack && (
                 <button className="btn btn-ghost btn-sm" onClick={onBack}>← Athletes</button>
               )}
               <button className="btn btn-ghost btn-sm" onClick={onSignOut}>Sign Out</button>
             </div>
           </div>
-          <p>Training Intelligence · {profile?.name || "Setup your athlete profile"} · Age 12 · Tennis + Cheer
-            {isParent && <span style={{ color: COLORS.yellow, marginLeft: 8 }}>· Parent View</span>}
-          </p>
+          <div style={{ display: "flex", gap: 5, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
+            {[
+              { label: profile?.name || "Athlete",   color: COLORS.accent,  bg: COLORS.accentMuted },
+              { label: "Age 12",                     color: COLORS.muted,   bg: COLORS.surface },
+              { label: "Tennis",                     color: COLORS.tennis,  bg: "rgba(200,245,100,0.1)" },
+              { label: "Cheer",                      color: COLORS.cheer,   bg: "rgba(245,100,200,0.1)" },
+              ...(isParent ? [{ label: "Parent View", color: COLORS.yellow, bg: "rgba(245,197,24,0.12)" }] : []),
+            ].map(chip => (
+              <span key={chip.label} style={{
+                fontSize: "0.68rem", fontWeight: 600, padding: "2px 8px",
+                borderRadius: 20, color: chip.color, background: chip.bg,
+                whiteSpace: "nowrap",
+              }}>{chip.label}</span>
+            ))}
+          </div>
         </div>
 
         <div className="tabs">
@@ -1790,9 +1805,22 @@ function AthleteView({ athleteId, user, onSignOut }) {
     <div style={{ minHeight: "100vh", background: COLORS.bg }}>
       <style>{css}</style>
 
-      <div style={{ padding: "20px 16px 14px", borderBottom: `1px solid ${COLORS.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <h1 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", color: COLORS.accent, lineHeight: 1 }}>Athlete OS</h1>
-        <button className="btn btn-ghost btn-sm" onClick={onSignOut}>Sign Out</button>
+      <div style={{ padding: "14px 16px 10px", borderBottom: `1px solid ${COLORS.border}` }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <h1 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "clamp(1.2rem, 4vw, 1.5rem)", color: COLORS.accent, lineHeight: 1, letterSpacing: "0.06em" }}>Performance Tracker</h1>
+          <button className="btn btn-ghost btn-sm" onClick={onSignOut}>Sign Out</button>
+        </div>
+        <div style={{ display: "flex", gap: 5, marginTop: 6, flexWrap: "wrap", alignItems: "center" }}>
+          {[
+            { label: user?.displayName?.split(" ")[0] || "Athlete", color: COLORS.accent, bg: COLORS.accentMuted },
+            { label: "Age 12", color: COLORS.muted, bg: COLORS.surface },
+            { label: "Tennis", color: COLORS.tennis, bg: "rgba(200,245,100,0.1)" },
+            { label: "Cheer", color: COLORS.cheer, bg: "rgba(245,100,200,0.1)" },
+            { label: "Athlete View", color: COLORS.yellow, bg: "rgba(245,197,24,0.12)" },
+          ].map(chip => (
+            <span key={chip.label} style={{ fontSize: "0.65rem", fontWeight: 600, padding: "2px 7px", borderRadius: 20, color: chip.color, background: chip.bg, whiteSpace: "nowrap" }}>{chip.label}</span>
+          ))}
+        </div>
       </div>
 
       <div style={{ padding: "20px 16px 110px", maxWidth: 480, margin: "0 auto" }}>
