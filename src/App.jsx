@@ -1251,26 +1251,36 @@ function LogTab({ weekLogs, addWeekLog, deleteWeekLog }) {
         )}
 
         <div className="mt16">
-          <div className="label">RPE (how hard? 1–10)</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6, marginTop: 8 }}>
-            {[1,2,3,4,5,6,7,8,9,10].map(n => (
-              <button
-                key={n}
-                onClick={() => setRpe(n)}
-                style={{
-                  padding: "10px 4px", borderRadius: 8,
-                  border: `2px solid ${rpe === n ? COLORS.accent : COLORS.border}`,
-                  background: rpe === n ? COLORS.accentMuted : "transparent",
-                  color: rpe === n ? COLORS.accent : COLORS.muted,
-                  fontFamily: "'DM Sans', sans-serif", fontSize: "1rem", fontWeight: 700,
-                  cursor: "pointer", transition: "all 0.15s",
-                }}
-              >{n}</button>
+          <div className="label" style={{ marginBottom: 10 }}>
+            RPE (how hard? 1–10)
+            {rpe && <span style={{ marginLeft: 8, color: COLORS.accent, fontWeight: 700 }}>
+              {rpe} — {["","Very easy","Easy","Moderate","Somewhat hard","Hard","Hard","Very hard","Very hard","Almost max","Max"][rpe]}
+            </span>}
+          </div>
+          <style>{`
+            .rpe-slider { -webkit-appearance: none; appearance: none; width: 100%; height: 6px; border-radius: 3px; outline: none; cursor: pointer; background: linear-gradient(to right, ${COLORS.accent} 0%, ${COLORS.accent} ${rpe ? (rpe - 1) / 9 * 100 : 0}%, ${COLORS.border} ${rpe ? (rpe - 1) / 9 * 100 : 0}%, ${COLORS.border} 100%); }
+            .rpe-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 22px; height: 22px; border-radius: 50%; background: ${rpe ? COLORS.accent : COLORS.muted}; border: 3px solid ${COLORS.bg}; box-shadow: 0 0 0 2px ${rpe ? COLORS.accent : COLORS.border}; cursor: pointer; transition: background 0.15s, box-shadow 0.15s; }
+            .rpe-slider::-moz-range-thumb { width: 22px; height: 22px; border-radius: 50%; background: ${rpe ? COLORS.accent : COLORS.muted}; border: 3px solid ${COLORS.bg}; box-shadow: 0 0 0 2px ${rpe ? COLORS.accent : COLORS.border}; cursor: pointer; }
+          `}</style>
+          <input
+            type="range" min="1" max="10" step="1"
+            value={rpe || 1}
+            onChange={e => setRpe(parseInt(e.target.value))}
+            className="rpe-slider"
+          />
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
+            {[
+              { val: 1,  label: "Very Easy" },
+              { val: 5,  label: "Moderate"  },
+              { val: 10, label: "Max Effort" },
+            ].map(({ val, label }) => (
+              <div key={val} style={{ textAlign: val === 5 ? "center" : val === 1 ? "left" : "right" }}>
+                <div style={{ fontSize: "0.72rem", fontWeight: 700, color: rpe === val ? COLORS.accent : COLORS.muted }}>{val}</div>
+                <div style={{ fontSize: "0.66rem", color: rpe === val ? COLORS.accent : COLORS.muted }}>{label}</div>
+              </div>
             ))}
           </div>
-          <div style={{ fontSize: "0.72rem", color: COLORS.muted, marginTop: 4 }}>
-            {rpe ? ["","Very easy","Easy","Moderate","Somewhat hard","Hard","Hard","Very hard","Very hard","Max","Max"][rpe] + ` (RPE ${rpe}/10)` : "1 = very easy · 5 = moderate · 10 = max effort"}
-          </div>
+          {!rpe && <div style={{ fontSize: "0.7rem", color: COLORS.muted, marginTop: 6 }}>Drag to set intensity</div>}
         </div>
 
         <div className="mt16">
