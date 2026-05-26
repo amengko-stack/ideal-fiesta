@@ -1,4 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
+import {
+  Activity, BarChart2, Calendar, ClipboardCheck, ClipboardList,
+  Dumbbell, FileText, Heart, History, MessageSquare, Moon,
+  Plus, Ruler, Settings, Sprout, Sun, Target, TrendingUp,
+  User, UserPlus, Users, Zap,
+} from "lucide-react";
 import { auth, db } from "./firebase";
 import {
   GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged,
@@ -548,7 +554,7 @@ function ParentDashboard({ user, onSelectAthlete, onSignOut }) {
         </div>
 
         <div className="card">
-          <div className="card-title">👤 Athletes</div>
+          <div className="card-title"><Users size={18} /> Athletes</div>
           {loading
             ? <div className="empty"><div className="spinner" /></div>
             : athletes.length === 0
@@ -575,7 +581,7 @@ function ParentDashboard({ user, onSelectAthlete, onSignOut }) {
 
         {showCreate ? (
           <div className="card">
-            <div className="card-title">➕ New Athlete</div>
+            <div className="card-title"><UserPlus size={18} /> New Athlete</div>
             <div className="label">Athlete Name</div>
             <input
               placeholder="e.g. Sofia"
@@ -703,14 +709,14 @@ function AthleteMain({ athleteId, isParent, user, onBack, onSignOut }) {
 
         <div className="tabs">
           {[
-            { id: "plan",     label: "🎯 Sunday Plan" },
-            { id: "log",      label: "📋 Log Activity" },
-            { id: "strength", label: "💪 Log Strength" },
-            { id: "progress", label: "📈 Progress" },
-            { id: "profile",  label: "⚙️ Profile" },
+            { id: "plan",     Icon: Target,        label: "Sunday Plan" },
+            { id: "log",      Icon: ClipboardList, label: "Log Activity" },
+            { id: "strength", Icon: Dumbbell,      label: "Log Strength" },
+            { id: "progress", Icon: TrendingUp,    label: "Progress" },
+            { id: "profile",  Icon: Settings,      label: "Profile" },
           ].map(t => (
             <button key={t.id} className={`tab ${tab === t.id ? "active" : ""}`} onClick={() => setTab(t.id)}>
-              {t.label}
+              <t.Icon size={14} strokeWidth={2} style={{ flexShrink: 0 }} />{t.label}
             </button>
           ))}
         </div>
@@ -1009,7 +1015,7 @@ Respond with ONLY valid JSON, no other text:
   return (
     <div>
       <div className="card">
-        <div className="card-title">📊 Training Load Analysis</div>
+        <div className="card-title"><BarChart2 size={18} /> Training Load Analysis</div>
 
         {/* ACWR gauge — hero element */}
         <div style={{ background: COLORS.surface, borderRadius: 12, padding: "16px 14px 10px", marginBottom: 14, textAlign: "center" }}>
@@ -1083,7 +1089,7 @@ Respond with ONLY valid JSON, no other text:
       </div>
 
       <div className="card">
-        <div className="card-title">🎾 Generate Sunday Plan</div>
+        <div className="card-title"><Zap size={18} /> Generate Sunday Plan</div>
         <div className="grid2">
           <div>
             <div className="label">Tournament Status</div>
@@ -1138,12 +1144,12 @@ Respond with ONLY valid JSON, no other text:
       {planResult && (
         <>
           <div className="card" style={{ borderColor: COLORS.accentDim }}>
-            <div className="card-title">🧠 Coach's Briefing</div>
+            <div className="card-title"><MessageSquare size={18} /> Coach's Briefing</div>
             <p style={{ fontSize: "0.88rem", lineHeight: 1.65, color: COLORS.text }}>{planResult.briefing}</p>
           </div>
 
           <div className="card">
-            <div className="card-title">📋 Today's Session — {planResult.plan.length} Exercises</div>
+            <div className="card-title"><ClipboardCheck size={18} /> Today's Session — {planResult.plan.length} Exercises</div>
             {planResult.plan.map((ex, i) => {
               const isTime = ex.unit === "seconds";
               return (
@@ -1206,7 +1212,7 @@ function LogTab({ weekLogs, addWeekLog, deleteWeekLog }) {
   return (
     <div>
       <div className="card">
-        <div className="card-title">➕ Log Activity</div>
+        <div className="card-title"><Plus size={18} /> Log Activity</div>
         <div className="grid2">
           <div>
             <div className="label">Activity Type</div>
@@ -1288,7 +1294,7 @@ function LogTab({ weekLogs, addWeekLog, deleteWeekLog }) {
       </div>
 
       <div className="card">
-        <div className="card-title">📅 This Week's Activity</div>
+        <div className="card-title"><Calendar size={18} /> This Week's Activity</div>
         {thisWeek.length === 0
           ? <div className="empty">No sessions logged this week yet</div>
           : [...thisWeek].sort((a,b) => new Date(b.date)-new Date(a.date)).map(log => {
@@ -1356,7 +1362,7 @@ function StrengthLogTab({ sessionHistory, addSession, planResult }) {
   return (
     <div>
       <div className="card">
-        <div className="card-title">💪 Log Strength Session</div>
+        <div className="card-title"><Dumbbell size={18} /> Log Strength Session</div>
         <div className="grid2">
           <div>
             <div className="label">Date</div>
@@ -1457,7 +1463,7 @@ function ProgressTab({ sessionHistory, weekLogs }) {
   return (
     <div>
       <div className="card">
-        <div className="card-title">📈 Overview</div>
+        <div className="card-title"><BarChart2 size={18} /> Overview</div>
         <div className="grid2">
           <div style={{ textAlign: "center", padding: "12px 0" }}>
             <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", color: COLORS.accent }}>{totalSessions}</div>
@@ -1485,7 +1491,7 @@ function ProgressTab({ sessionHistory, weekLogs }) {
       </div>
 
       <div className="card">
-        <div className="card-title">🏋️ Exercise Progression</div>
+        <div className="card-title"><Activity size={18} /> Exercise Progression</div>
         {exIds.length === 0
           ? <div className="empty">Log strength sessions to see progression data</div>
           : (
@@ -1528,7 +1534,7 @@ function ProgressTab({ sessionHistory, weekLogs }) {
       </div>
 
       <div className="card">
-        <div className="card-title">📅 Session History</div>
+        <div className="card-title"><History size={18} /> Session History</div>
         {sessionHistory.length === 0
           ? <div className="empty">No strength sessions logged yet</div>
           : [...sessionHistory].sort((a,b) => new Date(b.date)-new Date(a.date)).slice(0, 10).map(s => (
@@ -1600,7 +1606,7 @@ function ProfileTab({ profile, saveProfile }) {
   return (
     <div>
       <div className="card">
-        <div className="card-title">👤 Athlete Profile</div>
+        <div className="card-title"><User size={18} /> Athlete Profile</div>
         <div className="grid2">
           <div>
             <div className="label">Athlete Name</div>
@@ -1614,7 +1620,7 @@ function ProfileTab({ profile, saveProfile }) {
       </div>
 
       <div className="card">
-        <div className="card-title">🗓️ Weekly Schedule</div>
+        <div className="card-title"><Calendar size={18} /> Weekly Schedule</div>
         <div className="grid2">
           <div>
             <div className="label">Tennis Schedule</div>
@@ -1631,7 +1637,7 @@ function ProfileTab({ profile, saveProfile }) {
       </div>
 
       <div className="card">
-        <div className="card-title">📏 Physical Measurements</div>
+        <div className="card-title"><Ruler size={18} /> Physical Measurements</div>
         <p style={{ color: COLORS.muted, fontSize: "0.83rem", marginBottom: 14 }}>Log monthly. The AI uses this to adjust loading recommendations as she grows.</p>
         <div className="grid2">
           <div>
@@ -1671,7 +1677,7 @@ function ProfileTab({ profile, saveProfile }) {
       </div>
 
       <div className="card">
-        <div className="card-title">🎾 Tennis Gaps to Develop</div>
+        <div className="card-title"><Target size={18} /> Tennis Gaps to Develop</div>
         <p style={{ color: COLORS.muted, fontSize: "0.83rem", marginBottom: 14 }}>Select all areas where she needs improvement. The plan generator will prioritize exercises that target these gaps.</p>
         <div className="gap-checkbox">
           {TENNIS_GAPS.map(g => (
@@ -1695,7 +1701,7 @@ function ProfileTab({ profile, saveProfile }) {
       </div>
 
       <div className="card">
-        <div className="card-title">📝 Coach / Parent Notes</div>
+        <div className="card-title"><FileText size={18} /> Coach / Parent Notes</div>
         <textarea
           rows={4}
           placeholder="Any injuries, form concerns, exercises to avoid, or special instructions…"
@@ -1729,10 +1735,10 @@ function AthleteView({ athleteId, user, onSignOut }) {
   }, [athleteId]);
 
   const NAV = [
-    { id: "log",       icon: "📋", label: "Log Session" },
-    { id: "wellbeing", icon: "💚", label: "Wellbeing" },
-    { id: "growth",    icon: "🌱", label: "My Growth" },
-    { id: "plan",      icon: "🎯", label: "My Plan" },
+    { id: "log",       Icon: ClipboardList, label: "Log Session" },
+    { id: "wellbeing", Icon: Heart,         label: "Wellbeing" },
+    { id: "growth",    Icon: Sprout,        label: "My Growth" },
+    { id: "plan",      Icon: Target,        label: "My Plan" },
   ];
 
   return (
@@ -1769,7 +1775,7 @@ function AthleteView({ athleteId, user, onSignOut }) {
               alignItems: "center", gap: 5, transition: "color 0.15s",
             }}
           >
-            <span style={{ fontSize: "1.4rem", lineHeight: 1 }}>{s.icon}</span>
+            <s.Icon size={22} strokeWidth={1.75} />
             {s.label}
           </button>
         ))}
@@ -2110,7 +2116,7 @@ function AVGrowth({ athleteId }) {
 
       {/* Log new measurement */}
       <div style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 16, padding: "20px 16px", marginBottom: 24 }}>
-        <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.1rem", color: COLORS.accent, marginBottom: 14 }}>📏 Log New Measurement</div>
+        <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.1rem", color: COLORS.accent, marginBottom: 14, display: "flex", alignItems: "center", gap: 8 }}><Ruler size={16} /> Log New Measurement</div>
         <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
           <div style={{ flex: 1 }}>
             <div className="av-big-label">Height (cm)</div>
@@ -2297,7 +2303,7 @@ function AVWellbeing({ athleteId }) {
       <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", color: COLORS.text, marginBottom: 20 }}>Wellbeing</div>
 
       {/* ── MORNING ── */}
-      <div style={{ fontSize: "0.72rem", color: COLORS.accent, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10 }}>☀️ Morning Check-in</div>
+      <div style={{ fontSize: "0.72rem", color: COLORS.accent, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}><Sun size={13} /> Morning Check-in</div>
 
       <div className="card" style={{ marginBottom: 12 }}>
         <div className="av-big-label">🌙 Sleep last night — how many hours?</div>
@@ -2325,7 +2331,7 @@ function AVWellbeing({ athleteId }) {
       </button>
 
       {/* ── NIGHT ── */}
-      <div style={{ fontSize: "0.72rem", color: COLORS.accentDim, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10 }}>🌙 Tonight's Check-in</div>
+      <div style={{ fontSize: "0.72rem", color: COLORS.accentDim, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}><Moon size={13} /> Tonight's Check-in</div>
 
       <div className="card" style={{ marginBottom: 12 }}>
         <div className="av-big-label">⚡ Energy level today?</div>
