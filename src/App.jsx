@@ -975,51 +975,110 @@ Respond with ONLY valid JSON, no other text:
     : metrics.acwr < 0.8 ? "Underloaded"
     : "Optimal";
 
+  // ACWR gauge: maps 0–2+ range onto a 180° arc
+  const acwrGauge = (() => {
+    const pct = metrics.acwr === null ? 0 : Math.min(metrics.acwr / 2, 1);
+    const angle = pct * 180 - 90; // -90° (left) to +90° (right)
+    const r = 52;
+    const cx = 70; const cy = 62;
+    const toXY = (deg) => ({
+      x: cx + r * Math.cos((deg - 90) * Math.PI / 180),
+      y: cy + r * Math.sin((deg - 90) * Math.PI / 180),
+    });
+    // Arc segments: underload (blue) 0–72°, optimal (green) 72–117°, caution (yellow) 117–144°, danger (red) 144–180°
+    const segments = [
+      { from: 0,   to: 72,  color: "#6eb5ff" },
+      { from: 72,  to: 117, color: COLORS.accent },
+      { from: 117, to: 144, color: COLORS.yellow },
+      { from: 144, to: 180, color: COLORS.red },
+    ];
+    const arcPath = (fromDeg, toDeg, color) => {
+      const start = toXY(fromDeg); const end = toXY(toDeg);
+      const large = toDeg - fromDeg > 180 ? 1 : 0;
+      return `M ${start.x} ${start.y} A ${r} ${r} 0 ${large} 1 ${end.x} ${end.y}`;
+    };
+    const needle = toXY(metrics.acwr === null ? 0 : Math.min(metrics.acwr / 2, 1) * 180);
+    return { segments, arcPath, needle, cx, cy };
+  })();
+
+  // Wellbeing colour coding
+  const sleepColor  = !metrics.avgSleep  ? COLORS.muted : parseFloat(metrics.avgSleep)  >= 8 ? COLORS.accent  : parseFloat(metrics.avgSleep)  >= 6 ? COLORS.yellow : COLORS.red;
+  const moodColor   = !metrics.avgMood   ? COLORS.muted : parseFloat(metrics.avgMood)   >= 4 ? COLORS.accent  : parseFloat(metrics.avgMood)   >= 3 ? COLORS.yellow : COLORS.red;
+  const sorenessColor = !metrics.avgSoreness ? COLORS.muted : parseFloat(metrics.avgSoreness) <= 2 ? COLORS.accent : parseFloat(metrics.avgSoreness) <= 3 ? COLORS.yellow : COLORS.red;
+
   return (
     <div>
       <div className="card">
         <div className="card-title">📊 Training Load Analysis</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
-          <div style={{ background: COLORS.surface, borderRadius: 10, padding: "12px 14px" }}>
-            <div style={{ fontSize: "0.7rem", color: COLORS.muted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>This week sRPE</div>
-            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", color: COLORS.text, lineHeight: 1 }}>{metrics.thisWeekSRPE}</div>
+
+        {/* ACWR gauge — hero element */}
+        <div style={{ background: COLORS.surface, borderRadius: 12, padding: "16px 14px 10px", marginBottom: 14, textAlign: "center" }}>
+          <div style={{ fontSize: "0.7rem", color: COLORS.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Acute : Chronic Workload Ratio</div>
+          <svg width="140" height="72" viewBox="0 0 140 72" style={{ overflow: "visible" }}>
+            {acwrGauge.segments.map((s, i) => (
+              <path key={i} d={acwrGauge.arcPath(s.from, s.to, s.color)}
+                stroke={s.color} strokeWidth="10" fill="none" strokeLinecap="butt" opacity="0.35" />
+            ))}
+            {metrics.acwr !== null && (
+              <path d={acwrGauge.arcPath(0, Math.min(metrics.acwr / 2, 1) * 180, acwrColor)}
+                stroke={acwrColor} strokeWidth="10" fill="none" strokeLinecap="round" opacity="0.9" />
+            )}
+            {/* Needle */}
+            <line
+              x1={acwrGauge.cx} y1={acwrGauge.cy}
+              x2={acwrGauge.needle.x} y2={acwrGauge.needle.y}
+              stroke={acwrColor} strokeWidth="2.5" strokeLinecap="round"
+            />
+            <circle cx={acwrGauge.cx} cy={acwrGauge.cy} r="4" fill={acwrColor} />
+          </svg>
+          <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", color: acwrColor, lineHeight: 1, marginTop: -4 }}>
+            {metrics.acwr !== null ? metrics.acwr : "—"}
           </div>
-          <div style={{ background: COLORS.surface, borderRadius: 10, padding: "12px 14px" }}>
-            <div style={{ fontSize: "0.7rem", color: COLORS.muted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>4-week avg sRPE</div>
-            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", color: COLORS.text, lineHeight: 1 }}>{metrics.fourWeekAvg || "—"}</div>
+          <span className="badge" style={{ background: `${acwrColor}22`, color: acwrColor, fontSize: "0.78rem", marginTop: 6, display: "inline-flex" }}>{acwrLabel}</span>
+          <div style={{ fontSize: "0.66rem", color: COLORS.muted, marginTop: 8 }}>
+            <span style={{ color: "#6eb5ff" }}>■</span> Underload &lt;0.8 &nbsp;
+            <span style={{ color: COLORS.accent }}>■</span> Optimal 0.8–1.3 &nbsp;
+            <span style={{ color: COLORS.yellow }}>■</span> Caution &gt;1.3 &nbsp;
+            <span style={{ color: COLORS.red }}>■</span> Danger &gt;1.5
           </div>
         </div>
-        <div style={{ background: COLORS.surface, borderRadius: 10, padding: "12px 14px", marginBottom: 12 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div>
-              <div style={{ fontSize: "0.7rem", color: COLORS.muted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Acute:Chronic Ratio (ACWR)</div>
-              <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.2rem", color: acwrColor, lineHeight: 1 }}>
-                {metrics.acwr !== null ? metrics.acwr : "—"}
-              </div>
-            </div>
-            <span className="badge" style={{ background: `${acwrColor}22`, color: acwrColor, fontSize: "0.75rem" }}>{acwrLabel}</span>
+
+        {/* sRPE — this week prominent, 4-week avg secondary */}
+        <div style={{ display: "grid", gridTemplateColumns: "3fr 2fr", gap: 10, marginBottom: 14 }}>
+          <div style={{ background: `${COLORS.accent}14`, border: `1px solid ${COLORS.accentDim}`, borderRadius: 10, padding: "14px 16px" }}>
+            <div style={{ fontSize: "0.68rem", color: COLORS.accentDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>This week sRPE</div>
+            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", color: COLORS.accent, lineHeight: 1 }}>{metrics.thisWeekSRPE}</div>
+            <div style={{ fontSize: "0.68rem", color: COLORS.muted, marginTop: 4 }}>{thisWeekLogs.length} session{thisWeekLogs.length !== 1 ? "s" : ""}</div>
           </div>
-          <div style={{ fontSize: "0.7rem", color: COLORS.muted, marginTop: 6 }}>
-            Optimal 0.8–1.3 · Caution &gt;1.3 · Danger &gt;1.5 · Underload &lt;0.8
+          <div style={{ background: COLORS.surface, borderRadius: 10, padding: "14px 12px" }}>
+            <div style={{ fontSize: "0.68rem", color: COLORS.muted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>4-wk avg</div>
+            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", color: COLORS.muted, lineHeight: 1 }}>{metrics.fourWeekAvg || "—"}</div>
+            <div style={{ fontSize: "0.68rem", color: COLORS.muted, marginTop: 4 }}>sRPE / wk</div>
           </div>
         </div>
+
+        {/* Wellbeing — colour coded */}
         {(metrics.avgSleep || metrics.avgMood || metrics.avgSoreness) && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
             {[
-              { label: "Avg Sleep", value: metrics.avgSleep ? `${metrics.avgSleep}h` : "—", icon: "🌙" },
-              { label: "Avg Mood",  value: metrics.avgMood  ? `${metrics.avgMood}/5` : "—", icon: "😊" },
-              { label: "Avg Soreness", value: metrics.avgSoreness ? `${metrics.avgSoreness}/5` : "—", icon: "💪" },
+              { label: "Sleep",    value: metrics.avgSleep    ? `${metrics.avgSleep}h`   : "—", icon: "🌙", color: sleepColor,    hint: metrics.avgSleep ? (parseFloat(metrics.avgSleep) >= 8 ? "Good" : parseFloat(metrics.avgSleep) >= 6 ? "Low" : "Poor") : "" },
+              { label: "Mood",     value: metrics.avgMood     ? `${metrics.avgMood}/5`   : "—", icon: "😊", color: moodColor,     hint: metrics.avgMood ? (parseFloat(metrics.avgMood) >= 4 ? "Good" : parseFloat(metrics.avgMood) >= 3 ? "OK" : "Low") : "" },
+              { label: "Soreness", value: metrics.avgSoreness ? `${metrics.avgSoreness}/5` : "—", icon: "💪", color: sorenessColor, hint: metrics.avgSoreness ? (parseFloat(metrics.avgSoreness) <= 2 ? "Low" : parseFloat(metrics.avgSoreness) <= 3 ? "Mod" : "High") : "" },
             ].map(s => (
-              <div key={s.label} style={{ background: COLORS.surface, borderRadius: 8, padding: "10px 8px", textAlign: "center" }}>
+              <div key={s.label} style={{
+                background: `${s.color}12`, border: `1px solid ${s.color}33`,
+                borderRadius: 8, padding: "10px 8px", textAlign: "center",
+              }}>
                 <div style={{ fontSize: "1rem", marginBottom: 2 }}>{s.icon}</div>
-                <div style={{ fontWeight: 700, fontSize: "0.9rem", color: COLORS.text }}>{s.value}</div>
-                <div style={{ fontSize: "0.62rem", color: COLORS.muted, marginTop: 1 }}>{s.label}</div>
+                <div style={{ fontWeight: 700, fontSize: "0.9rem", color: s.color }}>{s.value}</div>
+                <div style={{ fontSize: "0.6rem", color: s.color, opacity: 0.8, marginTop: 1 }}>{s.hint}</div>
+                <div style={{ fontSize: "0.6rem", color: COLORS.muted, marginTop: 1 }}>{s.label}</div>
               </div>
             ))}
           </div>
         )}
-        <div style={{ fontSize: "0.7rem", color: COLORS.muted, marginTop: 10 }}>
-          {thisWeekLogs.length} sessions this week · {metrics.wellbeingDays} days of wellbeing data (7-day avg)
+        <div style={{ fontSize: "0.68rem", color: COLORS.muted, marginTop: 10 }}>
+          {metrics.wellbeingDays} days of wellbeing data (7-day avg)
         </div>
       </div>
 
