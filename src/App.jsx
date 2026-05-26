@@ -1401,6 +1401,31 @@ function StrengthLogTab({ sessionHistory, addSession, planResult }) {
         {planResult && <div className="note-box mt16">✓ Pre-filled from today's generated plan. Adjust as needed.</div>}
       </div>
 
+      {logExercises.length === 0 && (
+        <div className="card" style={{ textAlign: "center", padding: "28px 20px" }}>
+          <Dumbbell size={32} color={COLORS.muted} style={{ marginBottom: 12, opacity: 0.5 }} />
+          <div style={{ fontWeight: 600, color: COLORS.text, marginBottom: 4 }}>No exercises yet</div>
+          <div style={{ color: COLORS.muted, fontSize: "0.82rem", marginBottom: 18 }}>
+            Add your first exercise to get started
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
+            {["Squats", "Lunges", "Push-ups", "Plank"].map(name => (
+              <button
+                key={name}
+                className="btn btn-ghost btn-sm"
+                onClick={() => setLogExercises(prev => [...prev, {
+                  id: `custom_${Date.now()}_${name}`, name,
+                  sets: 2, reps: 10, weight: "", difficulty: 3, completed: true, notes: ""
+                }])}
+                style={{ borderRadius: 20, padding: "6px 14px", fontSize: "0.82rem" }}
+              >
+                + {name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {logExercises.map((ex, idx) => (
         <div key={idx} className="card">
           <div className="flex-between" style={{ marginBottom: 12 }}>
