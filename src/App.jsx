@@ -213,8 +213,9 @@ const css = `
   .header { padding: 16px 0 14px; border-bottom: 1px solid ${COLORS.border}; margin-bottom: 22px; }
   .header h1 { font-size: clamp(1.4rem, 3.5vw, 2rem); color: ${COLORS.accent}; line-height: 1; letter-spacing: 0.06em; }
   .header p { color: ${COLORS.muted}; font-size: 0.9rem; margin-top: 6px; }
-  .tabs { display: flex; gap: 4px; background: ${COLORS.surface}; border-radius: 10px; padding: 4px; margin-bottom: 28px; flex-wrap: wrap; }
-  .tab { flex: 1; min-width: 100px; padding: 10px 12px; border: none; border-radius: 7px; cursor: pointer; font-family: 'DM Sans', sans-serif; font-size: 0.8rem; font-weight: 500; color: ${COLORS.muted}; background: transparent; transition: all 0.18s; text-align: center; }
+  .tabs { display: flex; gap: 4px; background: ${COLORS.surface}; border-radius: 10px; padding: 4px; margin-bottom: 28px; overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab { flex-shrink: 0; padding: 10px 14px; border: none; border-radius: 7px; cursor: pointer; font-family: 'DM Sans', sans-serif; font-size: 0.8rem; font-weight: 500; color: ${COLORS.muted}; background: transparent; transition: all 0.18s; text-align: center; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
   .tab.active { background: ${COLORS.accent}; color: #000; font-weight: 600; }
   .card { background: ${COLORS.card}; border: 1px solid ${COLORS.border}; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
   .card-title { font-size: 1.1rem; color: ${COLORS.accent}; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
@@ -224,7 +225,7 @@ const css = `
   .badge-red { background: rgba(255,77,109,0.15); color: ${COLORS.red}; }
   .badge-gray { background: rgba(90,106,126,0.2); color: ${COLORS.muted}; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  @media(max-width:600px){ .grid2 { grid-template-columns: 1fr; } }
+  @media(max-width:640px){ .grid2 { grid-template-columns: 1fr; } }
   .label { font-size: 0.75rem; color: ${COLORS.muted}; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 6px; }
   input, select, textarea { width: 100%; padding: 10px 12px; background: ${COLORS.surface}; border: 1px solid ${COLORS.border}; border-radius: 8px; color: ${COLORS.text}; font-family: 'DM Sans', sans-serif; font-size: 0.9rem; outline: none; transition: border 0.15s; }
   input:focus, select:focus, textarea:focus { border-color: ${COLORS.accent}; }
