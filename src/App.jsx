@@ -1470,6 +1470,37 @@ function ProgressTab({ sessionHistory, weekLogs }) {
   const totalCheerMin  = weekLogs.filter(l => l.type === "cheer").reduce((a, l) => a + l.duration, 0);
   const totalOtherMin  = weekLogs.filter(l => l.type === "other").reduce((a, l) => a + l.duration, 0);
 
+  // Week-over-week trend calculations
+  const { start: thisWeekStart, end: thisWeekEnd } = getWeekBounds(0);
+  const { start: lastWeekStart, end: lastWeekEnd } = getWeekBounds(1);
+
+  const thisWeekSessions = sessionHistory.filter(s => s.date >= thisWeekStart && s.date < thisWeekEnd).length;
+  const lastWeekSessions = sessionHistory.filter(s => s.date >= lastWeekStart && s.date < lastWeekEnd).length;
+
+  const thisWeekTennis = weekLogs.filter(l => l.type === "tennis" && l.date >= thisWeekStart && l.date < thisWeekEnd).reduce((a, l) => a + l.duration, 0);
+  const lastWeekTennis = weekLogs.filter(l => l.type === "tennis" && l.date >= lastWeekStart && l.date < lastWeekEnd).reduce((a, l) => a + l.duration, 0);
+
+  const thisWeekCheer  = weekLogs.filter(l => l.type === "cheer"  && l.date >= thisWeekStart && l.date < thisWeekEnd).reduce((a, l) => a + l.duration, 0);
+  const lastWeekCheer  = weekLogs.filter(l => l.type === "cheer"  && l.date >= lastWeekStart && l.date < lastWeekEnd).reduce((a, l) => a + l.duration, 0);
+
+  const thisWeekOther  = weekLogs.filter(l => l.type === "other"  && l.date >= thisWeekStart && l.date < thisWeekEnd).reduce((a, l) => a + l.duration, 0);
+  const lastWeekOther  = weekLogs.filter(l => l.type === "other"  && l.date >= lastWeekStart && l.date < lastWeekEnd).reduce((a, l) => a + l.duration, 0);
+
+  const Trend = ({ current, previous, unit = "" }) => {
+    if (previous === 0 && current === 0) return null;
+    const diff = current - previous;
+    if (diff === 0) return <div style={{ fontSize: "0.7rem", color: COLORS.muted, marginTop: 3 }}>→ same as last week</div>;
+    const up = diff > 0;
+    const label = unit === "h"
+      ? `${up ? "+" : ""}${Math.round(diff / 60)}h`
+      : `${up ? "+" : ""}${diff}`;
+    return (
+      <div style={{ fontSize: "0.72rem", fontWeight: 700, color: up ? COLORS.accent : COLORS.red, marginTop: 3 }}>
+        {up ? "↑" : "↓"} {label} vs last week
+      </div>
+    );
+  };
+
   return (
     <div>
       <div className="card">
@@ -1478,19 +1509,23 @@ function ProgressTab({ sessionHistory, weekLogs }) {
           <div style={{ textAlign: "center", padding: "12px 0" }}>
             <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", color: COLORS.accent }}>{totalSessions}</div>
             <div style={{ color: COLORS.muted, fontSize: "0.8rem" }}>Strength Sessions</div>
+            <Trend current={thisWeekSessions} previous={lastWeekSessions} />
           </div>
           <div style={{ textAlign: "center", padding: "12px 0" }}>
             <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", color: COLORS.tennis }}>{Math.round(totalTennisMin / 60)}h</div>
             <div style={{ color: COLORS.muted, fontSize: "0.8rem" }}>Tennis Logged</div>
+            <Trend current={thisWeekTennis} previous={lastWeekTennis} unit="h" />
           </div>
           <div style={{ textAlign: "center", padding: "12px 0" }}>
             <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", color: COLORS.cheer }}>{Math.round(totalCheerMin / 60)}h</div>
             <div style={{ color: COLORS.muted, fontSize: "0.8rem" }}>Cheer Logged</div>
+            <Trend current={thisWeekCheer} previous={lastWeekCheer} unit="h" />
           </div>
           {totalOtherMin > 0 && (
             <div style={{ textAlign: "center", padding: "12px 0" }}>
               <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", color: COLORS.yellow }}>{Math.round(totalOtherMin / 60)}h</div>
               <div style={{ color: COLORS.muted, fontSize: "0.8rem" }}>Other Sports</div>
+              <Trend current={thisWeekOther} previous={lastWeekOther} unit="h" />
             </div>
           )}
           <div style={{ textAlign: "center", padding: "12px 0" }}>
