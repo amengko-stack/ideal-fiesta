@@ -1688,7 +1688,8 @@ function extractMatchData(plistObj) {
 }
 
 // ─── MATCH DETAIL VIEW ────────────────────────────────────────────────────────
-function MatchDetail({ match, onBack }) {
+function MatchDetail({ match, onBack, onDelete }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const v    = match.valissa  || {};
   const o    = match.opponent || {};
   const calc = match.calculated || {};
@@ -1877,6 +1878,37 @@ function MatchDetail({ match, onBack }) {
           <Zap size={14} /> Generate Analysis
         </button>
       </div>
+
+      {/* ── Delete Match ── */}
+      <div className="card" style={{ borderColor: COLORS.red, background: "rgba(255,77,109,0.06)" }}>
+        {!confirmDelete ? (
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => setConfirmDelete(true)}
+            style={{ color: COLORS.red, borderColor: COLORS.red }}
+          >
+            Delete Match
+          </button>
+        ) : (
+          <>
+            <div style={{ fontSize: "0.85rem", color: COLORS.text, marginBottom: 12 }}>
+              Delete this match and re-import?
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button className="btn btn-ghost btn-sm" onClick={() => setConfirmDelete(false)}>
+                Cancel
+              </button>
+              <button
+                className="btn btn-sm"
+                style={{ background: COLORS.red, color: "#fff", border: "none" }}
+                onClick={() => onDelete(match.id || match.matchId)}
+              >
+                Delete
+              </button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -1973,6 +2005,7 @@ function MatchesTab({ athleteId }) {
       }
 
       const stored = { ...matchData, athleteId, importedAt: new Date().toISOString() };
+      console.log("[matchtrack] saving to Firestore — valissa.winners:", matchData.valissa.winners, "| opponent.winners:", matchData.opponent.winners);
       await setDoc(doc(db, "matches", matchData.matchId), stored);
 
       // Optimistically prepend to list so it appears immediately
@@ -2000,8 +2033,18 @@ function MatchesTab({ athleteId }) {
     return "—";
   };
 
+  const handleDelete = async (matchId) => {
+    try {
+      await deleteDoc(doc(db, "matches", matchId));
+      setMatches(prev => prev.filter(m => m.id !== matchId));
+      setSelectedMatch(null);
+    } catch (err) {
+      console.error("Failed to delete match:", err);
+    }
+  };
+
   if (selectedMatch) {
-    return <MatchDetail match={selectedMatch} onBack={() => setSelectedMatch(null)} />;
+    return <MatchDetail match={selectedMatch} onBack={() => setSelectedMatch(null)} onDelete={handleDelete} />;
   }
 
   return (
