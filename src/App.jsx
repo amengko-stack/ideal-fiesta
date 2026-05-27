@@ -1576,18 +1576,32 @@ function extractMatchData(plistObj) {
     return {};
   };
 
-  // Find players by stats[last].playerNumber — not outer playerNumber
-  const p1Raw = players.find(p => resolveStats(p).playerNumber === 1) ?? {};
-  const p2Raw = players.find(p => resolveStats(p).playerNumber === 2) ?? {};
+  // Score each player by total shot activity in their stats
+  const scoredPlayers = players.map(p => {
+    const s = resolveStats(p);
+    const activity = (s.winners ?? 0) + (s.unforcedErrors ?? 0) + (s.forcedErrors ?? 0);
+    return { p, s, activity };
+  }).sort((a, b) => b.activity - a.activity);
+
+  // Highest activity = Valissa (pOne), second highest = opponent (pTwo)
+  // Verify against matchLog pOneName to confirm which is which
+  const firstPointName = (matchLog[0] ?? {}).pOneName ?? "";
+  let p1Raw = scoredPlayers[0]?.p ?? {};
+  let p2Raw = scoredPlayers[1]?.p ?? {};
+
+  // If the highest activity player name matches pTwoName, swap them
+  const firstPointP2Name = (matchLog[0] ?? {}).pTwoName ?? "";
+  if (p1Raw.name && p1Raw.name === firstPointP2Name) {
+    [p1Raw, p2Raw] = [p2Raw, p1Raw];
+  }
+
+  console.log("[matchtrack] p1Raw name:", p1Raw.name, "activity:", scoredPlayers[0]?.activity);
+  console.log("[matchtrack] p2Raw name:", p2Raw.name, "activity:", scoredPlayers[1]?.activity);
 
   // Valissa is whoWonMatch===1 side (pOne). Opponent is pTwo.
-  // p1Raw.name will be "Player 4" in the file — use pOne name from matchLog instead.
   const firstPoint = matchLog[0] ?? {};
   const valissaName = firstPoint.pOneName ?? p1Raw.name ?? "Valissa";
   const opponentName = firstPoint.pTwoName ?? p2Raw.name ?? "Opponent";
-
-  console.log("[matchtrack] Valissa stats source:", p1Raw.name, "| winners:", resolveStats(p1Raw).winners, "| UE:", resolveStats(p1Raw).unforcedErrors);
-  console.log("[matchtrack] Opponent stats source:", p2Raw.name, "| winners:", resolveStats(p2Raw).winners, "| UE:", resolveStats(p2Raw).unforcedErrors);
 
   const STAT_FIELDS = [
     "aces", "doubleFaults", "firstServePct", "firstServePoints", "firstServePointsWon",
