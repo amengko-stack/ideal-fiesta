@@ -1018,6 +1018,8 @@ PRIORITY HIERARCHY — apply strictly in this order:
 
 Return ONLY a valid JSON object — no preamble, no markdown fences.`;
 
+    console.log("[plan] user message preview:", prompt.slice(0, 500));
+
     try {
       const res = await fetch(API_URL, {
         method: "POST",
@@ -2065,6 +2067,8 @@ async function buildAthleteContext(athleteUid) {
     .filter(m => m.athleteId === athleteUid && (m.matchStartTime ?? "") >= cutoff14)
     .sort((a, b) => (b.matchStartTime ?? "").localeCompare(a.matchStartTime ?? ""))[0] ?? null;
 
+  console.log("[context] recentMatch:", recentMatch?.id, recentMatch?.opponentName);
+
   // ── 6b. AI match analysis for the most recent match ───────────────────────
   let matchAnalysis = { criticalFindings: [], deferredPriorities: [] };
   if (recentMatch?.id) {
@@ -2079,6 +2083,9 @@ async function buildAthleteContext(athleteUid) {
       }
     } catch (_) {}
   }
+
+  console.log("[context] matchAnalysis criticalFindings count:", matchAnalysis.criticalFindings.length);
+  console.log("[context] matchAnalysis sample finding:", JSON.stringify(matchAnalysis.criticalFindings[0]));
 
   // ── 7. Deferred priorities (status = "active") ─────────────────────────────
   const dpSnap = await getDocs(collection(db, "athletes", athleteUid, "deferredPriorities"));
