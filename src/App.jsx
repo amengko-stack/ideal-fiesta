@@ -1553,14 +1553,41 @@ function parsePlist(xmlString) {
 }
 
 function extractMatchData(plistObj) {
-  const topLevelKeys = Object.keys(plistObj);
-  // Try common key names for the players array
-  const players  = plistObj.players ?? plistObj.playerData ?? plistObj.matchPlayers ?? plistObj.playerList ?? [];
+  const players  = plistObj.players ?? [];
   const { id, matchStartTime, season, whoWonMatch, matchLog = [] } = plistObj;
-  const firstPlayer     = players[0] || {};
-  const firstPlayerKeys = Object.keys(firstPlayer);
-  console.log("[matchtrack] plist top-level keys:", topLevelKeys.join(", "));
-  console.log("[matchtrack] players count:", players.length, "| first player keys:", firstPlayerKeys.join(", "));
+
+  console.log("[matchtrack] players count:", players.length);
+  players.forEach((p, i) => {
+    const s = Array.isArray(p.stats) ? p.stats[p.stats.length - 1] : null;
+    console.log(`  player[${i}] name="${p.name}" outerPlayerNumber=${p.playerNumber} statsPlayerNumber=${s?.playerNumber} winners=${s?.winners} ues=${s?.unforcedErrors}`);
+  });
+
+  // ─── CRITICAL FIX ────────────────────────────────────────────────────────────
+  // The plist has 4 player objects. The outer playerNumber is NOT reliable.
+  // Real stats are found by reading stats[last].playerNumber:
+  //   stats[last].playerNumber === 1  →  Valissa's real cumulative stats
+  //   stats[last].playerNumber === 2  →  Opponent's real cumulative stats
+  // The player objects where outer playerNumber is 1 or 2 contain only zeros.
+  // ─────────────────────────────────────────────────────────────────────────────
+  const resolveStats = p => {
+    const s = p.stats;
+    if (Array.isArray(s) && s.length > 0) return s[s.length - 1];
+    if (s && typeof s === "object") return s;
+    return {};
+  };
+
+  // Find players by stats[last].playerNumber — not outer playerNumber
+  const p1Raw = players.find(p => resolveStats(p).playerNumber === 1) ?? {};
+  const p2Raw = players.find(p => resolveStats(p).playerNumber === 2) ?? {};
+
+  // Valissa is whoWonMatch===1 side (pOne). Opponent is pTwo.
+  // p1Raw.name will be "Player 4" in the file — use pOne name from matchLog instead.
+  const firstPoint = matchLog[0] ?? {};
+  const valissaName = firstPoint.pOneName ?? p1Raw.name ?? "Valissa";
+  const opponentName = firstPoint.pTwoName ?? p2Raw.name ?? "Opponent";
+
+  console.log("[matchtrack] Valissa stats source:", p1Raw.name, "| winners:", resolveStats(p1Raw).winners, "| UE:", resolveStats(p1Raw).unforcedErrors);
+  console.log("[matchtrack] Opponent stats source:", p2Raw.name, "| winners:", resolveStats(p2Raw).winners, "| UE:", resolveStats(p2Raw).unforcedErrors);
 
   const STAT_FIELDS = [
     "aces", "doubleFaults", "firstServePct", "firstServePoints", "firstServePointsWon",
@@ -1574,9 +1601,11 @@ function extractMatchData(plistObj) {
     "bhSliceWinner", "bhSliceError", "overheadWinner", "overheadError",
     "setOneScore", "setTwoScore", "setsWon",
   ];
+
   const POINT_FIELDS = [
-    "pointNumber", "setNumber", "gameNumber", "rallyLength", "whoHitShot", "whoWonPoint",
-    "pointShotType", "pointWonType", "errorType", "shotLocation", "serveType", "breakPoint",
+    "pointNumber", "setNumber", "gameNumber", "rallyLength",
+    "whoHitShot", "whoWonPoint", "pointShotType", "pointWonType",
+    "errorType", "shotLocation", "serveType", "breakPoint",
     "gameEndedOnPoint", "setEndedOnPoint", "matchEndedOnPoint",
     "pOneGameScore", "pTwoGameScore", "pOneSetScore", "pTwoSetScore", "pointTime",
   ];
@@ -1587,32 +1616,15 @@ function extractMatchData(plistObj) {
     return result;
   };
 
-  // Resolve player number from any common field name
-  const playerNum = p => p.playerNumber ?? p.playerNum ?? p.number ?? p.playerId ?? p.playerIndex;
-  // Try: 1-indexed match → 0-indexed match → positional fallback
-  // eslint-disable-next-line eqeqeq
-  const p1Raw = players.find(p => playerNum(p) == 1)
-             ?? players.find(p => playerNum(p) == 0)
-             ?? players[0]
-             ?? {};
-  // eslint-disable-next-line eqeqeq
-  const p2Raw = players.find(p => playerNum(p) == 2)
-             ?? players.find(p => playerNum(p) == 1 && p !== p1Raw)
-             ?? players[1]
-             ?? {};
-  // stats is an array of per-set objects — last element holds cumulative match totals
-  const resolveStats = p => {
-    const s = p.stats;
-    if (Array.isArray(s) && s.length > 0) return s[s.length - 1];
-    if (s && typeof s === "object") return s;
-    return p;
-  };
   const p1Stats = pickFields(resolveStats(p1Raw), STAT_FIELDS);
   const p2Stats = pickFields(resolveStats(p2Raw), STAT_FIELDS);
 
-  const points = matchLog.map(pt => pickFields(pt, POINT_FIELDS));
+  // Parse matchLog — whoWonPoint "1" = Valissa, "2" = opponent
+  const points = matchLog
+    .map(pt => pickFields(pt, POINT_FIELDS))
+    .sort((a, b) => (a.pointNumber ?? 0) - (b.pointNumber ?? 0));
 
-  // Derived calculations for Valissa (player 1)
+  // Derived calculations
   const wueRatio = p1Stats.unforcedErrors > 0
     ? +((p1Stats.winners ?? 0) / p1Stats.unforcedErrors).toFixed(2)
     : null;
@@ -1623,53 +1635,55 @@ function extractMatchData(plistObj) {
     ? +((p1Stats.secondServePointsWon ?? 0) / p1Stats.secondServePoints * 100).toFixed(1)
     : null;
 
-  // Rally length distribution with Valissa win %
-  const buckets = { "0-4": { total: 0, won: 0 }, "5-8": { total: 0, won: 0 }, "9+": { total: 0, won: 0 } };
+  // Rally length distribution
+  // whoWonPoint in matchLog is a string "1" or "2" — must use loose equality
+  const buckets = {
+    "0-4": { total: 0, won: 0 },
+    "5-8": { total: 0, won: 0 },
+    "9+":  { total: 0, won: 0 },
+  };
   for (const pt of points) {
-    if (pt.rallyLength == null) continue;
-    const key = pt.rallyLength <= 4 ? "0-4" : pt.rallyLength <= 8 ? "5-8" : "9+";
+    const rl = parseInt(pt.rallyLength, 10);
+    if (isNaN(rl)) continue;
+    // eslint-disable-next-line eqeqeq
+    const valissaWon = pt.whoWonPoint == "1";
+    const key = rl <= 4 ? "0-4" : rl <= 8 ? "5-8" : "9+";
     buckets[key].total++;
-    if (pt.whoWonPoint === 1) buckets[key].won++;
+    if (valissaWon) buckets[key].won++;
   }
   const rallyDistribution = {};
   for (const [key, { total, won }] of Object.entries(buckets)) {
-    rallyDistribution[key] = { total, valissaWinPct: total > 0 ? +(won / total * 100).toFixed(1) : null };
+    rallyDistribution[key] = {
+      total,
+      valissaWins: won,
+      valissaWinPct: total > 0 ? +(won / total * 100).toFixed(1) : null,
+    };
   }
 
-  // Derive set scores: track MAX game count per player per set, then add 1 to the set winner
-  // (matchLog points show score *before* the final game is complete, so last point is one short)
-  const rawSetMax = {};
-  for (const pt of points) {
-    if (pt.setNumber == null) continue;
-    const s = pt.setNumber;
-    if (!rawSetMax[s]) rawSetMax[s] = { p1: 0, p2: 0 };
-    if (pt.pOneSetScore != null) rawSetMax[s].p1 = Math.max(rawSetMax[s].p1, pt.pOneSetScore);
-    if (pt.pTwoSetScore != null) rawSetMax[s].p2 = Math.max(rawSetMax[s].p2, pt.pTwoSetScore);
-  }
-  const setNums = Object.keys(rawSetMax).map(Number).sort((a, b) => a - b);
+  // Set scores — read directly from setOneScore / setTwoScore in stats
+  // These are the reliable source; the matchLog reconstruction was error-prone
   const setScores = {
-    p1: setNums.map(n => {
-      const { p1, p2 } = rawSetMax[n];
-      return p1 >= p2 ? p1 + 1 : p1;
-    }),
-    p2: setNums.map(n => {
-      const { p1, p2 } = rawSetMax[n];
-      return p2 > p1 ? p2 + 1 : p2;
-    }),
+    p1: [p1Stats.setOneScore, p1Stats.setTwoScore].filter(s => s !== null),
+    p2: [p2Stats.setOneScore, p2Stats.setTwoScore].filter(s => s !== null),
   };
 
   return {
-    matchId: String(id),
+    matchId:        String(id),
     matchStartTime: matchStartTime ?? null,
-    season: season ?? null,
-    whoWonMatch: whoWonMatch ?? null,
-    opponentName: p2Raw.name ?? p2Raw.playerName ?? null,
-    valissaName: p1Raw.name ?? null,
+    season:         season ?? null,
+    whoWonMatch:    whoWonMatch ?? null,
+    valissaName,
+    opponentName,
     setScores,
-    valissa: p1Stats,
-    opponent: p2Stats,
-    matchLog: points,
-    calculated: { wueRatio, firstServePointsWonPct, secondServePointsWonPct, rallyDistribution },
+    valissa:        p1Stats,
+    opponent:       p2Stats,
+    matchLog:       points,
+    calculated: {
+      wueRatio,
+      firstServePointsWonPct,
+      secondServePointsWonPct,
+      rallyDistribution,
+    },
   };
 }
 
