@@ -1620,13 +1620,201 @@ function extractMatchData(plistObj) {
   };
 }
 
+// ─── MATCH DETAIL VIEW ────────────────────────────────────────────────────────
+function MatchDetail({ match, onBack }) {
+  const v    = match.valissa  || {};
+  const o    = match.opponent || {};
+  const calc = match.calculated || {};
+  const rally = calc.rallyDistribution || {};
+
+  const won = match.whoWonMatch === 1;
+
+  const fmtDate = ts => ts
+    ? new Date(ts).toLocaleDateString("en-AU", { day: "numeric", month: "long", year: "numeric" })
+    : "—";
+
+  const fmt    = val => val != null ? val : "—";
+  const fmtPct = val => val != null ? `${typeof val === "number" ? Math.round(val) : val}%` : "—";
+  const fmtRatio = val => val != null ? Number(val).toFixed(2) : "—";
+  const calcPct  = (won, total) => (total > 0 && won != null) ? `${Math.round(won / total * 100)}%` : "—";
+
+  const score = (() => {
+    const sets = [];
+    if (v.setOneScore != null && o.setOneScore != null) sets.push(`${v.setOneScore}–${o.setOneScore}`);
+    if (v.setTwoScore != null && o.setTwoScore != null) sets.push(`${v.setTwoScore}–${o.setTwoScore}`);
+    return sets.length ? sets.join(", ") : "—";
+  })();
+
+  const oppWueRatio = o.unforcedErrors > 0 ? o.winners / o.unforcedErrors : null;
+
+  // ── Shared table styles ──
+  const TH  = { fontSize: "0.7rem", color: COLORS.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", padding: "5px 8px", textAlign: "right" };
+  const THL = { ...TH, textAlign: "left" };
+  const THV = { ...TH, color: COLORS.accent };
+  const TD  = { padding: "9px 8px", fontSize: "0.88rem", textAlign: "right", borderTop: `1px solid ${COLORS.border}`, color: COLORS.text };
+  const TDL = { ...TD, textAlign: "left", color: COLORS.muted, fontSize: "0.82rem" };
+
+  // Side-by-side stat table: rows = [label, valissaVal, oppVal, valissaColor?]
+  const SideBySide = ({ rows }) => (
+    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+      <thead>
+        <tr>
+          <th style={THL}>Stat</th>
+          <th style={THV}>Valissa</th>
+          <th style={TH}>Opponent</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map(([label, vVal, oVal, vColor]) => (
+          <tr key={label}>
+            <td style={TDL}>{label}</td>
+            <td style={{ ...TD, color: vColor || COLORS.text, fontWeight: vColor ? 700 : 400 }}>{vVal}</td>
+            <td style={TD}>{oVal}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+
+  return (
+    <div>
+      <button className="btn btn-ghost btn-sm" onClick={onBack} style={{ marginBottom: 16 }}>
+        ← Match History
+      </button>
+
+      {/* ── Section 1: Match Info ── */}
+      <div className="card">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+          <div>
+            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", color: COLORS.text, lineHeight: 1.1 }}>
+              vs {match.opponentName || "Unknown Opponent"}
+            </div>
+            <div style={{ color: COLORS.muted, fontSize: "0.8rem", marginTop: 3 }}>{fmtDate(match.matchStartTime)}</div>
+          </div>
+          <span className={`badge ${won ? "badge-green" : "badge-red"}`}>{won ? "Win" : "Loss"}</span>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
+          {[["Score", score], ["Tournament", match.season || "—"], ["Surface", match.surface || "—"]].map(([label, val]) => (
+            <div key={label}>
+              <div className="label">{label}</div>
+              <div style={{ fontSize: "0.9rem", fontWeight: 600, color: COLORS.text, marginTop: 3 }}>{val}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Section 2: Service Stats ── */}
+      <div className="card">
+        <div className="card-title"><Zap size={16} /> Service Stats</div>
+        <SideBySide rows={[
+          ["1st Serve %",          fmtPct(v.firstServePct),                               fmtPct(o.firstServePct)],
+          ["1st Serve Pts Won",    calcPct(v.firstServePointsWon, v.firstServePoints),     calcPct(o.firstServePointsWon, o.firstServePoints)],
+          ["2nd Serve Pts Won",    calcPct(v.secondServePointsWon, v.secondServePoints),   calcPct(o.secondServePointsWon, o.secondServePoints)],
+          ["Aces",                 fmt(v.aces),                                            fmt(o.aces)],
+          ["Double Faults",        fmt(v.doubleFaults),                                   fmt(o.doubleFaults)],
+        ]} />
+      </div>
+
+      {/* ── Section 3: Return Stats ── */}
+      <div className="card">
+        <div className="card-title"><Activity size={16} /> Return Stats</div>
+        <SideBySide rows={[
+          ["1st Return Pts Won",   calcPct(v.firstReturnPointsWon, v.firstReturnPoints),   calcPct(o.firstReturnPointsWon, o.firstReturnPoints)],
+          ["2nd Return Pts Won",   calcPct(v.secondReturnPointsWon, v.secondReturnPoints), calcPct(o.secondReturnPointsWon, o.secondReturnPoints)],
+          ["Break Pts Converted",  calcPct(v.breakPointsWon, v.breakPoints),               calcPct(o.breakPointsWon, o.breakPoints)],
+        ]} />
+      </div>
+
+      {/* ── Section 4: Point Stats ── */}
+      <div className="card">
+        <div className="card-title"><BarChart2 size={16} /> Point Stats</div>
+        <SideBySide rows={[
+          ["Winners",        fmt(v.winners),       fmt(o.winners)],
+          ["Unforced Errors",fmt(v.unforcedErrors), fmt(o.unforcedErrors), v.unforcedErrors > o.unforcedErrors ? COLORS.red : null],
+          ["Forced Errors",  fmt(v.forcedErrors),  fmt(o.forcedErrors)],
+          ["W:UE Ratio",     fmtRatio(calc.wueRatio), fmtRatio(oppWueRatio)],
+        ]} />
+      </div>
+
+      {/* ── Section 5: Rally Length ── */}
+      <div className="card">
+        <div className="card-title"><TrendingUp size={16} /> Rally Length</div>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr>
+              <th style={THL}>Rally</th>
+              <th style={TH}>Total Pts</th>
+              <th style={THV}>Valissa Win %</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[["0–4 shots", "0-4"], ["5–8 shots", "5-8"], ["9+ shots", "9+"]].map(([label, key]) => {
+              const b = rally[key] || {};
+              const pct = b.valissaWinPct;
+              const col = pct == null ? COLORS.muted : pct >= 50 ? COLORS.accent : pct >= 40 ? COLORS.yellow : COLORS.red;
+              return (
+                <tr key={key}>
+                  <td style={TDL}>{label}</td>
+                  <td style={TD}>{b.total ?? "—"}</td>
+                  <td style={{ ...TD, color: col, fontWeight: 700 }}>{pct != null ? `${pct}%` : "—"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* ── Section 6: Shot Breakdown (Valissa only) ── */}
+      <div className="card">
+        <div className="card-title"><Target size={16} /> Shot Breakdown — Valissa</div>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr>
+              <th style={THL}>Shot</th>
+              <th style={{ ...TH, color: COLORS.accent }}>Winners</th>
+              <th style={{ ...TH, color: COLORS.red }}>Errors</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[
+              ["Forehand",  v.fhWinner,       v.fhError],
+              ["Backhand",  v.bhWinner,       v.bhError],
+              ["Return",    (v.fhReturnWinner ?? 0) + (v.bhReturnWinner ?? 0),
+                            (v.fhReturnError  ?? 0) + (v.bhReturnError  ?? 0)],
+              ["Approach",  v.approachWinner, v.approachError],
+            ].map(([label, w, e]) => (
+              <tr key={label}>
+                <td style={TDL}>{label}</td>
+                <td style={{ ...TD, color: COLORS.accent, fontWeight: 600 }}>{fmt(w)}</td>
+                <td style={{ ...TD, color: COLORS.red }}>{fmt(e)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* ── AI Coach placeholder ── */}
+      <div className="card" style={{ borderColor: COLORS.accentDim, background: `${COLORS.accent}08` }}>
+        <div className="card-title"><MessageSquare size={16} /> AI Coach Analysis</div>
+        <p style={{ color: COLORS.muted, fontSize: "0.83rem", marginBottom: 14 }}>
+          Generate a personalized coaching report for this match based on serve stats, return stats, rally patterns, and shot distribution.
+        </p>
+        <button className="btn btn-primary" disabled style={{ opacity: 0.5, cursor: "default", gap: 8 }}>
+          <Zap size={14} /> Generate Analysis
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── MATCHES TAB ──────────────────────────────────────────────────────────────
 function MatchesTab({ athleteId }) {
   const fileRef = useRef(null);
-  const [status,        setStatus]        = useState(null); // { ok: bool, text: string }
-  const [busy,          setBusy]          = useState(false);
-  const [matches,       setMatches]       = useState([]);
+  const [status,         setStatus]        = useState(null); // { ok: bool, text: string }
+  const [busy,           setBusy]          = useState(false);
+  const [matches,        setMatches]       = useState([]);
   const [loadingMatches, setLoadingMatches] = useState(true);
+  const [selectedMatch,  setSelectedMatch] = useState(null);
 
   // Fetch matches once on mount, filtered and sorted client-side to avoid composite index
   useEffect(() => {
@@ -1741,6 +1929,10 @@ function MatchesTab({ athleteId }) {
     return sets.length ? sets.join(", ") : "—";
   };
 
+  if (selectedMatch) {
+    return <MatchDetail match={selectedMatch} onBack={() => setSelectedMatch(null)} />;
+  }
+
   return (
     <div>
       {/* ── Import card ── */}
@@ -1814,7 +2006,7 @@ function MatchesTab({ athleteId }) {
                 ) : null}
               </div>
 
-              <button className="btn btn-ghost btn-sm" disabled style={{ opacity: 0.45, cursor: "default" }}>
+              <button className="btn btn-ghost btn-sm" onClick={() => setSelectedMatch(match)}>
                 <BarChart2 size={13} /> View Analysis
               </button>
             </div>
