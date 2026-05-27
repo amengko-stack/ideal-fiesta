@@ -13,6 +13,7 @@ import {
   doc, getDoc, setDoc, addDoc, deleteDoc,
   collection, getDocs, query, orderBy, limit,
 } from "firebase/firestore";
+import { saveDeferredPriorities, checkEscalations } from "./deferredPriorities.js";
 
 // ─── EXERCISE DATABASE ─────────────────────────────────────────────────────────
 const EXERCISE_DB = [
@@ -1919,12 +1920,154 @@ async function buildAthleteContext(athleteUid) {
 }
 
 // ─── MATCH DETAIL VIEW ────────────────────────────────────────────────────────
-function MatchDetail({ match, onBack, onDelete }) {
-  const [confirmDelete, setConfirmDelete] = useState(false);
+function MatchDetail({ match, onBack, onDelete, athleteId }) {
+  const [confirmDelete,   setConfirmDelete]   = useState(false);
+  const [analysis,        setAnalysis]        = useState(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisError,   setAnalysisError]   = useState(null);
+  const [escalations,     setEscalations]     = useState([]);
+
   const v    = match.valissa  || {};
   const o    = match.opponent || {};
   const calc = match.calculated || {};
   const rally = calc.rallyDistribution || {};
+
+  // Load existing saved analysis on mount
+  useEffect(() => {
+    if (!athleteId) return;
+    const matchId = match.id || match.matchId;
+    if (!matchId) return;
+    getDoc(doc(db, "athletes", athleteId, "matchAnalyses", matchId))
+      .then(snap => { if (snap.exists()) setAnalysis(snap.data()); })
+      .catch(() => {});
+  }, [athleteId, match.id, match.matchId]);
+
+  const handleGenerateAnalysis = async () => {
+    setAnalysisLoading(true);
+    setAnalysisError(null);
+    try {
+      const context = await buildAthleteContext(athleteId);
+
+      const acwr = context.sessionLogs.acwr;
+      const loadLevel = acwr == null ? "Unknown"
+        : acwr < 0.8  ? "Low"
+        : acwr <= 1.3 ? "Optimal"
+        : acwr <= 1.5 ? "High"
+        : "Very High";
+
+      const matchId = match.id || match.matchId;
+      const dp = context.deferredPriorities;
+
+      const scoreStr = (match.setScores?.p1 || [])
+        .map((s, i) => `${s}–${match.setScores?.p2?.[i] ?? "?"}`)
+        .join(", ") || "unknown";
+
+      const safePct = (won, total) =>
+        won != null && total > 0 ? Math.round(won / total * 100) + "%" : "—";
+
+      const systemPrompt =
+        "You are an expert youth tennis coach analyzing a competitive match for a developing athlete. " +
+        "Your role is to provide developmental coaching insights — find patterns, highlight strengths, " +
+        "identify priorities for growth. Be constructive and age-appropriate. " +
+        "Respond with valid JSON only — no markdown, no code fences, no extra text.";
+
+      const userPrompt =
+`Analyze this tennis match for ${context.athleteProfile?.name || "Valissa"}, age ${context.athleteProfile?.age || 12}.
+
+MATCH: ${match.whoWonMatch === 1 ? "WIN" : "LOSS"} vs ${match.opponentName || "Opponent"} on ${match.matchStartTime ? new Date(match.matchStartTime).toLocaleDateString() : "unknown date"}
+Score: ${scoreStr}
+
+SERVICE STATS (Valissa / Opponent):
+- 1st Serve %: ${v.firstServePct != null ? Math.round(v.firstServePct <= 1 ? v.firstServePct * 100 : v.firstServePct) : "—"}% / ${o.firstServePct != null ? Math.round(o.firstServePct <= 1 ? o.firstServePct * 100 : o.firstServePct) : "—"}%
+- 1st Serve Pts Won: ${safePct(v.firstServePointsWon, v.firstServePoints)} / ${safePct(o.firstServePointsWon, o.firstServePoints)}
+- 2nd Serve Pts Won: ${safePct(v.secondServePointsWon, v.secondServePoints)} / ${safePct(o.secondServePointsWon, o.secondServePoints)}
+- Aces: ${v.aces ?? "—"} / ${o.aces ?? "—"}
+- Double Faults: ${v.doubleFaults ?? "—"} / ${o.doubleFaults ?? "—"}
+
+POINT STATS (Valissa / Opponent):
+- Winners: ${v.winners ?? "—"} / ${o.winners ?? "—"}
+- Unforced Errors: ${v.unforcedErrors ?? "—"} / ${o.unforcedErrors ?? "—"}
+- Forced Errors: ${v.forcedErrors ?? "—"} / ${o.forcedErrors ?? "—"}
+- W:UE Ratio: ${calc.wueRatio != null ? Number(calc.wueRatio).toFixed(2) : "—"} / ${o.unforcedErrors > 0 ? (o.winners / o.unforcedErrors).toFixed(2) : "—"}
+
+RALLY PATTERNS:
+- 0–4 shots: ${rally["0-4"]?.total ?? "—"} pts, Valissa win ${rally["0-4"]?.valissaWinPct != null ? rally["0-4"].valissaWinPct + "%" : "—"}
+- 5–8 shots: ${rally["5-8"]?.total ?? "—"} pts, Valissa win ${rally["5-8"]?.valissaWinPct != null ? rally["5-8"].valissaWinPct + "%" : "—"}
+- 9+ shots: ${rally["9+"]?.total ?? "—"} pts, Valissa win ${rally["9+"]?.valissaWinPct != null ? rally["9+"].valissaWinPct + "%" : "—"}
+
+SHOT BREAKDOWN — Valissa (winners / errors):
+- Forehand: ${v.fhWinner ?? 0}W / ${v.fhError ?? 0}E
+- Backhand: ${v.bhWinner ?? 0}W / ${v.bhError ?? 0}E
+- Return (combined): ${(v.fhReturnWinner ?? 0) + (v.bhReturnWinner ?? 0)}W / ${(v.fhReturnError ?? 0) + (v.bhReturnError ?? 0)}E
+- Approach: ${v.approachWinner ?? 0}W / ${v.approachError ?? 0}E
+
+ATHLETE CONTEXT:
+- Training load this week (sRPE): ${context.sessionLogs.thisWeekSrpe}
+- 4-week avg sRPE: ${context.sessionLogs.fourWeekAvgSrpe}
+- ACWR: ${acwr ?? "N/A"} — Load level: ${loadLevel}
+- Avg sleep (7 days): ${context.wellbeing.avgSleepHours != null ? context.wellbeing.avgSleepHours + "h" : "no data"}
+- Avg mood: ${context.wellbeing.avgMood != null ? context.wellbeing.avgMood + "/5" : "no data"}
+- Low mood flag: ${context.wellbeing.lowMoodFlag ? "YES — 3+ consecutive low mood days" : "No"}
+- Upcoming tournament: ${context.tournamentStatus.hasUpcomingTournament ? `Yes, ${context.tournamentStatus.daysUntilTournament} days away` : "None"}
+- Recent tournament (last 14 days): ${context.tournamentStatus.playedTournamentRecently ? `Yes, ${context.tournamentStatus.daysSinceTournament} days ago` : "No"}
+
+EXISTING DEFERRED PRIORITIES (${dp.length} active):
+${dp.length > 0 ? dp.map(d => `- ${d.priority} (deferred ${d.weeksDeferredCount} weeks)`).join("\n") : "None"}
+
+Respond with exactly this JSON structure:
+{
+  "matchSummary": "2-3 sentence tactical overview of the match",
+  "loadContext": "How her current training load, sleep and wellbeing context affects interpretation of this match",
+  "criticalFindings": [
+    { "finding": "specific observation", "priority": "critical|important|monitor" }
+  ],
+  "strengthsToReinforce": ["strength1", "strength2"],
+  "rallyPatternAnalysis": "Analysis of short/medium/long rally win rates and what they reveal tactically",
+  "serveAnalysis": "Specific serve observations and development priorities",
+  "shotBreakdownInsights": "Key insights from shot-level winner and error patterns",
+  "deferredPriorities": [
+    { "priority": "short label", "reason": "why defer now", "resolveCondition": "when to address" }
+  ],
+  "parentNote": "Message for the parent — context, encouragement, what to watch for",
+  "athleteNote": "Direct message for ${context.athleteProfile?.name || "Valissa"} — positive, motivating, 1-2 action points"
+}`;
+
+      const res = await fetch("http://localhost:3001/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ system: systemPrompt, messages: [{ role: "user", content: userPrompt }] })
+      });
+      const data = await res.json();
+      const raw  = (data.content?.map(b => b.text || "").join("") || "").trim();
+      const text = raw.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
+      const clean = text.replace(/"((?:[^"\\]|\\[\s\S])*)"/g, (_, inner) =>
+        '"' + inner
+          .replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t")
+          .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "") + '"'
+      );
+      const parsed = JSON.parse(clean);
+
+      await setDoc(doc(db, "athletes", athleteId, "matchAnalyses", matchId), {
+        ...parsed,
+        matchId,
+        generatedAt: new Date().toISOString(),
+      });
+
+      if (parsed.deferredPriorities?.length > 0) {
+        await saveDeferredPriorities(athleteId, parsed.deferredPriorities);
+      }
+
+      const escalatedItems = await checkEscalations(athleteId);
+
+      setAnalysis(parsed);
+      setEscalations(escalatedItems);
+    } catch (err) {
+      console.error("Analysis error:", err);
+      setAnalysisError("Failed to generate analysis. Make sure the backend server is running.");
+    } finally {
+      setAnalysisLoading(false);
+    }
+  };
 
   const won = match.whoWonMatch === 1;
 
@@ -2099,15 +2242,154 @@ function MatchDetail({ match, onBack, onDelete }) {
         </table>
       </div>
 
-      {/* ── AI Coach placeholder ── */}
+      {/* ── AI Coach Analysis ── */}
       <div className="card" style={{ borderColor: COLORS.accentDim, background: `${COLORS.accent}08` }}>
         <div className="card-title"><MessageSquare size={16} /> AI Coach Analysis</div>
-        <p style={{ color: COLORS.muted, fontSize: "0.83rem", marginBottom: 14 }}>
-          Generate a personalized coaching report for this match based on serve stats, return stats, rally patterns, and shot distribution.
-        </p>
-        <button className="btn btn-primary" disabled style={{ opacity: 0.5, cursor: "default", gap: 8 }}>
-          <Zap size={14} /> Generate Analysis
-        </button>
+
+        {analysisError && (
+          <div style={{ color: COLORS.red, fontSize: "0.83rem", marginBottom: 12 }}>{analysisError}</div>
+        )}
+
+        {escalations.length > 0 && (
+          <div style={{ background: `${COLORS.red}18`, border: `1px solid ${COLORS.red}`, borderRadius: 8, padding: "10px 14px", marginBottom: 14 }}>
+            <div style={{ fontWeight: 700, color: COLORS.red, fontSize: "0.85rem", marginBottom: 6 }}>⚠ Escalated Priorities</div>
+            {escalations.map((e, i) => (
+              <div key={i} style={{ fontSize: "0.82rem", color: COLORS.text, marginBottom: 4 }}>
+                <strong>{e.priority}</strong> — deferred {e.weeksDeferredCount} weeks
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!analysis && !analysisLoading && (
+          <>
+            <p style={{ color: COLORS.muted, fontSize: "0.83rem", marginBottom: 14 }}>
+              Generate a personalized coaching report for this match based on serve stats, return stats, rally patterns, and shot distribution.
+            </p>
+            <button className="btn btn-primary" onClick={handleGenerateAnalysis} style={{ gap: 8 }}>
+              <Zap size={14} /> Generate Analysis
+            </button>
+          </>
+        )}
+
+        {analysisLoading && (
+          <div style={{ textAlign: "center", padding: "24px 0", color: COLORS.muted }}>
+            <div style={{ fontSize: "1.4rem", marginBottom: 8 }}>⏳</div>
+            <div style={{ fontSize: "0.9rem" }}>Analyzing match...</div>
+          </div>
+        )}
+
+        {analysis && !analysisLoading && (() => {
+          const SecHeader = ({ children, color }) => (
+            <div style={{ fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: color || COLORS.muted, marginBottom: 6 }}>
+              {children}
+            </div>
+          );
+          return (
+            <div>
+              {/* Match Summary */}
+              <div style={{ marginBottom: 18 }}>
+                <SecHeader>Match Summary</SecHeader>
+                <p style={{ fontSize: "0.88rem", color: COLORS.text, lineHeight: 1.6, margin: 0 }}>{analysis.matchSummary}</p>
+              </div>
+
+              {/* Load & Wellbeing Context */}
+              {analysis.loadContext && (
+                <div style={{ background: `${COLORS.accent}10`, border: `1px solid ${COLORS.accentDim}`, borderRadius: 8, padding: "10px 14px", marginBottom: 14 }}>
+                  <SecHeader color={COLORS.accentDim}>Load & Wellbeing Context</SecHeader>
+                  <p style={{ fontSize: "0.83rem", color: COLORS.text, lineHeight: 1.5, margin: 0 }}>{analysis.loadContext}</p>
+                </div>
+              )}
+
+              {/* Critical Findings */}
+              {analysis.criticalFindings?.length > 0 && (
+                <div style={{ marginBottom: 14 }}>
+                  <SecHeader>Critical Findings</SecHeader>
+                  {analysis.criticalFindings.map((cf, i) => {
+                    const borderCol = cf.priority === "critical" ? COLORS.red : cf.priority === "important" ? COLORS.yellow : COLORS.border;
+                    const bgCol     = cf.priority === "critical" ? `${COLORS.red}12` : cf.priority === "important" ? `${COLORS.yellow}12` : "transparent";
+                    return (
+                      <div key={i} style={{ border: `1px solid ${borderCol}`, background: bgCol, borderRadius: 8, padding: "8px 12px", marginBottom: 8 }}>
+                        <span style={{ fontSize: "0.66rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: borderCol }}>{cf.priority}</span>
+                        <p style={{ fontSize: "0.84rem", color: COLORS.text, margin: "4px 0 0" }}>{cf.finding}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Strengths */}
+              {analysis.strengthsToReinforce?.length > 0 && (
+                <div style={{ marginBottom: 14 }}>
+                  <SecHeader>Strengths to Reinforce</SecHeader>
+                  {analysis.strengthsToReinforce.map((s, i) => (
+                    <div key={i} style={{ fontSize: "0.84rem", color: COLORS.text, padding: "5px 0", borderTop: i === 0 ? "none" : `1px solid ${COLORS.border}` }}>
+                      ✓ {s}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Rally Pattern Analysis */}
+              {analysis.rallyPatternAnalysis && (
+                <div style={{ marginBottom: 14 }}>
+                  <SecHeader>Rally Pattern Analysis</SecHeader>
+                  <p style={{ fontSize: "0.84rem", color: COLORS.text, lineHeight: 1.5, margin: 0 }}>{analysis.rallyPatternAnalysis}</p>
+                </div>
+              )}
+
+              {/* Serve Analysis */}
+              {analysis.serveAnalysis && (
+                <div style={{ marginBottom: 14 }}>
+                  <SecHeader>Serve Analysis</SecHeader>
+                  <p style={{ fontSize: "0.84rem", color: COLORS.text, lineHeight: 1.5, margin: 0 }}>{analysis.serveAnalysis}</p>
+                </div>
+              )}
+
+              {/* Shot Breakdown Insights */}
+              {analysis.shotBreakdownInsights && (
+                <div style={{ marginBottom: 14 }}>
+                  <SecHeader>Shot Breakdown Insights</SecHeader>
+                  <p style={{ fontSize: "0.84rem", color: COLORS.text, lineHeight: 1.5, margin: 0 }}>{analysis.shotBreakdownInsights}</p>
+                </div>
+              )}
+
+              {/* Deferred Priorities */}
+              {analysis.deferredPriorities?.length > 0 && (
+                <div style={{ background: `${COLORS.yellow}10`, border: `1px solid ${COLORS.yellow}50`, borderRadius: 8, padding: "10px 14px", marginBottom: 14 }}>
+                  <SecHeader color={COLORS.yellow}>Deferred Priorities</SecHeader>
+                  {analysis.deferredPriorities.map((dp, i) => (
+                    <div key={i} style={{ marginBottom: i < analysis.deferredPriorities.length - 1 ? 10 : 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: "0.84rem", color: COLORS.text }}>{dp.priority}</div>
+                      {dp.reason && <div style={{ fontSize: "0.78rem", color: COLORS.muted, marginTop: 2 }}>{dp.reason}</div>}
+                      {dp.resolveCondition && <div style={{ fontSize: "0.78rem", color: COLORS.muted, marginTop: 2, fontStyle: "italic" }}>Resolve when: {dp.resolveCondition}</div>}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Parent Note */}
+              {analysis.parentNote && (
+                <div style={{ background: `${COLORS.accent}0d`, border: `1px solid ${COLORS.accentDim}60`, borderRadius: 8, padding: "10px 14px", marginBottom: 14 }}>
+                  <SecHeader color={COLORS.accentDim}>Note for Parent</SecHeader>
+                  <p style={{ fontSize: "0.84rem", color: COLORS.text, lineHeight: 1.5, margin: 0 }}>{analysis.parentNote}</p>
+                </div>
+              )}
+
+              {/* Athlete Note */}
+              {analysis.athleteNote && (
+                <div style={{ background: `${COLORS.border}60`, borderRadius: 8, padding: "10px 14px", marginBottom: 16 }}>
+                  <SecHeader>Note for {match.valissaName || "Valissa"}</SecHeader>
+                  <p style={{ fontSize: "0.84rem", color: COLORS.text, lineHeight: 1.5, margin: 0 }}>{analysis.athleteNote}</p>
+                </div>
+              )}
+
+              <button className="btn btn-ghost btn-sm" onClick={handleGenerateAnalysis} style={{ gap: 6 }}>
+                <Zap size={13} /> Regenerate Analysis
+              </button>
+            </div>
+          );
+        })()}
       </div>
 
       {/* ── Delete Match ── */}
@@ -2275,7 +2557,7 @@ function MatchesTab({ athleteId }) {
   };
 
   if (selectedMatch) {
-    return <MatchDetail match={selectedMatch} onBack={() => setSelectedMatch(null)} onDelete={handleDelete} />;
+    return <MatchDetail match={selectedMatch} onBack={() => setSelectedMatch(null)} onDelete={handleDelete} athleteId={athleteId} />;
   }
 
   return (
