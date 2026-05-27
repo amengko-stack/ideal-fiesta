@@ -1734,8 +1734,8 @@ function MatchDetail({ match, onBack }) {
       <thead>
         <tr>
           <th style={THL}>Stat</th>
-          <th style={THV}>Valissa</th>
-          <th style={TH}>Opponent</th>
+          <th style={THV}>{match.valissaName || "Valissa"}</th>
+          <th style={TH}>{match.opponentName || "Opponent"}</th>
         </tr>
       </thead>
       <tbody>
@@ -1851,7 +1851,7 @@ function MatchDetail({ match, onBack }) {
 
       {/* ── Section 6: Shot Breakdown (Valissa only) ── */}
       <div className="card">
-        <div className="card-title"><Target size={16} /> Shot Breakdown — Valissa</div>
+        <div className="card-title"><Target size={16} /> Shot Breakdown — {match.valissaName || "Valissa"}</div>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
