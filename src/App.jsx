@@ -1688,6 +1688,22 @@ function MatchDetail({ match, onBack }) {
         ← Match History
       </button>
 
+      {/* ── TEMP DEBUG — remove after confirming field names ── */}
+      <div className="card" style={{ background: "rgba(245,197,24,0.08)", borderColor: COLORS.yellow }}>
+        <div style={{ fontSize: "0.72rem", color: COLORS.yellow, fontWeight: 700, marginBottom: 8 }}>DEBUG — Valissa stats keys stored in Firestore:</div>
+        <div style={{ fontSize: "0.72rem", color: COLORS.text, wordBreak: "break-all", lineHeight: 1.6 }}>
+          {Object.keys(v).join(", ") || "(valissa object is empty)"}
+        </div>
+        <div style={{ fontSize: "0.72rem", color: COLORS.yellow, fontWeight: 700, margin: "10px 0 6px" }}>Sample values (aces / firstServePct / setOneScore / winners):</div>
+        <div style={{ fontSize: "0.72rem", color: COLORS.text }}>
+          {JSON.stringify({ aces: v.aces, firstServePct: v.firstServePct, setOneScore: v.setOneScore, winners: v.winners })}
+        </div>
+        <div style={{ fontSize: "0.72rem", color: COLORS.yellow, fontWeight: 700, margin: "10px 0 6px" }}>Top-level match keys:</div>
+        <div style={{ fontSize: "0.72rem", color: COLORS.text, wordBreak: "break-all", lineHeight: 1.6 }}>
+          {Object.keys(match).join(", ")}
+        </div>
+      </div>
+
       {/* ── Section 1: Match Info ── */}
       <div className="card">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
