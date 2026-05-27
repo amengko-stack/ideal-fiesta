@@ -1587,13 +1587,22 @@ function extractMatchData(plistObj) {
     return result;
   };
 
-  // Try common field names for player number
+  // Resolve player number from any common field name
   const playerNum = p => p.playerNumber ?? p.playerNum ?? p.number ?? p.playerId ?? p.playerIndex;
+  // Try: 1-indexed match → 0-indexed match → positional fallback
   // eslint-disable-next-line eqeqeq
-  const p1Raw = players.find(p => playerNum(p) == 1) || {};
+  const p1Raw = players.find(p => playerNum(p) == 1)
+             ?? players.find(p => playerNum(p) == 0)
+             ?? players[0]
+             ?? {};
   // eslint-disable-next-line eqeqeq
-  const p2Raw = players.find(p => playerNum(p) == 2) || {};
-  console.log("[matchtrack] p1Raw keys:", Object.keys(p1Raw).join(", "));
+  const p2Raw = players.find(p => playerNum(p) == 2)
+             ?? players.find(p => playerNum(p) == 1 && p !== p1Raw)
+             ?? players[1]
+             ?? {};
+  console.log("[matchtrack] players.length:", players.length,
+    "| p1Raw keys:", Object.keys(p1Raw).join(", "),
+    "| p1Raw.stats keys:", Object.keys(p1Raw.stats ?? {}).join(", ") || "(no .stats sub-key)");
   // Stats may be nested under .stats or stored directly on the player object
   const p1Stats = pickFields(p1Raw.stats ?? p1Raw, STAT_FIELDS);
   const p2Stats = pickFields(p2Raw.stats ?? p2Raw, STAT_FIELDS);
