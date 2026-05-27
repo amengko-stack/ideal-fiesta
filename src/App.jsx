@@ -1637,47 +1637,43 @@ function extractMatchData(plistObj) {
     .map(pt => pickFields(pt, POINT_FIELDS))
     .sort((a, b) => (a.pointNumber ?? 0) - (b.pointNumber ?? 0));
 
-  // Shot breakdown from matchLog — stats object stores zeros in some match files
-  // whoHitShot 1 = Valissa, 2 = opponent; pointWonType "winner" | "ufE"
-  const _shotBreak = { v: {}, o: {} };
-  for (const pt of points) {
-    // eslint-disable-next-line eqeqeq
-    const side  = pt.whoHitShot == 1 ? "v" : pt.whoHitShot == 2 ? "o" : null;
-    if (!side) continue;
-    const shot  = pt.pointShotType ?? "";
-    const err   = pt.errorType || shot;
-    const isWin = pt.pointWonType === "winner";
-    const isUE  = pt.pointWonType === "ufE";
-    const inc   = key => { _shotBreak[side][key] = (_shotBreak[side][key] ?? 0) + 1; };
-    if (isWin) {
-      if      (shot === "fh")                    inc("fhWinner");
-      else if (shot === "bh")                    inc("bhWinner");
-      else if (shot === "oh")                    inc("overheadWinner");
-      else if (shot === "ap")                    inc("approachWinner");
-      else if (shot === "fhR")                   inc("fhReturnWinner");
-      else if (shot === "bhR")                   inc("bhReturnWinner");
-      else if (shot === "fhV" || shot === "fhv") inc("fhVolleyWinner");
-      else if (shot === "bhV" || shot === "bhv") inc("bhVolleyWinner");
-    }
-    if (isUE) {
-      if      (err === "fh"  || (err === "" && shot === "fh"))  inc("fhError");
-      else if (err === "bh"  || (err === "" && shot === "bh"))  inc("bhError");
-      else if (err === "oh"  || (err === "" && shot === "oh"))  inc("overheadError");
-      else if (err === "ap"  || (err === "" && shot === "ap"))  inc("approachError");
-      else if (err === "fhR")                                   inc("fhReturnError");
-      else if (err === "bhR")                                   inc("bhReturnError");
-      else if (err === "fhV" || err === "fhv")                  inc("fhVolleyError");
-      else if (err === "bhV" || err === "bhv")                  inc("bhVolleyError");
-    }
-  }
-  // Prefer non-zero stats value; fall back to matchLog-computed value
-  const mergeShots = (stats, computed) => {
-    const out = { ...stats };
-    for (const [k, v] of Object.entries(computed)) {
-      if ((out[k] ?? 0) === 0) out[k] = v;
-    }
-    return out;
+  // Shot type code → field name mapping
+  const SHOT_FIELD_MAP = {
+    'fh': 'fh', 'fhS': 'fhSlice', 'fhV': 'fhVolley', 'fhR': 'fhReturn',
+    'fhIO': 'fhIO', 'fhOH': 'overhead', 'fhA': 'approach',
+    'bh': 'bh', 'bhS': 'bhSlice', 'bhV': 'bhVolley', 'bhR': 'bhReturn', 'bhA': 'approach',
   };
+
+  // Initialise shot counters for both players
+  const shotFields = ['fh','fhSlice','fhVolley','fhReturn','fhIO','overhead','approach','bh','bhSlice','bhVolley','bhReturn'];
+  const p1Shot = {}, p2Shot = {};
+  for (const f of shotFields) {
+    p1Shot[`${f}Winner`] = 0; p1Shot[`${f}Error`] = 0;
+    p2Shot[`${f}Winner`] = 0; p2Shot[`${f}Error`] = 0;
+  }
+
+  // Reconstruct from matchLog
+  for (const pt of points) {
+    const shotCode = pt.pointShotType ?? '';
+    const wonType  = pt.pointWonType ?? '';
+    // eslint-disable-next-line eqeqeq
+    const isP1     = pt.whoHitShot == 1;
+    const target   = isP1 ? p1Shot : p2Shot;
+    const field    = SHOT_FIELD_MAP[shotCode];
+    if (!field) continue;
+
+    if (wonType === 'w')   target[`${field}Winner`] += 1;
+    if (wonType === 'ufE') target[`${field}Error`]  += 1;
+    if (wonType === 'fE')  target[`${field}Error`]  += 1;
+  }
+
+  // Check if stats array has shot breakdown data — if all zero, use reconstructed values
+  const statsHasShotData = (p1Stats.fhWinner ?? 0) + (p1Stats.fhError ?? 0) + (p1Stats.bhWinner ?? 0) + (p1Stats.bhError ?? 0) > 0;
+  if (!statsHasShotData) {
+    console.log("[matchtrack] shot breakdown not in stats — using matchLog reconstruction");
+    Object.assign(p1Stats, p1Shot);
+    Object.assign(p2Stats, p2Shot);
+  }
 
   // Derived calculations
   const wueRatio = p1Stats.unforcedErrors > 0
@@ -1730,8 +1726,8 @@ function extractMatchData(plistObj) {
     valissaName,
     opponentName,
     setScores,
-    valissa:        mergeShots(p1Stats, _shotBreak.v),
-    opponent:       mergeShots(p2Stats, _shotBreak.o),
+    valissa:        p1Stats,
+    opponent:       p2Stats,
     matchLog:       points,
     calculated: {
       wueRatio,
