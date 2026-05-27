@@ -1601,9 +1601,36 @@ function extractMatchData(plistObj) {
 
 // ─── MATCHES TAB ──────────────────────────────────────────────────────────────
 function MatchesTab({ athleteId }) {
-  const fileRef   = useRef(null);
-  const [status, setStatus] = useState(null); // { ok: bool, text: string }
-  const [busy,   setBusy]   = useState(false);
+  const fileRef = useRef(null);
+  const [status,        setStatus]        = useState(null); // { ok: bool, text: string }
+  const [busy,          setBusy]          = useState(false);
+  const [matches,       setMatches]       = useState([]);
+  const [loadingMatches, setLoadingMatches] = useState(true);
+
+  // Fetch matches once on mount, filtered and sorted client-side to avoid composite index
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const snap = await getDocs(collection(db, "matches"));
+        if (cancelled) return;
+        const all = snap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .filter(m => m.athleteId === athleteId)
+          .sort((a, b) => {
+            if (!a.matchStartTime) return 1;
+            if (!b.matchStartTime) return -1;
+            return b.matchStartTime.localeCompare(a.matchStartTime);
+          });
+        setMatches(all);
+      } catch (err) {
+        console.error("Failed to load matches:", err);
+      } finally {
+        if (!cancelled) setLoadingMatches(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [athleteId]);
 
   const handleFile = async (e) => {
     const file = e.target.files[0];
@@ -1614,7 +1641,6 @@ function MatchesTab({ athleteId }) {
     setStatus(null);
 
     try {
-      // Read file via FileReader
       const text = await new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload  = ev => resolve(ev.target.result);
@@ -1622,7 +1648,6 @@ function MatchesTab({ athleteId }) {
         reader.readAsText(file);
       });
 
-      // Parse plist
       let plistObj;
       try {
         plistObj = parsePlist(text);
@@ -1647,7 +1672,6 @@ function MatchesTab({ athleteId }) {
         return;
       }
 
-      // Duplicate check
       const existing = await getDoc(doc(db, "matches", matchData.matchId));
       if (existing.exists()) {
         setStatus({ ok: false, text: "This match has already been imported" });
@@ -1655,18 +1679,16 @@ function MatchesTab({ athleteId }) {
         return;
       }
 
-      // Save to Firestore
-      await setDoc(doc(db, "matches", matchData.matchId), {
-        ...matchData,
-        athleteId,
-        importedAt: new Date().toISOString(),
-      });
+      const stored = { ...matchData, athleteId, importedAt: new Date().toISOString() };
+      await setDoc(doc(db, "matches", matchData.matchId), stored);
+
+      // Optimistically prepend to list so it appears immediately
+      setMatches(prev => [{ id: matchData.matchId, ...stored }, ...prev]);
 
       const dateStr = matchData.matchStartTime
         ? new Date(matchData.matchStartTime).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })
         : "unknown date";
-      const opponent = matchData.opponentName || "Opponent";
-      setStatus({ ok: true, text: `Match imported — Valissa vs ${opponent} on ${dateStr}` });
+      setStatus({ ok: true, text: `Match imported — Valissa vs ${matchData.opponentName || "Opponent"} on ${dateStr}` });
     } catch (err) {
       console.error("Match import error:", err);
       setStatus({ ok: false, text: "Invalid file format — please select a .matchtrack file" });
@@ -1675,8 +1697,22 @@ function MatchesTab({ athleteId }) {
     }
   };
 
+  const fmtDate = ts => ts
+    ? new Date(ts).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })
+    : "Unknown date";
+
+  const fmtScore = match => {
+    const v = match.valissa  || {};
+    const o = match.opponent || {};
+    const sets = [];
+    if (v.setOneScore != null && o.setOneScore != null) sets.push(`${v.setOneScore}–${o.setOneScore}`);
+    if (v.setTwoScore != null && o.setTwoScore != null) sets.push(`${v.setTwoScore}–${o.setTwoScore}`);
+    return sets.length ? sets.join(", ") : "—";
+  };
+
   return (
     <div>
+      {/* ── Import card ── */}
       <div className="card">
         <div className="card-title"><History size={18} /> Match History</div>
         <p style={{ color: COLORS.muted, fontSize: "0.83rem", marginBottom: 16 }}>
@@ -1703,6 +1739,57 @@ function MatchesTab({ athleteId }) {
           </div>
         )}
       </div>
+
+      {/* ── Match list ── */}
+      {loadingMatches ? (
+        <div style={{ textAlign: "center", padding: "28px 0", color: COLORS.muted, fontSize: "0.85rem" }}>
+          Loading matches…
+        </div>
+      ) : matches.length === 0 ? (
+        <div className="card" style={{ textAlign: "center", padding: "36px 20px" }}>
+          <History size={34} color={COLORS.muted} style={{ opacity: 0.35, marginBottom: 10 }} />
+          <div style={{ color: COLORS.muted, fontSize: "0.88rem" }}>No matches imported yet</div>
+        </div>
+      ) : (
+        matches.map(match => {
+          const won   = match.whoWonMatch === 1;
+          const score = fmtScore(match);
+          return (
+            <div key={match.id} className="card">
+              <div className="flex-between" style={{ alignItems: "flex-start", marginBottom: 10 }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: "0.97rem", marginBottom: 3 }}>
+                    vs {match.opponentName || "Unknown Opponent"}
+                  </div>
+                  <div style={{ color: COLORS.muted, fontSize: "0.78rem" }}>{fmtDate(match.matchStartTime)}</div>
+                </div>
+                <span className={`badge ${won ? "badge-green" : "badge-red"}`}>
+                  {won ? "Win" : "Loss"}
+                </span>
+              </div>
+
+              <div style={{ display: "flex", gap: 20, marginBottom: 14, flexWrap: "wrap" }}>
+                <div>
+                  <div className="label">Score</div>
+                  <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.3rem", color: COLORS.text, lineHeight: 1.1 }}>
+                    {score}
+                  </div>
+                </div>
+                {match.season ? (
+                  <div>
+                    <div className="label">Tournament</div>
+                    <div style={{ fontSize: "0.85rem", color: COLORS.text, paddingTop: 2 }}>{match.season}</div>
+                  </div>
+                ) : null}
+              </div>
+
+              <button className="btn btn-ghost btn-sm" disabled style={{ opacity: 0.45, cursor: "default" }}>
+                <BarChart2 size={13} /> View Analysis
+              </button>
+            </div>
+          );
+        })
+      )}
     </div>
   );
 }
