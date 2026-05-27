@@ -1687,6 +1687,186 @@ function extractMatchData(plistObj) {
   };
 }
 
+// ─── ATHLETE CONTEXT BUILDER ─────────────────────────────────────────────────
+// Assembles a unified context object from Firestore before every AI analysis.
+// tournamentStatus lives at: athletes/{uid}/config/tournamentStatus
+// deferredPriorities live at: athletes/{uid}/deferredPriorities (status="active")
+async function buildAthleteContext(athleteUid) {
+  const now       = new Date();
+  const msPerDay  = 24 * 60 * 60 * 1000;
+  const isoToday  = now.toISOString().slice(0, 10);
+  const cutoff28  = new Date(now - 28 * msPerDay).toISOString().slice(0, 10);
+  const cutoff14  = new Date(now - 14 * msPerDay).toISOString().slice(0, 10);
+  const cutoff7   = new Date(now - 7  * msPerDay).toISOString().slice(0, 10);
+
+  // Assign a ISO week key (Monday-anchored) to a YYYY-MM-DD date string
+  const weekKey = dateStr => {
+    const d   = new Date(dateStr);
+    const mon = new Date(d);
+    mon.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+    return mon.toISOString().slice(0, 10);
+  };
+  const thisWeekKey = weekKey(isoToday);
+
+  // ── 1. Session logs (weekLogs) — last 28 days ──────────────────────────────
+  const logsSnap = await getDocs(
+    query(collection(db, "athletes", athleteUid, "weekLogs"), orderBy("date", "desc"))
+  );
+  const allLogs = logsSnap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .filter(l => l.date >= cutoff28);
+
+  const logsWithSrpe = allLogs.map(l => ({
+    ...l,
+    srpe: (l.rpe ?? 0) * (l.duration ?? 0),
+  }));
+
+  const weeklyTotals = {};
+  for (const l of logsWithSrpe) {
+    const wk = weekKey(l.date);
+    weeklyTotals[wk] = (weeklyTotals[wk] ?? 0) + l.srpe;
+  }
+  const thisWeekSrpe  = weeklyTotals[thisWeekKey] ?? 0;
+  // 4-week average divides total load by 4 regardless of how many weeks have data
+  const fourWeekTotal = Object.values(weeklyTotals).reduce((s, v) => s + v, 0);
+  const fourWeekAvg   = +(fourWeekTotal / 4).toFixed(1);
+  const acwr          = fourWeekAvg > 0 ? +(thisWeekSrpe / fourWeekAvg).toFixed(2) : null;
+
+  const sessionLogs = {
+    sessions:        logsWithSrpe,
+    thisWeekSrpe,
+    fourWeekAvgSrpe: fourWeekAvg,
+    acwr,
+  };
+
+  // ── 2. Wellbeing — last 7 days ─────────────────────────────────────────────
+  const wellSnap = await getDocs(
+    query(collection(db, "athletes", athleteUid, "wellbeing"), orderBy("date", "desc"), limit(14))
+  );
+  const wellEntries = wellSnap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .filter(w => w.date >= cutoff7);
+
+  const numAvg = vals => vals.length ? +(vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2) : null;
+
+  const sleepVals    = wellEntries.map(e => e.sleep).filter(v => v != null);
+  // Wellbeing entries store mood/soreness as mood or moodAM/moodPM depending on type
+  const moodVals     = wellEntries.map(e => e.mood ?? e.moodAM ?? e.moodPM).filter(v => v != null);
+  const sorenessVals = wellEntries.map(e => e.soreness ?? e.sorenessAM ?? e.sorenessPM).filter(v => v != null);
+
+  // Consecutive low-mood check (sort asc so days are in order)
+  const sortedWell = [...wellEntries].sort((a, b) => a.date.localeCompare(b.date));
+  let streak = 0, maxStreak = 0;
+  for (const e of sortedWell) {
+    const m = e.mood ?? e.moodAM ?? e.moodPM;
+    if (m != null && m < 2.5) { streak++; maxStreak = Math.max(maxStreak, streak); }
+    else if (m != null)        { streak = 0; }
+  }
+
+  const wellbeing = {
+    entries:        wellEntries,
+    avgSleepHours:  numAvg(sleepVals),
+    avgMood:        numAvg(moodVals),
+    avgSoreness:    numAvg(sorenessVals),
+    lowMoodFlag:    maxStreak >= 3,
+    lowSleepFlag:   sleepVals.filter(s => s < 7).length >= 5,
+  };
+
+  // ── 3. Tournament status ───────────────────────────────────────────────────
+  let tournamentStatus = {
+    hasUpcomingTournament:   false,
+    daysUntilTournament:     null,
+    playedTournamentRecently: false,
+    daysSinceTournament:     null,
+  };
+  try {
+    const tSnap = await getDoc(doc(db, "athletes", athleteUid, "config", "tournamentStatus"));
+    if (tSnap.exists()) {
+      const t        = tSnap.data();
+      const daysUntil = t.upcomingTournamentDate
+        ? Math.round((new Date(t.upcomingTournamentDate) - now) / msPerDay)
+        : null;
+      const daysSince = t.lastTournamentDate
+        ? Math.round((now - new Date(t.lastTournamentDate)) / msPerDay)
+        : null;
+      tournamentStatus = {
+        hasUpcomingTournament:    daysUntil != null && daysUntil >= 0,
+        daysUntilTournament:      daysUntil != null && daysUntil >= 0 ? daysUntil : null,
+        playedTournamentRecently: daysSince != null && daysSince <= 14,
+        daysSinceTournament:      daysSince,
+      };
+    }
+  } catch (_) { /* document not yet created — defaults stand */ }
+
+  // ── 4. Last strength session ───────────────────────────────────────────────
+  const strengthSnap = await getDocs(
+    query(collection(db, "athletes", athleteUid, "sessions"), orderBy("date", "desc"), limit(1))
+  );
+  let lastStrengthSession = null;
+  if (!strengthSnap.empty) {
+    const s = strengthSnap.docs[0].data();
+    lastStrengthSession = {
+      date:      s.date ?? null,
+      exercises: (s.exercises ?? []).map(ex => ({
+        name:             ex.name,
+        setsCompleted:    ex.sets,
+        repsCompleted:    ex.reps,
+        difficultyRating: ex.difficulty,
+        completed:        ex.completed,
+      })),
+    };
+  }
+
+  // ── 5. Athlete profile ─────────────────────────────────────────────────────
+  const profileSnap = await getDoc(doc(db, "athletes", athleteUid));
+  let athleteProfile = null;
+  if (profileSnap.exists()) {
+    const p   = profileSnap.data();
+    const dob = p.dob ? new Date(p.dob) : null;
+    athleteProfile = {
+      name:       p.name ?? null,
+      age:        dob ? Math.floor((now - dob) / (365.25 * msPerDay)) : null,
+      tennisSaps: p.gaps ?? [],
+      phvStage:   p.phvStage ?? null,
+    };
+  }
+
+  // ── 6. Most recent match — last 14 days ────────────────────────────────────
+  const matchesSnap = await getDocs(collection(db, "matches"));
+  const recentMatch = matchesSnap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .filter(m => m.athleteId === athleteUid && (m.matchStartTime ?? "") >= cutoff14)
+    .sort((a, b) => (b.matchStartTime ?? "").localeCompare(a.matchStartTime ?? ""))[0] ?? null;
+
+  // ── 7. Deferred priorities (status = "active") ─────────────────────────────
+  const dpSnap = await getDocs(collection(db, "athletes", athleteUid, "deferredPriorities"));
+  const deferredPriorities = dpSnap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .filter(dp => dp.status === "active")
+    .map(dp => ({
+      priority:          dp.priority   ?? null,
+      reason:            dp.reason     ?? null,
+      deferredDate:      dp.deferredDate ?? null,
+      resolveCondition:  dp.resolveCondition ?? null,
+      weeksDeferredCount: dp.weeksDeferredCount ?? 0,
+    }));
+
+  const context = {
+    generatedAt:         now.toISOString(),
+    athleteUid,
+    sessionLogs,
+    wellbeing,
+    tournamentStatus,
+    lastStrengthSession,
+    athleteProfile,
+    recentMatch,
+    deferredPriorities,
+  };
+
+  console.log("[buildAthleteContext] assembled context:", JSON.stringify(context, null, 2));
+  return context;
+}
+
 // ─── MATCH DETAIL VIEW ────────────────────────────────────────────────────────
 function MatchDetail({ match, onBack, onDelete }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
