@@ -15,6 +15,12 @@ import {
 } from "firebase/firestore";
 import { saveDeferredPriorities, checkEscalations } from "./deferredPriorities.js";
 
+// In development the Express proxy runs on localhost:3001.
+// In production (Firebase Hosting) /api/chat is rewritten to the Cloud Function.
+const API_URL = import.meta.env.DEV
+  ? "http://localhost:3001/api/chat"
+  : "/api/chat";
+
 // ─── EXERCISE DATABASE ─────────────────────────────────────────────────────────
 const EXERCISE_DB = [
   // LOWER BODY STRENGTH
@@ -953,7 +959,7 @@ Respond with ONLY valid JSON, no other text:
 }`;
 
     try {
-      const res = await fetch("http://localhost:3001/api/chat", {
+      const res = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -2032,7 +2038,7 @@ Respond with exactly this JSON structure:
   "athleteNote": "Direct message for ${context.athleteProfile?.name || "Valissa"} — positive, motivating, 1-2 action points"
 }`;
 
-      const res = await fetch("http://localhost:3001/api/chat", {
+      const res = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ system: systemPrompt, messages: [{ role: "user", content: userPrompt }] })
