@@ -1636,17 +1636,26 @@ function extractMatchData(plistObj) {
     rallyDistribution[key] = { total, valissaWinPct: total > 0 ? +(won / total * 100).toFixed(1) : null };
   }
 
-  // Derive set scores from matchLog: last point of each set carries the authoritative score
-  const setScoreMap = {};
+  // Derive set scores: track MAX game count per player per set, then add 1 to the set winner
+  // (matchLog points show score *before* the final game is complete, so last point is one short)
+  const rawSetMax = {};
   for (const pt of points) {
-    if (pt.setNumber != null) {
-      setScoreMap[pt.setNumber] = { p1: pt.pOneSetScore, p2: pt.pTwoSetScore };
-    }
+    if (pt.setNumber == null) continue;
+    const s = pt.setNumber;
+    if (!rawSetMax[s]) rawSetMax[s] = { p1: 0, p2: 0 };
+    if (pt.pOneSetScore != null) rawSetMax[s].p1 = Math.max(rawSetMax[s].p1, pt.pOneSetScore);
+    if (pt.pTwoSetScore != null) rawSetMax[s].p2 = Math.max(rawSetMax[s].p2, pt.pTwoSetScore);
   }
-  const setNums = Object.keys(setScoreMap).map(Number).sort((a, b) => a - b);
+  const setNums = Object.keys(rawSetMax).map(Number).sort((a, b) => a - b);
   const setScores = {
-    p1: setNums.map(n => setScoreMap[n].p1).filter(v => v != null),
-    p2: setNums.map(n => setScoreMap[n].p2).filter(v => v != null),
+    p1: setNums.map(n => {
+      const { p1, p2 } = rawSetMax[n];
+      return p1 >= p2 ? p1 + 1 : p1;
+    }),
+    p2: setNums.map(n => {
+      const { p1, p2 } = rawSetMax[n];
+      return p2 > p1 ? p2 + 1 : p2;
+    }),
   };
 
   return {
@@ -1732,6 +1741,17 @@ function MatchDetail({ match, onBack }) {
       <button className="btn btn-ghost btn-sm" onClick={onBack} style={{ marginBottom: 16 }}>
         ← Match History
       </button>
+
+      {/* ── DEBUG: matchLog point structure ── */}
+      {match.matchLog && match.matchLog.length > 0 && (
+        <div className="card" style={{ background: "rgba(245,197,24,0.08)", borderColor: COLORS.yellow }}>
+          <div style={{ fontSize: "0.72rem", color: COLORS.yellow, fontWeight: 700, marginBottom: 6 }}>DEBUG — matchLog point structure</div>
+          <div style={{ fontSize: "0.68rem", color: COLORS.text, wordBreak: "break-all", lineHeight: 1.7 }}>
+            <b>Point 0:</b> {JSON.stringify(match.matchLog[0])}<br/>
+            <b>Point 40:</b> {JSON.stringify(match.matchLog[40])}
+          </div>
+        </div>
+      )}
 
       {/* ── Section 1: Match Info ── */}
       <div className="card">
