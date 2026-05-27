@@ -13,7 +13,7 @@ import {
   doc, getDoc, setDoc, addDoc, deleteDoc,
   collection, getDocs, query, orderBy, limit,
 } from "firebase/firestore";
-import { saveDeferredPriorities, checkEscalations } from "./deferredPriorities.js";
+import { saveDeferredPriorities, checkEscalations, resolveDeferred } from "./deferredPriorities.js";
 
 // In development the Express proxy runs on localhost:3001.
 // In production (Firebase Hosting) /api/chat is rewritten to the Cloud Function.
@@ -763,6 +763,7 @@ function PlanTab({ athleteId, profile, weekLogs, sessionHistory, wellbeing, aiLo
   const [tournament, setTournament] = useState("none");
   const [sessionTime, setSessionTime] = useState("10:00");
   const [aiError, setAiError] = useState("");
+  const [escalations, setEscalations] = useState([]);
 
   const gaps = profile?.gaps || [];
 
@@ -770,6 +771,10 @@ function PlanTab({ athleteId, profile, weekLogs, sessionHistory, wellbeing, aiLo
     setAiLoading(true);
     setAiError("");
     setPlanResult(null);
+    setEscalations([]);
+
+    // Fetch unified context (includes match analysis + deferred priorities)
+    const ctx = athleteId ? await buildAthleteContext(athleteId).catch(() => null) : null;
 
     const metrics   = calculateMetrics(weekLogs, wellbeing);
     const loadNotes = getACWRContext(metrics.acwr, tournament, sessionTime);
@@ -928,13 +933,41 @@ FAMILIAR EXERCISES (athlete knows these — use as base, not a ceiling):
 ${familiarExercises}
 
 ═══════════════════════════════════════════
+RECENT MATCH FINDINGS
+═══════════════════════════════════════════
+${(() => {
+      const rm = ctx?.recentMatch;
+      const ma = ctx?.matchAnalysis;
+      if (!rm || !ma) return "No recent match within the last 14 days.";
+      const matchDate = rm.matchStartTime ? new Date(rm.matchStartTime).toLocaleDateString() : "unknown date";
+      const findingsText = (ma.criticalFindings || []).length > 0
+        ? ma.criticalFindings.map(f => `  - [${f.priority}] ${f.finding}`).join("\n")
+        : "  None recorded.";
+      const matchDeferredText = (ma.deferredPriorities || []).length > 0
+        ? ma.deferredPriorities.map(d => `  - ${d.priority}${d.resolveCondition ? ` — resolve when: ${d.resolveCondition}` : ""}`).join("\n")
+        : "  None.";
+      return `Match vs ${rm.opponentName || "Unknown"} on ${matchDate} (${rm.whoWonMatch === 1 ? "WIN" : "LOSS"}):
+Critical findings:
+${findingsText}
+Deferred from match analysis:
+${matchDeferredText}`;
+    })()}
+
+═══════════════════════════════════════════
+ACTIVE DEFERRED PRIORITIES (all previous weeks)
+═══════════════════════════════════════════
+${(ctx?.deferredPriorities || []).length > 0
+      ? (ctx.deferredPriorities).map(d => `  - ${d.priority} (deferred ${d.weeksDeferredCount} wk${d.weeksDeferredCount !== 1 ? "s" : ""})${d.resolveCondition ? ` — resolve when: ${d.resolveCondition}` : ""}`).join("\n")
+      : "  None."}
+
+═══════════════════════════════════════════
 YOUR TASK
 ═══════════════════════════════════════════
 Design the best possible Sunday session using ALL context above:
 - Heavy tennis/cheer week → reduce strength volume to prevent overtraining
 - Light week → can handle more volume and harder progressions
 - Progress exercises from history: easy last time → increase; hard → hold or reduce
-- Always target her tennis development gaps
+- Prioritise exercises that address critical match findings and longest-deferred priorities
 - Always include ACL-risk mitigation (hip/glute work + landing mechanics)
 - You may introduce new exercises beyond the familiar list when appropriate
 
@@ -945,47 +978,111 @@ SESSION STRUCTURE:
 
 Respond with ONLY valid JSON, no other text:
 {
-  "briefing": "4–6 sentences. Warm, direct coach voice. Mention what her tennis/cheer week means for today, what the session focuses on, and one female-athlete or age-specific safety point relevant to this session.",
-  "plan": [
+  "sessionType": "full | reduced | activation | recovery",
+  "sessionDuration": 60,
+  "loadRationale": "2-3 sentences on how this week's load shaped the prescription",
+  "matchRationale": "2-3 sentences on which match findings are addressed today and which are deferred — or null if no recent match",
+  "overallRationale": "one paragraph integrating load + match + tournament into a coherent session explanation",
+  "exercises": [
     {
       "name": "Exercise Name",
       "category": "Warmup|Mobility|Plyometrics|Power|Strength|Core|Agility|Conditioning|Recovery",
       "sets": 2,
       "reps": 10,
-      "unit": "reps|seconds|meters",
-      "note": "Specific coaching cue or reason chosen based on her week, history, or development needs"
+      "restSeconds": 60,
+      "progressionNote": "what changed from last session and why",
+      "tennisConnection": "which match finding or tennis gap this addresses",
+      "ageFlag": "safe | formCheck | advanced"
     }
-  ]
+  ],
+  "deferredPriorities": [
+    {
+      "priority": "what was identified but not trained today",
+      "reason": "why deferred",
+      "resolveCondition": "condition for when to address"
+    }
+  ],
+  "coachNote": "short paragraph for the parent — plain language, no jargon",
+  "athleteNote": "one encouraging sentence written directly to Valissa"
 }`;
+
+    const systemPrompt =
+`You are an elite junior tennis strength and conditioning coach for adolescent athletes. You make integrated decisions balancing training load, match findings, tournament proximity, and long-term athletic development.
+
+PRIORITY HIERARCHY — apply strictly in this order:
+1. Safety: if acute:chronic ratio > 1.3 OR average mood < 2 for 3+ consecutive days OR athlete within 48 hours post-tournament → prescribe recovery session only, override everything else
+2. Tournament proximity: if tournament within 7 days → reduce all volume 35%, familiar exercises only, no new movements, keep agility and movement quality intact
+3. Weekly load: if sRPE > 2000 → reduce weighted sets by 1, shorten session by 15 minutes. ALWAYS protect regardless of load: at least one agility movement, at least one plyometric, one core exercise — non-negotiable for age 12 athletic development window
+4. Match findings: within constraints set by rules 1-3, prioritise exercises addressing critical findings and active deferred priorities — longest deferred first
+5. Progression: apply progressive overload only if rules 1-4 leave room — never sacrifice recovery for progression
+
+Return ONLY a valid JSON object — no preamble, no markdown fences.`;
 
     try {
       const res = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          system: "You are an expert youth sports conditioning coach. Always respond with valid JSON only — no markdown, no code fences, no extra text.",
-          messages: [{ role: "user", content: prompt }]
-        })
+        body: JSON.stringify({ system: systemPrompt, messages: [{ role: "user", content: prompt }] })
       });
       const data = await res.json();
       console.log("API response:", JSON.stringify(data).slice(0, 500));
       const raw  = (data.content?.map(b => b.text || "").join("") || "").trim();
       const text = raw.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
-      // Fix literal control characters inside JSON string values (e.g. newlines in briefing)
       const clean = text.replace(/"((?:[^"\\]|\\[\s\S])*)"/g, (_, inner) =>
         '"' + inner
           .replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t")
           .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "") + '"'
       );
       const parsed = JSON.parse(clean);
-      const plan = (parsed.plan || []).map(ex => ({
+
+      // Map new exercises schema → existing plan format so all display logic is unchanged
+      const plan = (parsed.exercises || []).map(ex => ({
         ...ex,
-        id: ex.name.toLowerCase().replace(/[^a-z0-9]+/g, "_"),
+        id:   ex.name.toLowerCase().replace(/[^a-z0-9]+/g, "_"),
+        unit: "reps",
+        note: [ex.progressionNote, ex.tennisConnection ? `Tennis: ${ex.tennisConnection}` : null]
+          .filter(Boolean).join(" · "),
       }));
-      const planData = { plan, briefing: parsed.briefing, metrics, generatedAt: new Date().toISOString() };
+
+      const rm = ctx?.recentMatch;
+      const planData = {
+        plan,
+        briefing:        parsed.overallRationale || parsed.coachNote || "",
+        sessionType:     parsed.sessionType     ?? null,
+        sessionDuration: parsed.sessionDuration ?? null,
+        loadRationale:   parsed.loadRationale   ?? null,
+        matchRationale:  parsed.matchRationale  ?? null,
+        coachNote:       parsed.coachNote       ?? null,
+        athleteNote:     parsed.athleteNote     ?? null,
+        matchInformedBy: rm ? { opponentName: rm.opponentName, matchStartTime: rm.matchStartTime } : null,
+        metrics,
+        generatedAt: new Date().toISOString(),
+      };
       setPlanResult(planData);
       if (athleteId) {
         await setDoc(doc(db, "plans", athleteId), planData);
+      }
+
+      // Persist deferred priorities from today's plan
+      if (athleteId && parsed.deferredPriorities?.length > 0) {
+        await saveDeferredPriorities(athleteId, parsed.deferredPriorities);
+      }
+
+      // Resolve deferred items addressed by today's exercises
+      if (athleteId && ctx?.deferredPriorities?.length > 0 && parsed.exercises?.length > 0) {
+        for (const ex of parsed.exercises) {
+          if (!ex.tennisConnection) continue;
+          const matched = ctx.deferredPriorities.find(d =>
+            d.priority && ex.tennisConnection.toLowerCase().includes(d.priority.toLowerCase())
+          );
+          if (matched) await resolveDeferred(athleteId, matched.priority);
+        }
+      }
+
+      // Check for any escalated priorities
+      if (athleteId) {
+        const escalatedItems = await checkEscalations(athleteId);
+        setEscalations(escalatedItems);
       }
     } catch (e) {
       console.error("Plan generation error:", e);
@@ -1168,11 +1265,83 @@ Respond with ONLY valid JSON, no other text:
 
       {aiError && <div className="note-box warn">{aiError}</div>}
 
+      {escalations.length > 0 && (
+        <div className="card" style={{ borderColor: COLORS.red, background: `${COLORS.red}10` }}>
+          <div style={{ fontWeight: 700, color: COLORS.red, fontSize: "0.9rem", marginBottom: 8 }}>⚠ Escalated Priorities</div>
+          {escalations.map((e, i) => (
+            <div key={i} style={{ fontSize: "0.83rem", color: COLORS.text, marginBottom: 4 }}>
+              <strong>{e.priority}</strong> — deferred {e.weeksDeferredCount} weeks
+            </div>
+          ))}
+        </div>
+      )}
+
       {planResult && (
         <>
+          {/* ── Context Summary Card ── */}
+          <div className="card" style={{ borderColor: COLORS.accentDim, background: `${COLORS.accent}06` }}>
+            <div className="card-title"><BarChart2 size={16} /> Session Context</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: planResult.loadRationale ? 14 : 0 }}>
+              {[
+                {
+                  label: "Load",
+                  value: `${planResult.metrics?.thisWeekSRPE ?? "—"} sRPE`,
+                  sub: planResult.metrics?.acwr != null
+                    ? (planResult.metrics.acwr > 1.5 ? "Very High" : planResult.metrics.acwr > 1.3 ? "High" : planResult.metrics.acwr < 0.8 ? "Low" : "Optimal")
+                    : "No data",
+                  color: planResult.metrics?.acwr == null ? COLORS.muted
+                    : planResult.metrics.acwr > 1.5 ? COLORS.red
+                    : planResult.metrics.acwr > 1.3 ? COLORS.yellow
+                    : planResult.metrics.acwr < 0.8 ? "#6eb5ff"
+                    : COLORS.accent,
+                },
+                {
+                  label: "ACWR",
+                  value: planResult.metrics?.acwr != null ? planResult.metrics.acwr.toFixed(2) : "—",
+                  sub: "acute:chronic",
+                  color: COLORS.text,
+                },
+                {
+                  label: "Session",
+                  value: planResult.sessionType ?? "—",
+                  sub: planResult.sessionDuration ? `${planResult.sessionDuration} min` : "",
+                  color: COLORS.accent,
+                },
+                {
+                  label: "Tournament",
+                  value: tournament === "none" ? "Normal week" : tournament.replace(/_/g, " "),
+                  sub: "",
+                  color: tournament !== "none" ? COLORS.yellow : COLORS.muted,
+                },
+              ].map(s => (
+                <div key={s.label} style={{ background: COLORS.surface, borderRadius: 8, padding: "8px 10px" }}>
+                  <div style={{ fontSize: "0.62rem", color: COLORS.muted, textTransform: "uppercase", letterSpacing: "0.05em" }}>{s.label}</div>
+                  <div style={{ fontWeight: 700, fontSize: "0.9rem", color: s.color, marginTop: 2 }}>{s.value}</div>
+                  {s.sub && <div style={{ fontSize: "0.68rem", color: COLORS.muted, marginTop: 1 }}>{s.sub}</div>}
+                </div>
+              ))}
+            </div>
+            {planResult.matchInformedBy && (
+              <div style={{ fontSize: "0.78rem", color: COLORS.accentDim, marginBottom: planResult.loadRationale ? 10 : 0 }}>
+                ✦ Informed by match vs {planResult.matchInformedBy.opponentName || "opponent"}{planResult.matchInformedBy.matchStartTime ? ` on ${new Date(planResult.matchInformedBy.matchStartTime).toLocaleDateString()}` : ""}
+              </div>
+            )}
+            {planResult.loadRationale && (
+              <p style={{ fontSize: "0.82rem", color: COLORS.muted, lineHeight: 1.5, margin: "6px 0 0" }}>{planResult.loadRationale}</p>
+            )}
+            {planResult.matchRationale && (
+              <p style={{ fontSize: "0.82rem", color: COLORS.muted, lineHeight: 1.5, margin: "6px 0 0" }}>{planResult.matchRationale}</p>
+            )}
+          </div>
+
           <div className="card" style={{ borderColor: COLORS.accentDim }}>
             <div className="card-title"><MessageSquare size={18} /> Coach's Briefing</div>
             <p style={{ fontSize: "0.88rem", lineHeight: 1.65, color: COLORS.text }}>{planResult.briefing}</p>
+            {planResult.athleteNote && (
+              <div style={{ marginTop: 12, padding: "8px 12px", background: `${COLORS.accent}10`, borderRadius: 8, fontSize: "0.84rem", color: COLORS.accent, fontStyle: "italic" }}>
+                "{planResult.athleteNote}"
+              </div>
+            )}
           </div>
 
           <div className="card">
@@ -1896,6 +2065,21 @@ async function buildAthleteContext(athleteUid) {
     .filter(m => m.athleteId === athleteUid && (m.matchStartTime ?? "") >= cutoff14)
     .sort((a, b) => (b.matchStartTime ?? "").localeCompare(a.matchStartTime ?? ""))[0] ?? null;
 
+  // ── 6b. AI match analysis for the most recent match ───────────────────────
+  let matchAnalysis = { criticalFindings: [], deferredPriorities: [] };
+  if (recentMatch?.id) {
+    try {
+      const analysisSnap = await getDoc(doc(db, "athletes", athleteUid, "matchAnalyses", recentMatch.id));
+      if (analysisSnap.exists()) {
+        const a = analysisSnap.data();
+        matchAnalysis = {
+          criticalFindings:   Array.isArray(a.criticalFindings)   ? a.criticalFindings   : [],
+          deferredPriorities: Array.isArray(a.deferredPriorities) ? a.deferredPriorities : [],
+        };
+      }
+    } catch (_) {}
+  }
+
   // ── 7. Deferred priorities (status = "active") ─────────────────────────────
   const dpSnap = await getDocs(collection(db, "athletes", athleteUid, "deferredPriorities"));
   const deferredPriorities = dpSnap.docs
@@ -1918,6 +2102,7 @@ async function buildAthleteContext(athleteUid) {
     lastStrengthSession,
     athleteProfile,
     recentMatch,
+    matchAnalysis,
     deferredPriorities,
   };
 
