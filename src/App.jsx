@@ -1517,13 +1517,34 @@ function parsePlistNode(node) {
 }
 
 function parsePlist(xmlString) {
+  // Diagnose format — visible in DevTools > Console
+  const preview = xmlString.substring(0, 400);
+  console.log("[matchtrack] file preview:", preview);
+
+  if (xmlString.startsWith("bplist")) {
+    throw new Error("binary-plist");
+  }
+
   const xmlDoc = new DOMParser().parseFromString(xmlString, "text/xml");
   const parseErr = xmlDoc.querySelector("parsererror");
-  if (parseErr) throw new Error("XML parse error");
+  if (parseErr) {
+    console.error("[matchtrack] DOMParser error:", parseErr.textContent);
+    throw new Error("xml-parse-error");
+  }
+
   const plist = xmlDoc.querySelector("plist");
-  if (!plist) throw new Error("Not a plist");
+  if (!plist) {
+    console.error("[matchtrack] no <plist> element found. Document element:", xmlDoc.documentElement?.tagName);
+    throw new Error("no-plist-element");
+  }
+
   const root = [...plist.childNodes].find(n => n.nodeType === 1);
-  if (!root) throw new Error("Empty plist");
+  if (!root) {
+    console.error("[matchtrack] plist has no child element nodes");
+    throw new Error("empty-plist");
+  }
+
+  console.log("[matchtrack] root element tag:", root.tagName);
   return parsePlistNode(root);
 }
 
@@ -1651,22 +1672,32 @@ function MatchesTab({ athleteId }) {
       let plistObj;
       try {
         plistObj = parsePlist(text);
-      } catch {
-        setStatus({ ok: false, text: "Invalid file format — please select a .matchtrack file" });
+      } catch (parseErr) {
+        console.error("[matchtrack] parsePlist threw:", parseErr.message);
+        const msg = parseErr.message === "binary-plist"
+          ? "Binary plist format detected — the app expected XML. Check the console for details."
+          : "Invalid file format — please select a .matchtrack file";
+        setStatus({ ok: false, text: msg });
         setBusy(false);
         return;
       }
+
+      console.log("[matchtrack] parsed plist keys:", Object.keys(plistObj));
 
       let matchData;
       try {
         matchData = extractMatchData(plistObj);
-      } catch {
+      } catch (extractErr) {
+        console.error("[matchtrack] extractMatchData threw:", extractErr);
         setStatus({ ok: false, text: "Invalid file format — please select a .matchtrack file" });
         setBusy(false);
         return;
       }
 
+      console.log("[matchtrack] matchId:", matchData.matchId, "| matchStartTime:", matchData.matchStartTime, "| players:", matchData.valissa, matchData.opponent);
+
       if (!matchData.matchId || matchData.matchId === "undefined") {
+        console.error("[matchtrack] matchId missing — top-level plist keys:", Object.keys(plistObj));
         setStatus({ ok: false, text: "Invalid file format — please select a .matchtrack file" });
         setBusy(false);
         return;
