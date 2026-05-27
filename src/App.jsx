@@ -289,12 +289,6 @@ export default function App() {
   const [athleteId, setAthleteId]         = useState(null);
   const [viewingAthleteId, setViewingId]  = useState(null);
 
-  const BUILD_BADGE = (
-    <div style={{position:'fixed',bottom:8,right:8,background:'#000',color:'#0f0',fontSize:'10px',padding:'4px 8px',zIndex:9999,fontFamily:'monospace'}}>
-      BUILD: 2026-05-27T13:05:43
-    </div>
-  );
-
   useEffect(() => {
     return onAuthStateChanged(auth, async (u) => {
       if (!u) {
@@ -338,50 +332,50 @@ export default function App() {
 
   if (authState === "loading") {
     return (
-      <>{BUILD_BADGE}<div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: COLORS.bg }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: COLORS.bg }}>
         <style>{css}</style>
         <div className="spinner" />
-      </div></>
+      </div>
     );
   }
 
   if (authState === "unauthenticated") {
-    return <>{BUILD_BADGE}<LoginScreen /></>;
+    return <LoginScreen />;
   }
 
   if (authState === "setup") {
-    return <>{BUILD_BADGE}<RoleSetup user={user} onComplete={handleSetupComplete} /></>;
+    return <RoleSetup user={user} onComplete={handleSetupComplete} />;
   }
 
   if (authState === "parent" && viewingAthleteId) {
     return (
-      <>{BUILD_BADGE}<AthleteMain
+      <AthleteMain
         athleteId={viewingAthleteId}
         isParent={true}
         user={user}
         onBack={() => setViewingId(null)}
         onSignOut={handleSignOut}
-      /></>
+      />
     );
   }
 
   if (authState === "parent") {
     return (
-      <>{BUILD_BADGE}<ParentDashboard
+      <ParentDashboard
         user={user}
         onSelectAthlete={(id) => setViewingId(id)}
         onSignOut={handleSignOut}
-      /></>
+      />
     );
   }
 
   // authState === "athlete"
   return (
-    <>{BUILD_BADGE}<AthleteView
+    <AthleteView
       athleteId={athleteId}
       user={user}
       onSignOut={handleSignOut}
-    /></>
+    />
   );
 }
 
@@ -1643,11 +1637,6 @@ function extractMatchData(plistObj) {
     .map(pt => pickFields(pt, POINT_FIELDS))
     .sort((a, b) => (a.pointNumber ?? 0) - (b.pointNumber ?? 0));
 
-  console.log("[shot-debug] total points:", points.length);
-  console.log("[shot-debug] first 3 points shotType/wonType/whoHit:",
-    points.slice(0,3).map(p => ({shot: p.pointShotType, won: p.pointWonType, who: p.whoHitShot, type: typeof p.whoHitShot}))
-  );
-
   // Shot type code → field name mapping
   const SHOT_FIELD_MAP = {
     'fh': 'fh', 'fhS': 'fhSlice', 'fhV': 'fhVolley', 'fhR': 'fhReturn',
@@ -1678,9 +1667,6 @@ function extractMatchData(plistObj) {
     if (wonType === 'fE')  target[`${field}Error`]  += 1;
   }
 
-  console.log("[shot-debug] p1Shot after loop:", JSON.stringify(p1Shot));
-  console.log("[shot-debug] p2Shot after loop:", JSON.stringify(p2Shot));
-
   // Check if stats array has shot breakdown data — if all zero, use reconstructed values
   const statsHasShotData = (p1Stats.fhWinner ?? 0) + (p1Stats.fhError ?? 0) + (p1Stats.bhWinner ?? 0) + (p1Stats.bhError ?? 0) > 0;
   if (!statsHasShotData) {
@@ -1688,10 +1674,6 @@ function extractMatchData(plistObj) {
     Object.assign(p1Stats, p1Shot);
     Object.assign(p2Stats, p2Shot);
   }
-
-  console.log("[shot-debug] statsHasShotData:", statsHasShotData);
-  console.log("[shot-debug] p1Stats.fhWinner after assign:", p1Stats.fhWinner);
-  console.log("[shot-debug] p1Stats.fhError after assign:", p1Stats.fhError);
 
   // Derived calculations
   const wueRatio = p1Stats.unforcedErrors > 0
