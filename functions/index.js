@@ -10,21 +10,28 @@ exports.api = functions.https.onRequest(async (req, res) => {
   const { messages, system } = req.body;
   const key = process.env.ANTHROPIC_API_KEY;
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': key,
-      'anthropic-version': '2023-06-01'
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 2000,
-      system,
-      messages
-    })
-  });
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 2000,
+        system,
+        messages
+      })
+    });
 
-  const data = await response.json();
-  res.json(data);
+    const data = await response.json();
+    console.log('[api] Anthropic response status:', response.status);
+    console.log('[api] Anthropic response data:', JSON.stringify(data).slice(0, 500));
+    res.json(data);
+  } catch (err) {
+    console.error('[api] error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
