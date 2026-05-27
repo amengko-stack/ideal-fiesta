@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Activity, BarChart2, Calendar, ClipboardCheck, ClipboardList,
   Dumbbell, FileText, Heart, History, MessageSquare, Moon,
@@ -728,6 +728,7 @@ function AthleteMain({ athleteId, isParent, user, onBack, onSignOut }) {
             { id: "plan",     Icon: Target,        label: "Sunday Plan" },
             { id: "log",      Icon: ClipboardList, label: "Log Activity" },
             { id: "strength", Icon: Dumbbell,      label: "Log Strength" },
+            { id: "matches",  Icon: History,       label: "Matches" },
             { id: "progress", Icon: TrendingUp,    label: "Progress" },
             { id: "profile",  Icon: Settings,      label: "Profile" },
           ].map(t => (
@@ -740,6 +741,7 @@ function AthleteMain({ athleteId, isParent, user, onBack, onSignOut }) {
         {tab === "plan"     && <PlanTab athleteId={athleteId} profile={profile} weekLogs={weekLogs} sessionHistory={sessionHistory} wellbeing={wellbeing} aiLoading={aiLoading} setAiLoading={setAiLoading} planResult={planResult} setPlanResult={setPlanResult} />}
         {tab === "log"      && <LogTab weekLogs={weekLogs} addWeekLog={addWeekLog} deleteWeekLog={deleteWeekLog} />}
         {tab === "strength" && <StrengthLogTab sessionHistory={sessionHistory} addSession={addSession} planResult={planResult} />}
+        {tab === "matches"  && <MatchesTab athleteId={athleteId} />}
         {tab === "progress" && <ProgressTab sessionHistory={sessionHistory} weekLogs={weekLogs} />}
         {tab === "profile"  && <ProfileTab profile={profile} saveProfile={saveProfile} />}
       </div>
@@ -1486,6 +1488,221 @@ function StrengthLogTab({ sessionHistory, addSession, planResult }) {
       >
         {saving ? "Saving…" : saved ? "✓ Session Saved!" : "Save Strength Session"}
       </button>
+    </div>
+  );
+}
+
+// ─── PLIST PARSER ─────────────────────────────────────────────────────────────
+function parsePlistNode(node) {
+  const tag = node.tagName;
+  if (tag === "dict") {
+    const children = [...node.childNodes].filter(n => n.nodeType === 1);
+    const obj = {};
+    for (let i = 0; i < children.length - 1; i += 2) {
+      const key = children[i].textContent.trim();
+      obj[key] = parsePlistNode(children[i + 1]);
+    }
+    return obj;
+  }
+  if (tag === "array") {
+    return [...node.childNodes].filter(n => n.nodeType === 1).map(parsePlistNode);
+  }
+  if (tag === "string")  return node.textContent;
+  if (tag === "integer") return parseInt(node.textContent, 10);
+  if (tag === "real")    return parseFloat(node.textContent);
+  if (tag === "true")    return true;
+  if (tag === "false")   return false;
+  if (tag === "date")    return node.textContent.trim();
+  return node.textContent;
+}
+
+function parsePlist(xmlString) {
+  const xmlDoc = new DOMParser().parseFromString(xmlString, "text/xml");
+  const parseErr = xmlDoc.querySelector("parsererror");
+  if (parseErr) throw new Error("XML parse error");
+  const plist = xmlDoc.querySelector("plist");
+  if (!plist) throw new Error("Not a plist");
+  const root = [...plist.childNodes].find(n => n.nodeType === 1);
+  if (!root) throw new Error("Empty plist");
+  return parsePlistNode(root);
+}
+
+function extractMatchData(plistObj) {
+  const { id, matchStartTime, season, whoWonMatch, players = [], matchLog = [] } = plistObj;
+
+  const STAT_FIELDS = [
+    "aces", "doubleFaults", "firstServePct", "firstServePoints", "firstServePointsWon",
+    "secondServePoints", "secondServePointsWon", "winners", "unforcedErrors", "forcedErrors",
+    "breakPointsWon", "breakPoints", "breakPointsSaved", "breakPointsFaced",
+    "firstReturnPoints", "firstReturnPointsWon", "secondReturnPoints", "secondReturnPointsWon",
+    "deucePointsWon", "fhWinner", "fhError", "bhWinner", "bhError",
+    "fhReturnWinner", "fhReturnError", "bhReturnWinner", "bhReturnError",
+    "fhVolleyWinner", "fhVolleyError", "bhVolleyWinner", "bhVolleyError",
+    "approachWinner", "approachError", "fhSliceWinner", "fhSliceError",
+    "bhSliceWinner", "bhSliceError", "overheadWinner", "overheadError",
+    "setOneScore", "setTwoScore", "setsWon",
+  ];
+  const POINT_FIELDS = [
+    "pointNumber", "setNumber", "gameNumber", "rallyLength", "whoHitShot", "whoWonPoint",
+    "pointShotType", "pointWonType", "errorType", "shotLocation", "serveType", "breakPoint",
+    "gameEndedOnPoint", "setEndedOnPoint", "matchEndedOnPoint",
+    "pOneGameScore", "pTwoGameScore", "pOneSetScore", "pTwoSetScore", "pointTime",
+  ];
+
+  const pickFields = (source, fields) => {
+    const result = {};
+    for (const f of fields) result[f] = (source ?? {})[f] ?? null;
+    return result;
+  };
+
+  const p1Raw = players.find(p => p.playerNumber === 1) || {};
+  const p2Raw = players.find(p => p.playerNumber === 2) || {};
+  const p1Stats = pickFields(p1Raw.stats, STAT_FIELDS);
+  const p2Stats = pickFields(p2Raw.stats, STAT_FIELDS);
+
+  const points = matchLog.map(pt => pickFields(pt, POINT_FIELDS));
+
+  // Derived calculations for Valissa (player 1)
+  const wueRatio = p1Stats.unforcedErrors > 0
+    ? +((p1Stats.winners ?? 0) / p1Stats.unforcedErrors).toFixed(2)
+    : null;
+  const firstServePointsWonPct = p1Stats.firstServePoints > 0
+    ? +((p1Stats.firstServePointsWon ?? 0) / p1Stats.firstServePoints * 100).toFixed(1)
+    : null;
+  const secondServePointsWonPct = p1Stats.secondServePoints > 0
+    ? +((p1Stats.secondServePointsWon ?? 0) / p1Stats.secondServePoints * 100).toFixed(1)
+    : null;
+
+  // Rally length distribution with Valissa win %
+  const buckets = { "0-4": { total: 0, won: 0 }, "5-8": { total: 0, won: 0 }, "9+": { total: 0, won: 0 } };
+  for (const pt of points) {
+    if (pt.rallyLength == null) continue;
+    const key = pt.rallyLength <= 4 ? "0-4" : pt.rallyLength <= 8 ? "5-8" : "9+";
+    buckets[key].total++;
+    if (pt.whoWonPoint === 1) buckets[key].won++;
+  }
+  const rallyDistribution = {};
+  for (const [key, { total, won }] of Object.entries(buckets)) {
+    rallyDistribution[key] = { total, valissaWinPct: total > 0 ? +(won / total * 100).toFixed(1) : null };
+  }
+
+  return {
+    matchId: String(id),
+    matchStartTime: matchStartTime ?? null,
+    season: season ?? null,
+    whoWonMatch: whoWonMatch ?? null,
+    opponentName: p2Raw.name ?? p2Raw.playerName ?? null,
+    valissa: p1Stats,
+    opponent: p2Stats,
+    matchLog: points,
+    calculated: { wueRatio, firstServePointsWonPct, secondServePointsWonPct, rallyDistribution },
+  };
+}
+
+// ─── MATCHES TAB ──────────────────────────────────────────────────────────────
+function MatchesTab({ athleteId }) {
+  const fileRef   = useRef(null);
+  const [status, setStatus] = useState(null); // { ok: bool, text: string }
+  const [busy,   setBusy]   = useState(false);
+
+  const handleFile = async (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+
+    setBusy(true);
+    setStatus(null);
+
+    try {
+      // Read file via FileReader
+      const text = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload  = ev => resolve(ev.target.result);
+        reader.onerror = () => reject(new Error("read error"));
+        reader.readAsText(file);
+      });
+
+      // Parse plist
+      let plistObj;
+      try {
+        plistObj = parsePlist(text);
+      } catch {
+        setStatus({ ok: false, text: "Invalid file format — please select a .matchtrack file" });
+        setBusy(false);
+        return;
+      }
+
+      let matchData;
+      try {
+        matchData = extractMatchData(plistObj);
+      } catch {
+        setStatus({ ok: false, text: "Invalid file format — please select a .matchtrack file" });
+        setBusy(false);
+        return;
+      }
+
+      if (!matchData.matchId || matchData.matchId === "undefined") {
+        setStatus({ ok: false, text: "Invalid file format — please select a .matchtrack file" });
+        setBusy(false);
+        return;
+      }
+
+      // Duplicate check
+      const existing = await getDoc(doc(db, "matches", matchData.matchId));
+      if (existing.exists()) {
+        setStatus({ ok: false, text: "This match has already been imported" });
+        setBusy(false);
+        return;
+      }
+
+      // Save to Firestore
+      await setDoc(doc(db, "matches", matchData.matchId), {
+        ...matchData,
+        athleteId,
+        importedAt: new Date().toISOString(),
+      });
+
+      const dateStr = matchData.matchStartTime
+        ? new Date(matchData.matchStartTime).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })
+        : "unknown date";
+      const opponent = matchData.opponentName || "Opponent";
+      setStatus({ ok: true, text: `Match imported — Valissa vs ${opponent} on ${dateStr}` });
+    } catch (err) {
+      console.error("Match import error:", err);
+      setStatus({ ok: false, text: "Invalid file format — please select a .matchtrack file" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div>
+      <div className="card">
+        <div className="card-title"><History size={18} /> Match History</div>
+        <p style={{ color: COLORS.muted, fontSize: "0.83rem", marginBottom: 16 }}>
+          Import .matchtrack files to build Valissa's match record. Analysis tools coming soon.
+        </p>
+        <input ref={fileRef} type="file" accept=".matchtrack" style={{ display: "none" }} onChange={handleFile} />
+        <button
+          className="btn btn-primary"
+          onClick={() => { setStatus(null); fileRef.current.click(); }}
+          disabled={busy}
+          style={{ gap: 8 }}
+        >
+          <FileText size={16} />
+          {busy ? "Importing…" : "Import Match File"}
+        </button>
+        {status && (
+          <div style={{
+            marginTop: 14, padding: "10px 14px", borderRadius: 8,
+            background: status.ok ? "rgba(0,229,160,0.12)" : "rgba(255,77,109,0.12)",
+            color: status.ok ? COLORS.accent : COLORS.red,
+            fontSize: "0.85rem", fontWeight: 500,
+          }}>
+            {status.text}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
