@@ -1576,32 +1576,31 @@ function extractMatchData(plistObj) {
     return {};
   };
 
-  // Score each player by total shot activity in their stats
+  // Find players by highest shot activity in stats — works regardless of playerNumber mapping
   const scoredPlayers = players.map(p => {
     const s = resolveStats(p);
     const activity = (s.winners ?? 0) + (s.unforcedErrors ?? 0) + (s.forcedErrors ?? 0);
     return { p, s, activity };
   }).sort((a, b) => b.activity - a.activity);
 
-  // Highest activity = Valissa (pOne), second highest = opponent (pTwo)
-  // Verify against matchLog pOneName to confirm which is which
-  const firstPointName = (matchLog[0] ?? {}).pOneName ?? "";
   let p1Raw = scoredPlayers[0]?.p ?? {};
   let p2Raw = scoredPlayers[1]?.p ?? {};
 
-  // If the highest activity player name matches pTwoName, swap them
-  const firstPointP2Name = (matchLog[0] ?? {}).pTwoName ?? "";
-  if (p1Raw.name && p1Raw.name === firstPointP2Name) {
+  // Cross-check against matchLog pOneName and pTwoName to confirm correct mapping
+  const firstPoint = matchLog[0] ?? {};
+  const pOneName = firstPoint.pOneName ?? "";
+  const pTwoName = firstPoint.pTwoName ?? "";
+
+  // If highest activity player matches pTwoName, they are swapped — fix it
+  if (p1Raw.name && pTwoName && p1Raw.name === pTwoName) {
     [p1Raw, p2Raw] = [p2Raw, p1Raw];
   }
 
-  console.log("[matchtrack] p1Raw name:", p1Raw.name, "activity:", scoredPlayers[0]?.activity);
-  console.log("[matchtrack] p2Raw name:", p2Raw.name, "activity:", scoredPlayers[1]?.activity);
+  console.log("[matchtrack] p1Raw:", p1Raw.name, "winners:", resolveStats(p1Raw).winners);
+  console.log("[matchtrack] p2Raw:", p2Raw.name, "winners:", resolveStats(p2Raw).winners);
 
-  // Valissa is whoWonMatch===1 side (pOne). Opponent is pTwo.
-  const firstPoint = matchLog[0] ?? {};
-  const valissaName = firstPoint.pOneName ?? p1Raw.name ?? "Valissa";
-  const opponentName = firstPoint.pTwoName ?? p2Raw.name ?? "Opponent";
+  const valissaName  = pOneName  || p1Raw.name || "Valissa";
+  const opponentName = pTwoName  || p2Raw.name || "Opponent";
 
   const STAT_FIELDS = [
     "aces", "doubleFaults", "firstServePct", "firstServePoints", "firstServePointsWon",
@@ -1637,6 +1636,48 @@ function extractMatchData(plistObj) {
   const points = matchLog
     .map(pt => pickFields(pt, POINT_FIELDS))
     .sort((a, b) => (a.pointNumber ?? 0) - (b.pointNumber ?? 0));
+
+  // Shot breakdown from matchLog — stats object stores zeros in some match files
+  // whoHitShot 1 = Valissa, 2 = opponent; pointWonType "winner" | "ufE"
+  const _shotBreak = { v: {}, o: {} };
+  for (const pt of points) {
+    // eslint-disable-next-line eqeqeq
+    const side  = pt.whoHitShot == 1 ? "v" : pt.whoHitShot == 2 ? "o" : null;
+    if (!side) continue;
+    const shot  = pt.pointShotType ?? "";
+    const err   = pt.errorType || shot;
+    const isWin = pt.pointWonType === "winner";
+    const isUE  = pt.pointWonType === "ufE";
+    const inc   = key => { _shotBreak[side][key] = (_shotBreak[side][key] ?? 0) + 1; };
+    if (isWin) {
+      if      (shot === "fh")                    inc("fhWinner");
+      else if (shot === "bh")                    inc("bhWinner");
+      else if (shot === "oh")                    inc("overheadWinner");
+      else if (shot === "ap")                    inc("approachWinner");
+      else if (shot === "fhR")                   inc("fhReturnWinner");
+      else if (shot === "bhR")                   inc("bhReturnWinner");
+      else if (shot === "fhV" || shot === "fhv") inc("fhVolleyWinner");
+      else if (shot === "bhV" || shot === "bhv") inc("bhVolleyWinner");
+    }
+    if (isUE) {
+      if      (err === "fh"  || (err === "" && shot === "fh"))  inc("fhError");
+      else if (err === "bh"  || (err === "" && shot === "bh"))  inc("bhError");
+      else if (err === "oh"  || (err === "" && shot === "oh"))  inc("overheadError");
+      else if (err === "ap"  || (err === "" && shot === "ap"))  inc("approachError");
+      else if (err === "fhR")                                   inc("fhReturnError");
+      else if (err === "bhR")                                   inc("bhReturnError");
+      else if (err === "fhV" || err === "fhv")                  inc("fhVolleyError");
+      else if (err === "bhV" || err === "bhv")                  inc("bhVolleyError");
+    }
+  }
+  // Prefer non-zero stats value; fall back to matchLog-computed value
+  const mergeShots = (stats, computed) => {
+    const out = { ...stats };
+    for (const [k, v] of Object.entries(computed)) {
+      if ((out[k] ?? 0) === 0) out[k] = v;
+    }
+    return out;
+  };
 
   // Derived calculations
   const wueRatio = p1Stats.unforcedErrors > 0
@@ -1689,8 +1730,8 @@ function extractMatchData(plistObj) {
     valissaName,
     opponentName,
     setScores,
-    valissa:        p1Stats,
-    opponent:       p2Stats,
+    valissa:        mergeShots(p1Stats, _shotBreak.v),
+    opponent:       mergeShots(p2Stats, _shotBreak.o),
     matchLog:       points,
     calculated: {
       wueRatio,
