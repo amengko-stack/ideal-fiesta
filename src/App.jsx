@@ -1600,10 +1600,10 @@ function extractMatchData(plistObj) {
              ?? players.find(p => playerNum(p) == 1 && p !== p1Raw)
              ?? players[1]
              ?? {};
-  // stats is an array ([{...}]) — take first element; fall back to object or player itself
+  // stats is an array of per-set objects — last element holds cumulative match totals
   const resolveStats = p => {
     const s = p.stats;
-    if (Array.isArray(s)) return s[0] ?? {};
+    if (Array.isArray(s) && s.length > 0) return s[s.length - 1];
     if (s && typeof s === "object") return s;
     return p;
   };
@@ -1636,10 +1636,17 @@ function extractMatchData(plistObj) {
     rallyDistribution[key] = { total, valissaWinPct: total > 0 ? +(won / total * 100).toFixed(1) : null };
   }
 
-  // Set scores live at top-level, not inside player stats
+  // Derive set scores from matchLog: last point of each set carries the authoritative score
+  const setScoreMap = {};
+  for (const pt of points) {
+    if (pt.setNumber != null) {
+      setScoreMap[pt.setNumber] = { p1: pt.pOneSetScore, p2: pt.pTwoSetScore };
+    }
+  }
+  const setNums = Object.keys(setScoreMap).map(Number).sort((a, b) => a - b);
   const setScores = {
-    p1: [plistObj.setOnePlayerOne, plistObj.setTwoPlayerOne, plistObj.setThreePlayerOne].filter(v => v != null),
-    p2: [plistObj.setOnePlayerTwo, plistObj.setTwoPlayerTwo, plistObj.setThreePlayerTwo].filter(v => v != null),
+    p1: setNums.map(n => setScoreMap[n].p1).filter(v => v != null),
+    p2: setNums.map(n => setScoreMap[n].p2).filter(v => v != null),
   };
 
   return {
@@ -1671,7 +1678,8 @@ function MatchDetail({ match, onBack }) {
     : "—";
 
   const fmt      = val => val != null ? val : "—";
-  const fmtPct   = val => val != null ? `${typeof val === "number" ? Math.round(val) : val}%` : "—";
+  // firstServePct may be stored as decimal (0.65) or integer percentage (65)
+  const fmtPct   = val => val != null ? `${Math.round(typeof val === "number" && val <= 1 ? val * 100 : val)}%` : "—";
   const fmtRatio = val => val != null ? Number(val).toFixed(2) : "—";
   const calcPct  = (won, total) => (total > 0 && won != null) ? `${Math.round(won / total * 100)}%` : "—";
 
@@ -1736,8 +1744,8 @@ function MatchDetail({ match, onBack }) {
           </div>
           <span className={`badge ${won ? "badge-green" : "badge-red"}`}>{won ? "Win" : "Loss"}</span>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
-          {[["Score", score], ["Tournament", match.season || "—"], ["Surface", match.surface || "—"]].map(([label, val]) => (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+          {[["Score", score], ["Tournament", match.season || "—"]].map(([label, val]) => (
             <div key={label}>
               <div className="label">{label}</div>
               <div style={{ fontSize: "0.9rem", fontWeight: 600, color: COLORS.text, marginTop: 3 }}>{val}</div>
