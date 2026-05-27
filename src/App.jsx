@@ -1627,6 +1627,12 @@ function MatchDetail({ match, onBack }) {
   const calc = match.calculated || {};
   const rally = calc.rallyDistribution || {};
 
+  // Dump the full stored structure so we can see exact field names
+  console.log("[matchdetail] full match doc:", JSON.stringify(match, null, 2));
+  console.log("[matchdetail] valissa stats keys:", Object.keys(v));
+  console.log("[matchdetail] valissa sample:", { aces: v.aces, firstServePct: v.firstServePct, setOneScore: v.setOneScore, winners: v.winners });
+  console.log("[matchdetail] calculated:", calc);
+
   const won = match.whoWonMatch === 1;
 
   const fmtDate = ts => ts
