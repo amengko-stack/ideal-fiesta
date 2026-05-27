@@ -644,10 +644,9 @@ function AthleteMain({ athleteId, isParent, user, onBack, onSignOut }) {
 
   useEffect(() => {
     setLoading(true);
-    setPlanResult(null);
     const load = async () => {
       try {
-        const [profileSnap, logsSnap, sessSnap, wellSnap] = await Promise.all([
+        const [profileSnap, logsSnap, sessSnap, wellSnap, planSnap] = await Promise.all([
           getDoc(doc(db, "athletes", athleteId)),
           getDocs(collection(db, "athletes", athleteId, "weekLogs")),
           getDocs(query(
@@ -658,11 +657,13 @@ function AthleteMain({ athleteId, isParent, user, onBack, onSignOut }) {
             collection(db, "athletes", athleteId, "wellbeing"),
             orderBy("date", "desc"), limit(28)
           )),
+          getDoc(doc(db, "athletes", athleteId, "plans", "current")),
         ]);
         if (profileSnap.exists()) setProfile(profileSnap.data());
         setWeekLogs(logsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
         setSessionHistory(sessSnap.docs.map(d => ({ id: d.id, ...d.data() })));
         setWellbeing(wellSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        if (planSnap.exists()) setPlanResult(planSnap.data());
       } catch (e) {
         console.error("Load error:", e);
       } finally {
@@ -1064,7 +1065,7 @@ Return ONLY a raw JSON object. Do NOT wrap in markdown code fences. Do NOT inclu
       };
       setPlanResult(planData);
       if (athleteId) {
-        await setDoc(doc(db, "plans", athleteId), planData);
+        await setDoc(doc(db, "athletes", athleteId, "plans", "current"), planData);
       }
 
       // Persist deferred priorities from today's plan
@@ -3174,7 +3175,7 @@ function AthleteView({ athleteId, user, onSignOut }) {
   const [planLoading, setPlanLoading] = useState(true);
 
   useEffect(() => {
-    getDoc(doc(db, "plans", athleteId))
+    getDoc(doc(db, "athletes", athleteId, "plans", "current"))
       .then(snap => { if (snap.exists()) setPlan(snap.data()); })
       .catch(e => console.error("Load plan error:", e))
       .finally(() => setPlanLoading(false));
