@@ -1024,13 +1024,14 @@ Return ONLY a raw JSON object. Do NOT wrap in markdown code fences. Do NOT inclu
       const res = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ system: systemPrompt, messages: [{ role: "user", content: prompt }] })
+        body: JSON.stringify({ system: systemPrompt, messages: [{ role: "user", content: prompt }], max_tokens: 4000 })
       });
       const data = await res.json();
       const rawText = (data.content?.[0]?.text ?? data.content?.map(b => b.text || "").join("") ?? "").trim();
       console.log("[plan] raw API response (first 300):", rawText.slice(0, 300));
       const cleanText = rawText
         .replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
+      if (!cleanText.endsWith("}")) throw new Error("AI response was truncated — max_tokens too low");
       const clean = cleanText.replace(/"((?:[^"\\]|\\[\s\S])*)"/g, (_, inner) =>
         '"' + inner
           .replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t")
@@ -2234,13 +2235,14 @@ Respond with exactly this JSON structure:
       const res = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ system: systemPrompt, messages: [{ role: "user", content: userPrompt }] })
+        body: JSON.stringify({ system: systemPrompt, messages: [{ role: "user", content: userPrompt }], max_tokens: 4000 })
       });
       const data = await res.json();
       const rawText = (data.content?.[0]?.text ?? data.content?.map(b => b.text || "").join("") ?? "").trim();
       console.log("[analysis] raw API response (first 300):", rawText.slice(0, 300));
       const cleanText = rawText
         .replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
+      if (!cleanText.endsWith("}")) throw new Error("AI response was truncated — max_tokens too low");
       const clean = cleanText.replace(/"((?:[^"\\]|\\[\s\S])*)"/g, (_, inner) =>
         '"' + inner
           .replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t")

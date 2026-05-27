@@ -7,7 +7,7 @@ exports.api = functions.https.onRequest(async (req, res) => {
   res.set('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') { res.status(204).send(''); return; }
 
-  const { messages, system } = req.body;
+  const { messages, system, max_tokens } = req.body;
   const key = process.env.ANTHROPIC_API_KEY;
 
   try {
@@ -20,7 +20,7 @@ exports.api = functions.https.onRequest(async (req, res) => {
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 2000,
+        max_tokens: max_tokens || 4000,
         system,
         messages
       })
