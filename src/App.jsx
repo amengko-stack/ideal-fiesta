@@ -1756,17 +1756,6 @@ function MatchDetail({ match, onBack }) {
         ← Match History
       </button>
 
-      {/* ── DEBUG: matchLog point structure ── */}
-      {match.matchLog && match.matchLog.length > 0 && (
-        <div className="card" style={{ background: "rgba(245,197,24,0.08)", borderColor: COLORS.yellow }}>
-          <div style={{ fontSize: "0.72rem", color: COLORS.yellow, fontWeight: 700, marginBottom: 6 }}>DEBUG — matchLog point structure</div>
-          <div style={{ fontSize: "0.68rem", color: COLORS.text, wordBreak: "break-all", lineHeight: 1.7 }}>
-            <b>Point 0:</b> {JSON.stringify(match.matchLog[0])}<br/>
-            <b>Point 40:</b> {JSON.stringify(match.matchLog[40])}
-          </div>
-        </div>
-      )}
-
       {/* ── Section 1: Match Info ── */}
       <div className="card">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
