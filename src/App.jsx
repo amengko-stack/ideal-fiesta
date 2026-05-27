@@ -478,6 +478,7 @@ function RoleSetup({ user, onComplete }) {
           <div style={{ marginBottom: 20 }}>
             <div className="label">Your Name</div>
             <input
+              name="athleteName"
               placeholder="e.g. Sofia"
               value={athleteName}
               onChange={e => setName(e.target.value)}
@@ -588,6 +589,7 @@ function ParentDashboard({ user, onSelectAthlete, onSignOut }) {
             <div className="card-title"><UserPlus size={18} /> New Athlete</div>
             <div className="label">Athlete Name</div>
             <input
+              name="newAthleteName"
               placeholder="e.g. Sofia"
               value={newName}
               onChange={e => setNewName(e.target.value)}
@@ -1111,7 +1113,7 @@ Respond with ONLY valid JSON, no other text:
         <div className="grid2">
           <div>
             <div className="label">Tournament Status</div>
-            <select value={tournament} onChange={e => setTournament(e.target.value)}>
+            <select name="tournament" value={tournament} onChange={e => setTournament(e.target.value)}>
               <option value="none">Normal week</option>
               <option value="pre">Pre-tournament (next 7 days)</option>
               <option value="week_of">Tournament this week</option>
@@ -1121,7 +1123,7 @@ Respond with ONLY valid JSON, no other text:
           </div>
           <div>
             <div className="label">Session Time (Sunday)</div>
-            <input type="time" value={sessionTime} onChange={e => setSessionTime(e.target.value)} />
+            <input name="sessionTime" type="time" value={sessionTime} onChange={e => setSessionTime(e.target.value)} />
           </div>
         </div>
         <div className="mt16">
@@ -1234,7 +1236,7 @@ function LogTab({ weekLogs, addWeekLog, deleteWeekLog }) {
         <div className="grid2">
           <div>
             <div className="label">Activity Type</div>
-            <select value={type} onChange={e => { setType(e.target.value); setFocus(""); setSportName(""); }}>
+            <select name="activityType" value={type} onChange={e => { setType(e.target.value); setFocus(""); setSportName(""); }}>
               <option value="tennis">🎾 Tennis</option>
               <option value="cheer">📣 Cheerleading</option>
               <option value="other">🏃 Other Sport</option>
@@ -1242,15 +1244,15 @@ function LogTab({ weekLogs, addWeekLog, deleteWeekLog }) {
           </div>
           <div>
             <div className="label">Date</div>
-            <input type="date" value={date} onChange={e => setDate(e.target.value)} />
+            <input name="activityDate" type="date" value={date} onChange={e => setDate(e.target.value)} />
           </div>
           <div>
             <div className="label">Duration (minutes)</div>
-            <input type="number" placeholder="e.g. 90" value={duration} onChange={e => setDuration(e.target.value)} min="10" max="300" />
+            <input name="duration" type="number" placeholder="e.g. 90" value={duration} onChange={e => setDuration(e.target.value)} min="10" max="300" />
           </div>
           <div>
             <div className="label">Time of Day</div>
-            <input type="time" value={time} onChange={e => setTime(e.target.value)} />
+            <input name="activityTime" type="time" value={time} onChange={e => setTime(e.target.value)} />
           </div>
         </div>
 
@@ -1258,6 +1260,7 @@ function LogTab({ weekLogs, addWeekLog, deleteWeekLog }) {
           <div className="mt16">
             <div className="label">Sport Name</div>
             <input
+              name="sportName"
               placeholder="e.g. Swimming, Basketball, Dance…"
               value={sportName}
               onChange={e => setSportName(e.target.value)}
@@ -1281,6 +1284,7 @@ function LogTab({ weekLogs, addWeekLog, deleteWeekLog }) {
             .rpe-slider::-moz-range-thumb { width: 22px; height: 22px; border-radius: 50%; background: ${rpe ? COLORS.accent : COLORS.muted}; border: 3px solid ${COLORS.bg}; box-shadow: 0 0 0 2px ${rpe ? COLORS.accent : COLORS.border}; cursor: pointer; }
           `}</style>
           <input
+            name="rpe"
             type="range" min="1" max="10" step="1"
             value={rpe || 1}
             onChange={e => setRpe(parseInt(e.target.value))}
@@ -1303,7 +1307,7 @@ function LogTab({ weekLogs, addWeekLog, deleteWeekLog }) {
 
         <div className="mt16">
           <div className="label">Session Focus</div>
-          <select value={focus} onChange={e => setFocus(e.target.value)}>
+          <select name="focus" value={focus} onChange={e => setFocus(e.target.value)}>
             <option value="">Select focus…</option>
             {(type === "tennis" ? TENNIS_FOCUS : type === "cheer" ? CHEER_FOCUS : OTHER_FOCUS).map(f => (
               <option key={f} value={f}>{f}</option>
@@ -1394,11 +1398,11 @@ function StrengthLogTab({ sessionHistory, addSession, planResult }) {
         <div className="grid2">
           <div>
             <div className="label">Date</div>
-            <input type="date" value={sessionDate} onChange={e => setSessionDate(e.target.value)} />
+            <input name="sessionDate" type="date" value={sessionDate} onChange={e => setSessionDate(e.target.value)} />
           </div>
           <div>
             <div className="label">Session Time</div>
-            <input type="time" value={sessionTimeLog} onChange={e => setSessionTimeLog(e.target.value)} />
+            <input name="sessionTimeLog" type="time" value={sessionTimeLog} onChange={e => setSessionTimeLog(e.target.value)} />
           </div>
         </div>
         {planResult && <div className="note-box mt16">✓ Pre-filled from today's generated plan. Adjust as needed.</div>}
@@ -1435,7 +1439,7 @@ function StrengthLogTab({ sessionHistory, addSession, planResult }) {
             <div style={{ fontWeight: 600, fontSize: "0.9rem", flex: 1 }}>
               {ex.name
                 ? ex.name
-                : <input placeholder="Exercise name…" value={ex.name} onChange={e => updateEx(idx, "name", e.target.value)} style={{ fontWeight: 600 }} />
+                : <input name="exerciseName" placeholder="Exercise name…" value={ex.name} onChange={e => updateEx(idx, "name", e.target.value)} style={{ fontWeight: 600 }} />
               }
             </div>
             <button className="btn btn-danger btn-sm" onClick={() => setLogExercises(prev => prev.filter((_, i) => i !== idx))}>✕</button>
@@ -1443,19 +1447,19 @@ function StrengthLogTab({ sessionHistory, addSession, planResult }) {
           <div className="grid2">
             <div>
               <div className="label">Sets Done</div>
-              <input type="number" value={ex.sets} onChange={e => updateEx(idx, "sets", e.target.value)} min="1" max="8" />
+              <input name="sets" type="number" value={ex.sets} onChange={e => updateEx(idx, "sets", e.target.value)} min="1" max="8" />
             </div>
             <div>
               <div className="label">Reps Done</div>
-              <input type="number" value={ex.reps} onChange={e => updateEx(idx, "reps", e.target.value)} min="1" max="50" />
+              <input name="reps" type="number" value={ex.reps} onChange={e => updateEx(idx, "reps", e.target.value)} min="1" max="50" />
             </div>
             <div>
               <div className="label">Weight (kg, optional)</div>
-              <input placeholder="e.g. 4kg or bodyweight" value={ex.weight} onChange={e => updateEx(idx, "weight", e.target.value)} />
+              <input name="exerciseWeight" placeholder="e.g. 4kg or bodyweight" value={ex.weight} onChange={e => updateEx(idx, "weight", e.target.value)} />
             </div>
             <div>
               <div className="label">Completed all sets?</div>
-              <select value={ex.completed ? "yes" : "no"} onChange={e => updateEx(idx, "completed", e.target.value === "yes")}>
+              <select name="completed" value={ex.completed ? "yes" : "no"} onChange={e => updateEx(idx, "completed", e.target.value === "yes")}>
                 <option value="yes">✅ Yes, completed</option>
                 <option value="no">⚠️ No, stopped early</option>
               </select>
@@ -1963,7 +1967,7 @@ function MatchesTab({ athleteId }) {
         <p style={{ color: COLORS.muted, fontSize: "0.83rem", marginBottom: 16 }}>
           Import .matchtrack files to build Valissa's match record. Analysis tools coming soon.
         </p>
-        <input ref={fileRef} type="file" accept=".matchtrack" style={{ display: "none" }} onChange={handleFile} />
+        <input ref={fileRef} name="matchFile" type="file" accept=".matchtrack" style={{ display: "none" }} onChange={handleFile} />
         <button
           className="btn btn-primary"
           onClick={() => { setStatus(null); fileRef.current.click(); }}
@@ -2132,7 +2136,7 @@ function ProgressTab({ sessionHistory, weekLogs }) {
           : (
             <>
               <div className="label">Select Exercise</div>
-              <select value={selected || ""} onChange={e => setSelected(e.target.value)} style={{ marginTop: 6 }}>
+              <select name="exerciseSelect" value={selected || ""} onChange={e => setSelected(e.target.value)} style={{ marginTop: 6 }}>
                 <option value="">Choose exercise…</option>
                 {exIds.map(id => <option key={id} value={id}>{exMap[id].name}</option>)}
               </select>
@@ -2245,11 +2249,11 @@ function ProfileTab({ profile, saveProfile }) {
         <div className="grid2">
           <div>
             <div className="label">Athlete Name</div>
-            <input placeholder="e.g. Sofia" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+            <input name="profileName" placeholder="e.g. Sofia" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
           </div>
           <div>
             <div className="label">Date of Birth</div>
-            <input type="date" value={form.dob} onChange={e => setForm(f => ({ ...f, dob: e.target.value }))} />
+            <input name="dob" type="date" value={form.dob} onChange={e => setForm(f => ({ ...f, dob: e.target.value }))} />
           </div>
         </div>
       </div>
@@ -2259,11 +2263,11 @@ function ProfileTab({ profile, saveProfile }) {
         <div className="grid2">
           <div>
             <div className="label">Tennis Schedule</div>
-            <input placeholder="e.g. Mon, Wed, Fri — 2hrs each" value={form.tennisSchedule} onChange={e => setForm(f => ({ ...f, tennisSchedule: e.target.value }))} />
+            <input name="tennisSchedule" placeholder="e.g. Mon, Wed, Fri — 2hrs each" value={form.tennisSchedule} onChange={e => setForm(f => ({ ...f, tennisSchedule: e.target.value }))} />
           </div>
           <div>
             <div className="label">Cheerleading Schedule</div>
-            <input placeholder="e.g. Tue, Thu — 1.5hrs each" value={form.cheerSchedule} onChange={e => setForm(f => ({ ...f, cheerSchedule: e.target.value }))} />
+            <input name="cheerSchedule" placeholder="e.g. Tue, Thu — 1.5hrs each" value={form.cheerSchedule} onChange={e => setForm(f => ({ ...f, cheerSchedule: e.target.value }))} />
           </div>
         </div>
         <div className="note-box mt16">
@@ -2278,6 +2282,7 @@ function ProfileTab({ profile, saveProfile }) {
           <div>
             <div className="label">Weight (kg)</div>
             <input
+              name="profileWeight"
               type="number" placeholder="e.g. 42" min="20" max="120" step="0.1"
               value={form.weight || ""}
               onChange={e => setForm(f => ({ ...f, weight: e.target.value }))}
@@ -2286,6 +2291,7 @@ function ProfileTab({ profile, saveProfile }) {
           <div>
             <div className="label">Height (cm)</div>
             <input
+              name="profileHeight"
               type="number" placeholder="e.g. 155" min="100" max="220" step="0.5"
               value={form.height || ""}
               onChange={e => setForm(f => ({ ...f, height: e.target.value }))}
@@ -2338,6 +2344,7 @@ function ProfileTab({ profile, saveProfile }) {
       <div className="card">
         <div className="card-title"><FileText size={18} /> Coach / Parent Notes</div>
         <textarea
+          name="coachNotes"
           rows={4}
           placeholder="Any injuries, form concerns, exercises to avoid, or special instructions…"
           value={form.coachNotes}
@@ -2519,6 +2526,7 @@ function AVLogSession({ athleteId }) {
         <div style={{ marginBottom: 22 }}>
           <div className="av-big-label">Sport Name</div>
           <input
+            name="sportName"
             placeholder="e.g. Swimming, Basketball…"
             value={sportName}
             onChange={e => setSportName(e.target.value)}
@@ -2531,6 +2539,7 @@ function AVLogSession({ athleteId }) {
       <div style={{ marginBottom: 22 }}>
         <div className="av-big-label">Duration (minutes)</div>
         <input
+          name="duration"
           type="number" placeholder="e.g. 90"
           value={duration} onChange={e => setDuration(e.target.value)}
           min="10" max="300"
@@ -2591,7 +2600,7 @@ function AVLogSession({ athleteId }) {
 
       <div style={{ marginBottom: 22 }}>
         <div className="av-big-label">Session Focus</div>
-        <select value={focus} onChange={e => setFocus(e.target.value)} style={{ fontSize: "1rem", padding: "13px 14px" }}>
+        <select name="focus" value={focus} onChange={e => setFocus(e.target.value)} style={{ fontSize: "1rem", padding: "13px 14px" }}>
           <option value="">Select focus…</option>
           {(type === "tennis" ? TENNIS_FOCUS : type === "cheer" ? CHEER_FOCUS : OTHER_FOCUS).map(f => (
             <option key={f} value={f}>{f}</option>
@@ -2601,7 +2610,7 @@ function AVLogSession({ athleteId }) {
 
       <div style={{ marginBottom: 28 }}>
         <div className="av-big-label">Date</div>
-        <input type="date" value={date} onChange={e => setDate(e.target.value)} style={{ fontSize: "1rem", padding: "13px 14px" }} />
+        <input name="date" type="date" value={date} onChange={e => setDate(e.target.value)} style={{ fontSize: "1rem", padding: "13px 14px" }} />
       </div>
 
       <button
@@ -2769,6 +2778,7 @@ function AVGrowth({ athleteId }) {
           <div style={{ flex: 1 }}>
             <div className="av-big-label">Height (cm)</div>
             <input
+              name="height"
               type="number" placeholder="e.g. 155" min="100" max="220" step="0.5"
               value={height} onChange={e => setHeight(e.target.value)}
               style={{ fontSize: "1.1rem", padding: "13px 14px" }}
@@ -2777,6 +2787,7 @@ function AVGrowth({ athleteId }) {
           <div style={{ flex: 1 }}>
             <div className="av-big-label">Weight (kg)</div>
             <input
+              name="weight"
               type="number" placeholder="e.g. 42" min="20" max="120" step="0.1"
               value={weight} onChange={e => setWeight(e.target.value)}
               style={{ fontSize: "1.1rem", padding: "13px 14px" }}
@@ -2999,6 +3010,7 @@ function AVWellbeing({ athleteId }) {
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="av-big-label">📝 Notes <span style={{ color: COLORS.muted, fontWeight: 400, fontSize: "0.85rem" }}>(optional)</span></div>
         <textarea
+          name="wellbeingNotes"
           rows={3}
           placeholder="e.g. knee felt tight after practice, very tired…"
           value={notes}
