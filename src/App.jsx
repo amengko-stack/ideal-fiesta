@@ -1600,12 +1600,15 @@ function extractMatchData(plistObj) {
              ?? players.find(p => playerNum(p) == 1 && p !== p1Raw)
              ?? players[1]
              ?? {};
-  console.log("[matchtrack] players.length:", players.length,
-    "| p1Raw keys:", Object.keys(p1Raw).join(", "),
-    "| p1Raw.stats keys:", Object.keys(p1Raw.stats ?? {}).join(", ") || "(no .stats sub-key)");
-  // Stats may be nested under .stats or stored directly on the player object
-  const p1Stats = pickFields(p1Raw.stats ?? p1Raw, STAT_FIELDS);
-  const p2Stats = pickFields(p2Raw.stats ?? p2Raw, STAT_FIELDS);
+  // stats is an array ([{...}]) — take first element; fall back to object or player itself
+  const resolveStats = p => {
+    const s = p.stats;
+    if (Array.isArray(s)) return s[0] ?? {};
+    if (s && typeof s === "object") return s;
+    return p;
+  };
+  const p1Stats = pickFields(resolveStats(p1Raw), STAT_FIELDS);
+  const p2Stats = pickFields(resolveStats(p2Raw), STAT_FIELDS);
 
   const points = matchLog.map(pt => pickFields(pt, POINT_FIELDS));
 
@@ -1633,22 +1636,24 @@ function extractMatchData(plistObj) {
     rallyDistribution[key] = { total, valissaWinPct: total > 0 ? +(won / total * 100).toFixed(1) : null };
   }
 
+  // Set scores live at top-level, not inside player stats
+  const setScores = {
+    p1: [plistObj.setOnePlayerOne, plistObj.setTwoPlayerOne, plistObj.setThreePlayerOne].filter(v => v != null),
+    p2: [plistObj.setOnePlayerTwo, plistObj.setTwoPlayerTwo, plistObj.setThreePlayerTwo].filter(v => v != null),
+  };
+
   return {
     matchId: String(id),
     matchStartTime: matchStartTime ?? null,
     season: season ?? null,
     whoWonMatch: whoWonMatch ?? null,
-    opponentName: p2Raw.name ?? p2Raw.playerName ?? p2Raw.playerName ?? null,
+    opponentName: p2Raw.name ?? p2Raw.playerName ?? null,
+    valissaName: p1Raw.name ?? null,
+    setScores,
     valissa: p1Stats,
     opponent: p2Stats,
     matchLog: points,
     calculated: { wueRatio, firstServePointsWonPct, secondServePointsWonPct, rallyDistribution },
-    _debug: {
-      topLevelKeys,
-      playersCount: players.length,
-      firstPlayerKeys,
-      firstPlayerSample: JSON.stringify(firstPlayer).substring(0, 400),
-    },
   };
 }
 
@@ -1659,24 +1664,24 @@ function MatchDetail({ match, onBack }) {
   const calc = match.calculated || {};
   const rally = calc.rallyDistribution || {};
 
-  // Dump the full stored structure so we can see exact field names
-  console.log("[matchdetail] full match doc:", JSON.stringify(match, null, 2));
-  console.log("[matchdetail] valissa stats keys:", Object.keys(v));
-  console.log("[matchdetail] valissa sample:", { aces: v.aces, firstServePct: v.firstServePct, setOneScore: v.setOneScore, winners: v.winners });
-  console.log("[matchdetail] calculated:", calc);
-
   const won = match.whoWonMatch === 1;
 
   const fmtDate = ts => ts
     ? new Date(ts).toLocaleDateString("en-AU", { day: "numeric", month: "long", year: "numeric" })
     : "—";
 
-  const fmt    = val => val != null ? val : "—";
-  const fmtPct = val => val != null ? `${typeof val === "number" ? Math.round(val) : val}%` : "—";
+  const fmt      = val => val != null ? val : "—";
+  const fmtPct   = val => val != null ? `${typeof val === "number" ? Math.round(val) : val}%` : "—";
   const fmtRatio = val => val != null ? Number(val).toFixed(2) : "—";
   const calcPct  = (won, total) => (total > 0 && won != null) ? `${Math.round(won / total * 100)}%` : "—";
 
+  // Score from top-level setScores arrays (setOnePlayerOne etc.)
   const score = (() => {
+    const sc = match.setScores;
+    if (sc && sc.p1 && sc.p1.length) {
+      return sc.p1.map((s, i) => `${s}–${sc.p2[i] ?? "?"}`).join(", ");
+    }
+    // Legacy fallback (old documents stored setOneScore on valissa stats)
     const sets = [];
     if (v.setOneScore != null && o.setOneScore != null) sets.push(`${v.setOneScore}–${o.setOneScore}`);
     if (v.setTwoScore != null && o.setTwoScore != null) sets.push(`${v.setTwoScore}–${o.setTwoScore}`);
@@ -1719,20 +1724,6 @@ function MatchDetail({ match, onBack }) {
       <button className="btn btn-ghost btn-sm" onClick={onBack} style={{ marginBottom: 16 }}>
         ← Match History
       </button>
-
-      {/* ── TEMP DEBUG ── */}
-      <div className="card" style={{ background: "rgba(245,197,24,0.08)", borderColor: COLORS.yellow }}>
-        <div style={{ fontSize: "0.72rem", color: COLORS.yellow, fontWeight: 700, marginBottom: 6 }}>DEBUG</div>
-        <div style={{ fontSize: "0.72rem", color: COLORS.text, lineHeight: 1.8, wordBreak: "break-all" }}>
-          <b>aces:</b> {String(v.aces)} | <b>winners:</b> {String(v.winners)} | <b>setOneScore:</b> {String(v.setOneScore)}<br/>
-          {match._debug ? (<>
-            <b>plist top-level keys:</b> {match._debug.topLevelKeys.join(", ")}<br/>
-            <b>players count:</b> {match._debug.playersCount}<br/>
-            <b>first player keys:</b> {match._debug.firstPlayerKeys.join(", ")}<br/>
-            <b>first player sample:</b> {match._debug.firstPlayerSample}
-          </>) : <i>(re-import the file to see plist structure)</i>}
-        </div>
-      </div>
 
       {/* ── Section 1: Match Info ── */}
       <div className="card">
@@ -1973,12 +1964,9 @@ function MatchesTab({ athleteId }) {
     : "Unknown date";
 
   const fmtScore = match => {
-    const v = match.valissa  || {};
-    const o = match.opponent || {};
-    const sets = [];
-    if (v.setOneScore != null && o.setOneScore != null) sets.push(`${v.setOneScore}–${o.setOneScore}`);
-    if (v.setTwoScore != null && o.setTwoScore != null) sets.push(`${v.setTwoScore}–${o.setTwoScore}`);
-    return sets.length ? sets.join(", ") : "—";
+    const sc = match.setScores;
+    if (sc?.p1?.length) return sc.p1.map((s, i) => `${s}–${sc.p2[i] ?? "?"}`).join(", ");
+    return "—";
   };
 
   if (selectedMatch) {
