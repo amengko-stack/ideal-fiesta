@@ -1580,10 +1580,13 @@ function extractMatchData(plistObj) {
     return result;
   };
 
-  const p1Raw = players.find(p => p.playerNumber === 1) || {};
-  const p2Raw = players.find(p => p.playerNumber === 2) || {};
-  const p1Stats = pickFields(p1Raw.stats, STAT_FIELDS);
-  const p2Stats = pickFields(p2Raw.stats, STAT_FIELDS);
+  // eslint-disable-next-line eqeqeq
+  const p1Raw = players.find(p => p.playerNumber == 1) || {};
+  // eslint-disable-next-line eqeqeq
+  const p2Raw = players.find(p => p.playerNumber == 2) || {};
+  // Stats may be nested under .stats or stored directly on the player object
+  const p1Stats = pickFields(p1Raw.stats ?? p1Raw, STAT_FIELDS);
+  const p2Stats = pickFields(p2Raw.stats ?? p2Raw, STAT_FIELDS);
 
   const points = matchLog.map(pt => pickFields(pt, POINT_FIELDS));
 
@@ -1692,19 +1695,13 @@ function MatchDetail({ match, onBack }) {
         ← Match History
       </button>
 
-      {/* ── TEMP DEBUG — remove after confirming field names ── */}
+      {/* ── TEMP DEBUG — remove once stats display correctly ── */}
       <div className="card" style={{ background: "rgba(245,197,24,0.08)", borderColor: COLORS.yellow }}>
-        <div style={{ fontSize: "0.72rem", color: COLORS.yellow, fontWeight: 700, marginBottom: 8 }}>DEBUG — Valissa stats keys stored in Firestore:</div>
-        <div style={{ fontSize: "0.72rem", color: COLORS.text, wordBreak: "break-all", lineHeight: 1.6 }}>
-          {Object.keys(v).join(", ") || "(valissa object is empty)"}
-        </div>
-        <div style={{ fontSize: "0.72rem", color: COLORS.yellow, fontWeight: 700, margin: "10px 0 6px" }}>Sample values (aces / firstServePct / setOneScore / winners):</div>
-        <div style={{ fontSize: "0.72rem", color: COLORS.text }}>
-          {JSON.stringify({ aces: v.aces, firstServePct: v.firstServePct, setOneScore: v.setOneScore, winners: v.winners })}
-        </div>
-        <div style={{ fontSize: "0.72rem", color: COLORS.yellow, fontWeight: 700, margin: "10px 0 6px" }}>Top-level match keys:</div>
-        <div style={{ fontSize: "0.72rem", color: COLORS.text, wordBreak: "break-all", lineHeight: 1.6 }}>
-          {Object.keys(match).join(", ")}
+        <div style={{ fontSize: "0.72rem", color: COLORS.yellow, fontWeight: 700, marginBottom: 6 }}>DEBUG</div>
+        <div style={{ fontSize: "0.72rem", color: COLORS.text, lineHeight: 1.7 }}>
+          aces: {String(v.aces)} | winners: {String(v.winners)} | setOneScore: {String(v.setOneScore)}<br/>
+          matchLog entries: {(match.matchLog || []).length}<br/>
+          rally 0-4: {JSON.stringify(rally["0-4"])} | wueRatio: {String(calc.wueRatio)}
         </div>
       </div>
 
