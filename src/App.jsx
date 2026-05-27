@@ -289,6 +289,12 @@ export default function App() {
   const [athleteId, setAthleteId]         = useState(null);
   const [viewingAthleteId, setViewingId]  = useState(null);
 
+  const BUILD_BADGE = (
+    <div style={{position:'fixed',bottom:8,right:8,background:'#000',color:'#0f0',fontSize:'10px',padding:'4px 8px',zIndex:9999,fontFamily:'monospace'}}>
+      BUILD: 2026-05-27T13:05:43
+    </div>
+  );
+
   useEffect(() => {
     return onAuthStateChanged(auth, async (u) => {
       if (!u) {
@@ -332,50 +338,50 @@ export default function App() {
 
   if (authState === "loading") {
     return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: COLORS.bg }}>
+      <>{BUILD_BADGE}<div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: COLORS.bg }}>
         <style>{css}</style>
         <div className="spinner" />
-      </div>
+      </div></>
     );
   }
 
   if (authState === "unauthenticated") {
-    return <LoginScreen />;
+    return <>{BUILD_BADGE}<LoginScreen /></>;
   }
 
   if (authState === "setup") {
-    return <RoleSetup user={user} onComplete={handleSetupComplete} />;
+    return <>{BUILD_BADGE}<RoleSetup user={user} onComplete={handleSetupComplete} /></>;
   }
 
   if (authState === "parent" && viewingAthleteId) {
     return (
-      <AthleteMain
+      <>{BUILD_BADGE}<AthleteMain
         athleteId={viewingAthleteId}
         isParent={true}
         user={user}
         onBack={() => setViewingId(null)}
         onSignOut={handleSignOut}
-      />
+      /></>
     );
   }
 
   if (authState === "parent") {
     return (
-      <ParentDashboard
+      <>{BUILD_BADGE}<ParentDashboard
         user={user}
         onSelectAthlete={(id) => setViewingId(id)}
         onSignOut={handleSignOut}
-      />
+      /></>
     );
   }
 
   // authState === "athlete"
   return (
-    <AthleteView
+    <>{BUILD_BADGE}<AthleteView
       athleteId={athleteId}
       user={user}
       onSignOut={handleSignOut}
-    />
+    /></>
   );
 }
 
