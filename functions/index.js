@@ -1,6 +1,9 @@
 const functions = require("firebase-functions");
+const { defineSecret } = require("firebase-functions/params");
 
-exports.api = functions.https.onRequest(async (req, res) => {
+const anthropicKey = defineSecret("ANTHROPIC_API_KEY");
+
+exports.api = functions.https.onRequest({ secrets: ["ANTHROPIC_API_KEY"] }, async (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
   if (req.method === "OPTIONS") {
     res.set("Access-Control-Allow-Methods", "POST");
@@ -8,7 +11,7 @@ exports.api = functions.https.onRequest(async (req, res) => {
     return res.status(204).send("");
   }
 
-  const apiKey = (functions.config().anthropic || {}).key;
+  const apiKey = anthropicKey.value();
   if (!apiKey) {
     return res.status(500).json({ error: "Anthropic API key not configured" });
   }
