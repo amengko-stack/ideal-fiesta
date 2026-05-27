@@ -1553,7 +1553,14 @@ function parsePlist(xmlString) {
 }
 
 function extractMatchData(plistObj) {
-  const { id, matchStartTime, season, whoWonMatch, players = [], matchLog = [] } = plistObj;
+  const topLevelKeys = Object.keys(plistObj);
+  // Try common key names for the players array
+  const players  = plistObj.players ?? plistObj.playerData ?? plistObj.matchPlayers ?? plistObj.playerList ?? [];
+  const { id, matchStartTime, season, whoWonMatch, matchLog = [] } = plistObj;
+  const firstPlayer     = players[0] || {};
+  const firstPlayerKeys = Object.keys(firstPlayer);
+  console.log("[matchtrack] plist top-level keys:", topLevelKeys.join(", "));
+  console.log("[matchtrack] players count:", players.length, "| first player keys:", firstPlayerKeys.join(", "));
 
   const STAT_FIELDS = [
     "aces", "doubleFaults", "firstServePct", "firstServePoints", "firstServePointsWon",
@@ -1580,10 +1587,13 @@ function extractMatchData(plistObj) {
     return result;
   };
 
+  // Try common field names for player number
+  const playerNum = p => p.playerNumber ?? p.playerNum ?? p.number ?? p.playerId ?? p.playerIndex;
   // eslint-disable-next-line eqeqeq
-  const p1Raw = players.find(p => p.playerNumber == 1) || {};
+  const p1Raw = players.find(p => playerNum(p) == 1) || {};
   // eslint-disable-next-line eqeqeq
-  const p2Raw = players.find(p => p.playerNumber == 2) || {};
+  const p2Raw = players.find(p => playerNum(p) == 2) || {};
+  console.log("[matchtrack] p1Raw keys:", Object.keys(p1Raw).join(", "));
   // Stats may be nested under .stats or stored directly on the player object
   const p1Stats = pickFields(p1Raw.stats ?? p1Raw, STAT_FIELDS);
   const p2Stats = pickFields(p2Raw.stats ?? p2Raw, STAT_FIELDS);
@@ -1619,11 +1629,17 @@ function extractMatchData(plistObj) {
     matchStartTime: matchStartTime ?? null,
     season: season ?? null,
     whoWonMatch: whoWonMatch ?? null,
-    opponentName: p2Raw.name ?? p2Raw.playerName ?? null,
+    opponentName: p2Raw.name ?? p2Raw.playerName ?? p2Raw.playerName ?? null,
     valissa: p1Stats,
     opponent: p2Stats,
     matchLog: points,
     calculated: { wueRatio, firstServePointsWonPct, secondServePointsWonPct, rallyDistribution },
+    _debug: {
+      topLevelKeys,
+      playersCount: players.length,
+      firstPlayerKeys,
+      firstPlayerSample: JSON.stringify(firstPlayer).substring(0, 400),
+    },
   };
 }
 
@@ -1695,13 +1711,17 @@ function MatchDetail({ match, onBack }) {
         ← Match History
       </button>
 
-      {/* ── TEMP DEBUG — remove once stats display correctly ── */}
+      {/* ── TEMP DEBUG ── */}
       <div className="card" style={{ background: "rgba(245,197,24,0.08)", borderColor: COLORS.yellow }}>
         <div style={{ fontSize: "0.72rem", color: COLORS.yellow, fontWeight: 700, marginBottom: 6 }}>DEBUG</div>
-        <div style={{ fontSize: "0.72rem", color: COLORS.text, lineHeight: 1.7 }}>
-          aces: {String(v.aces)} | winners: {String(v.winners)} | setOneScore: {String(v.setOneScore)}<br/>
-          matchLog entries: {(match.matchLog || []).length}<br/>
-          rally 0-4: {JSON.stringify(rally["0-4"])} | wueRatio: {String(calc.wueRatio)}
+        <div style={{ fontSize: "0.72rem", color: COLORS.text, lineHeight: 1.8, wordBreak: "break-all" }}>
+          <b>aces:</b> {String(v.aces)} | <b>winners:</b> {String(v.winners)} | <b>setOneScore:</b> {String(v.setOneScore)}<br/>
+          {match._debug ? (<>
+            <b>plist top-level keys:</b> {match._debug.topLevelKeys.join(", ")}<br/>
+            <b>players count:</b> {match._debug.playersCount}<br/>
+            <b>first player keys:</b> {match._debug.firstPlayerKeys.join(", ")}<br/>
+            <b>first player sample:</b> {match._debug.firstPlayerSample}
+          </>) : <i>(re-import the file to see plist structure)</i>}
         </div>
       </div>
 
