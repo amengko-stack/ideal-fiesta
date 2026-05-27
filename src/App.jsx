@@ -1016,7 +1016,7 @@ PRIORITY HIERARCHY — apply strictly in this order:
 4. Match findings: within constraints set by rules 1-3, prioritise exercises addressing critical findings and active deferred priorities — longest deferred first
 5. Progression: apply progressive overload only if rules 1-4 leave room — never sacrifice recovery for progression
 
-Return ONLY a valid JSON object — no preamble, no markdown fences.`;
+Return ONLY a raw JSON object. Do NOT wrap in markdown code fences. Do NOT include \`\`\`json or \`\`\` anywhere in your response. Start your response with { and end with }.`;
 
     console.log("[plan] user message preview:", prompt.slice(0, 500));
 
@@ -1027,10 +1027,11 @@ Return ONLY a valid JSON object — no preamble, no markdown fences.`;
         body: JSON.stringify({ system: systemPrompt, messages: [{ role: "user", content: prompt }] })
       });
       const data = await res.json();
-      console.log("API response:", JSON.stringify(data).slice(0, 500));
-      const raw  = (data.content?.map(b => b.text || "").join("") || "").trim();
-      const text = raw.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
-      const clean = text.replace(/"((?:[^"\\]|\\[\s\S])*)"/g, (_, inner) =>
+      const rawText = (data.content?.[0]?.text ?? data.content?.map(b => b.text || "").join("") ?? "").trim();
+      console.log("[plan] raw API response (first 300):", rawText.slice(0, 300));
+      const cleanText = rawText
+        .replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
+      const clean = cleanText.replace(/"((?:[^"\\]|\\[\s\S])*)"/g, (_, inner) =>
         '"' + inner
           .replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t")
           .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "") + '"'
@@ -2167,7 +2168,7 @@ function MatchDetail({ match, onBack, onDelete, athleteId }) {
         "You are an expert youth tennis coach analyzing a competitive match for a developing athlete. " +
         "Your role is to provide developmental coaching insights — find patterns, highlight strengths, " +
         "identify priorities for growth. Be constructive and age-appropriate. " +
-        "Respond with valid JSON only — no markdown, no code fences, no extra text.";
+        "Return ONLY a raw JSON object. Do NOT wrap in markdown code fences. Do NOT include ```json or ``` anywhere in your response. Start your response with { and end with }.";
 
       const userPrompt =
 `Analyze this tennis match for ${context.athleteProfile?.name || "Valissa"}, age ${context.athleteProfile?.age || 12}.
@@ -2236,9 +2237,11 @@ Respond with exactly this JSON structure:
         body: JSON.stringify({ system: systemPrompt, messages: [{ role: "user", content: userPrompt }] })
       });
       const data = await res.json();
-      const raw  = (data.content?.map(b => b.text || "").join("") || "").trim();
-      const text = raw.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
-      const clean = text.replace(/"((?:[^"\\]|\\[\s\S])*)"/g, (_, inner) =>
+      const rawText = (data.content?.[0]?.text ?? data.content?.map(b => b.text || "").join("") ?? "").trim();
+      console.log("[analysis] raw API response (first 300):", rawText.slice(0, 300));
+      const cleanText = rawText
+        .replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
+      const clean = cleanText.replace(/"((?:[^"\\]|\\[\s\S])*)"/g, (_, inner) =>
         '"' + inner
           .replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t")
           .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "") + '"'
