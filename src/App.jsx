@@ -1796,7 +1796,7 @@ function extractMatchData(plistObj) {
 
   const POINT_FIELDS = [
     "pointNumber", "setNumber", "gameNumber", "rallyLength",
-    "whoHitShot", "whoWonPoint", "pointShotType", "pointWonType",
+    "whoHitShot", "whoWonPoint", "whoServed", "pointShotType", "pointWonType",
     "errorType", "shotLocation", "serveType", "breakPoint",
     "gameEndedOnPoint", "setEndedOnPoint", "matchEndedOnPoint",
     "pOneGameScore", "pTwoGameScore", "pOneSetScore", "pTwoSetScore", "pointTime",
