@@ -663,7 +663,11 @@ function AthleteMain({ athleteId, isParent, user, onBack, onSignOut }) {
         setWeekLogs(logsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
         setSessionHistory(sessSnap.docs.map(d => ({ id: d.id, ...d.data() })));
         setWellbeing(wellSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-        if (planSnap.exists()) setPlanResult(planSnap.data());
+        console.log("[plan] loaded from Firestore:", planSnap.exists(), planSnap.data()?.generatedAt);
+        if (planSnap.exists()) {
+          console.log("[plan] plan data keys:", Object.keys(planSnap.data()));
+          setPlanResult(planSnap.data());
+        }
       } catch (e) {
         console.error("Load error:", e);
       } finally {
@@ -1066,6 +1070,7 @@ Return ONLY a raw JSON object. Do NOT wrap in markdown code fences. Do NOT inclu
       setPlanResult(planData);
       if (athleteId) {
         await setDoc(doc(db, "athletes", athleteId, "plans", "current"), planData);
+        console.log("[plan] saved to Firestore at athletes/", athleteId, "/plans/current");
       }
 
       // Persist deferred priorities from today's plan
