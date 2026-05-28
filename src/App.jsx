@@ -782,8 +782,34 @@ function AlertsBanner({ athleteId, wellbeing, sessionHistory, weekLogs }) {
         },
       ];
 
-      const results = await Promise.all(checks.map(fn => fn().catch(() => null)));
+      const results = await Promise.all(checks.map(fn => fn().catch((e) => { console.error("[alerts] check threw:", e); return null; })));
       if (cancelled) return;
+
+      const { acwr, weekSRPEs, avgSleep, avgMood } = metrics;
+      const recentWb = recentWellbeing(7);
+      const moodDays = recentWb.filter(w => w.mood != null);
+      let consecutiveLowMood = 0;
+      for (let i = moodDays.length - 1; i >= 0; i--) {
+        if (moodDays[i].mood < 2.5) consecutiveLowMood++;
+        else break;
+      }
+      const sleepDays = recentWb.filter(w => w.sleep != null);
+      const avgSleepRecent = sleepDays.length
+        ? (sleepDays.reduce((s, w) => s + w.sleep, 0) / sleepDays.length).toFixed(2)
+        : null;
+      const consecutiveHighLoad = weekSRPEs.slice(0, 3).every(s => s > 2000)
+        ? 3 : weekSRPEs.slice(0, 2).every(s => s > 2000) ? 2 : weekSRPEs[0] > 2000 ? 1 : 0;
+
+      console.log("[alerts] check results:", {
+        loadSpike:          acwr,
+        moodDecline:        { consecutiveLowMood, moodDaysCount: moodDays.length, avgMood },
+        escalations:        Array.isArray(results[2]) ? results[2].length : results[2],
+        overdueTest:        results[3],
+        upcomingTournament: results[4],
+        sleepDeficit:       { avgSleepRecent, sleepDaysCount: sleepDays.length },
+        highLoadWeeks:      { consecutiveHighLoad, weekSRPEs },
+      });
+      console.log("[alerts] raw results:", results);
 
       const severityOrder = { red: 0, orange: 1, blue: 2, gray: 3 };
       const flat = results
@@ -791,6 +817,7 @@ function AlertsBanner({ athleteId, wellbeing, sessionHistory, weekLogs }) {
         .filter(Boolean)
         .sort((a, b) => (severityOrder[a.severity] ?? 9) - (severityOrder[b.severity] ?? 9));
 
+      console.log("[alerts] banners to show:", flat.length, flat.map(a => a.id));
       setAlerts(flat);
       setLoading(false);
     };
