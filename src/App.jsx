@@ -1910,7 +1910,10 @@ function extractMatchData(plistObj) {
     if (serve === 1) {
       server.firstServeIn += 1;
       if (serverWon) server.firstServePointsWon += 1;
-      if (SVC_WINNER_SHOTS.has(shot)) server.serviceWinners += 1;
+      if (SVC_WINNER_SHOTS.has(shot)) {
+        server.serviceWinners += 1;
+        console.log('[rec-debug] svcW point: serve=', serve, 'serverWon=', serverWon, 'whoServed=', whoServed, 'whoWon=', whoWon);
+      }
     } else if (serve === 2) {
       server.secondServePoints += 1;
       if (wonType === 'df') server.doubleFaults += 1;
@@ -1946,6 +1949,8 @@ function extractMatchData(plistObj) {
       if (field) hitter[`${field}Error`] += 1;
     }
   }
+
+  console.log('[rec-debug] p1 firstServeIn:', rec.p1.firstServeIn, 'serviceWinners:', rec.p1.serviceWinners, 'firstServePointsWon:', rec.p1.firstServePointsWon, 'secondServePoints:', rec.p1.secondServePoints);
 
   // Calculate first serve %
   const p1TotalFirstAttempts = rec.p1.firstServeIn + rec.p1.secondServePoints;
