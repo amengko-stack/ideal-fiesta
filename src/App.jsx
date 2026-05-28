@@ -1926,7 +1926,10 @@ function extractMatchData(plistObj) {
       if (wonType !== 'df') {
         server.firstServeIn = (server.firstServeIn || 0) + 1;
         if (serverWon) server.firstServePointsWon += 1;
-        if (SVCWINNER_SHOTS.includes(shot)) server.aces += 1;
+        if (SVCWINNER_SHOTS.includes(shot)) {
+          server.serviceWinners = (server.serviceWinners || 0) + 1;
+          server.aces = 0; // aces not distinguishable from service winners in matchLog
+        }
       }
     } else if (serve === 2) {
       server.secondServePoints += 1;
@@ -1958,6 +1961,8 @@ function extractMatchData(plistObj) {
     Object.assign(p1Stats, svcStats.p1);
     Object.assign(p2Stats, svcStats.p2);
     console.log('[matchtrack] service stats reconstructed — p1 firstServePct:', p1Stats.firstServePct?.toFixed(1));
+    console.log('[matchtrack] p1 UE:', p1Stats.unforcedErrors, 'FE:', p1Stats.forcedErrors, 'W:', p1Stats.winners);
+    console.log('[matchtrack] p2 UE:', p2Stats.unforcedErrors, 'FE:', p2Stats.forcedErrors, 'W:', p2Stats.winners);
   }
 
   // Derived calculations
