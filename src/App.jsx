@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
-  Activity, BarChart2, Calendar, ClipboardCheck, ClipboardList,
+  Activity, BarChart2, Calendar, ChevronLeft, ClipboardCheck, ClipboardList,
   Dumbbell, FileText, Heart, History, MessageSquare, Moon,
   Plus, Ruler, Settings, Sprout, Sun, Target, TrendingUp,
   User, UserPlus, Users, Zap,
@@ -2966,22 +2966,158 @@ function PrioritiesTab({ athleteId }) {
 }
 
 // ─── MATCHES TAB ──────────────────────────────────────────────────────────────
+// ─── SEASON REPORT VIEW ──────────────────────────────────────────────────────
+function SeasonReportView({ report, onBack, onRegenerate, seasonLoading }) {
+  const urgencyColor = u => u === "high" ? COLORS.red : u === "medium" ? COLORS.yellow : COLORS.muted;
+  const fmtDate = iso => iso
+    ? new Date(iso).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })
+    : "";
+  const sorted = [...(report.consistentWeaknesses ?? [])].sort((a, b) => {
+    const order = { high: 0, medium: 1, low: 2 };
+    return (order[a.urgency] ?? 3) - (order[b.urgency] ?? 3);
+  });
+
+  return (
+    <div>
+      <button className="btn btn-ghost btn-sm" onClick={onBack} style={{ marginBottom: 16 }}>
+        <ChevronLeft size={15} /> Match History
+      </button>
+
+      {/* Header */}
+      <div className="card" style={{ marginBottom: 14 }}>
+        <div className="flex-between" style={{ alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: "1.15rem", color: COLORS.text }}>Season Analysis</div>
+            <div style={{ color: COLORS.muted, fontSize: "0.78rem", marginTop: 4 }}>
+              {report.totalMatchesAnalyzed ?? report.matchCount} matches · Generated {fmtDate(report.generatedAt)}
+            </div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div className="label" style={{ marginBottom: 2 }}>Overall Record</div>
+            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.7rem", color: COLORS.accent, lineHeight: 1 }}>
+              {report.overallRecord}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Next Month Priority */}
+      <div className="card" style={{ border: `1.5px solid ${COLORS.accent}`, marginBottom: 14 }}>
+        <div className="label" style={{ color: COLORS.accent, marginBottom: 8 }}>🎯 Next Month Priority</div>
+        <div style={{ fontSize: "1rem", fontWeight: 600, color: COLORS.text, lineHeight: 1.55 }}>
+          {report.nextMonthPriority}
+        </div>
+      </div>
+
+      {/* Consistent Weaknesses */}
+      {sorted.length > 0 && (
+        <div style={{ marginBottom: 4 }}>
+          <div className="card-title" style={{ marginBottom: 10 }}>Consistent Weaknesses</div>
+          {sorted.map((w, i) => (
+            <div key={i} className="card" style={{ marginBottom: 10, borderLeft: `3px solid ${urgencyColor(w.urgency)}` }}>
+              <div className="flex-between" style={{ marginBottom: 6 }}>
+                <div style={{ fontWeight: 700, fontSize: "0.93rem" }}>{w.metric}</div>
+                <span style={{
+                  fontSize: "0.7rem", fontWeight: 700, textTransform: "uppercase",
+                  color: urgencyColor(w.urgency),
+                  background: `${urgencyColor(w.urgency)}22`,
+                  padding: "2px 8px", borderRadius: 4,
+                }}>
+                  {w.urgency}
+                </span>
+              </div>
+              <div style={{ color: COLORS.text, fontSize: "0.84rem", marginBottom: 8 }}>{w.pattern}</div>
+              <div style={{ color: COLORS.accent, fontSize: "0.82rem" }}>💡 {w.trainingFocus}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Improvements */}
+      {(report.improvements ?? []).length > 0 && (
+        <div style={{ marginBottom: 4 }}>
+          <div className="card-title" style={{ marginBottom: 10 }}>Improvements</div>
+          {(report.improvements ?? []).map((imp, i) => (
+            <div key={i} className="card" style={{ marginBottom: 10, borderLeft: `3px solid ${COLORS.accent}` }}>
+              <div style={{ fontWeight: 700, fontSize: "0.93rem", color: COLORS.accent, marginBottom: 4 }}>↑ {imp.metric}</div>
+              <div style={{ color: COLORS.text, fontSize: "0.84rem" }}>{imp.trend}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Inconsistencies */}
+      {(report.inconsistencies ?? []).length > 0 && (
+        <div style={{ marginBottom: 4 }}>
+          <div className="card-title" style={{ marginBottom: 10 }}>Inconsistencies</div>
+          {(report.inconsistencies ?? []).map((inc, i) => (
+            <div key={i} className="card" style={{ marginBottom: 10, borderLeft: `3px solid ${COLORS.yellow}` }}>
+              <div style={{ fontWeight: 700, fontSize: "0.93rem", color: COLORS.yellow, marginBottom: 4 }}>{inc.metric}</div>
+              <div style={{ color: COLORS.text, fontSize: "0.84rem" }}>{inc.observation}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Developmental Stage */}
+      {report.developmentalStageAssessment && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          <div className="card-title" style={{ marginBottom: 8 }}>Developmental Stage</div>
+          <div style={{ color: COLORS.text, fontSize: "0.87rem", lineHeight: 1.65 }}>{report.developmentalStageAssessment}</div>
+        </div>
+      )}
+
+      {/* Long Term Outlook */}
+      {report.longTermOutlook && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          <div className="card-title" style={{ marginBottom: 8 }}>Long Term Outlook</div>
+          <div style={{ color: COLORS.text, fontSize: "0.87rem", lineHeight: 1.65 }}>{report.longTermOutlook}</div>
+        </div>
+      )}
+
+      {/* Parent Note */}
+      {report.parentNote && (
+        <div className="card" style={{ marginBottom: 14, background: "rgba(0,229,160,0.06)", borderColor: COLORS.accentDim }}>
+          <div className="card-title" style={{ color: COLORS.accent, marginBottom: 8 }}>A Note for You</div>
+          <div style={{ color: COLORS.text, fontSize: "0.87rem", lineHeight: 1.65, fontStyle: "italic" }}>{report.parentNote}</div>
+        </div>
+      )}
+
+      <button
+        className="btn btn-ghost"
+        onClick={onRegenerate}
+        disabled={seasonLoading}
+        style={{ width: "100%", marginTop: 4 }}
+      >
+        {seasonLoading ? "Analyzing season…" : "↺ Regenerate Season Analysis"}
+      </button>
+    </div>
+  );
+}
+
+// ─── MATCHES TAB ─────────────────────────────────────────────────────────────
 function MatchesTab({ athleteId }) {
   const fileRef = useRef(null);
-  const [status,         setStatus]        = useState(null); // { ok: bool, text: string }
-  const [busy,           setBusy]          = useState(false);
-  const [matches,        setMatches]       = useState([]);
-  const [loadingMatches, setLoadingMatches] = useState(true);
-  const [selectedMatch,  setSelectedMatch] = useState(null);
+  const [status,              setStatus]             = useState(null);
+  const [busy,                setBusy]               = useState(false);
+  const [matches,             setMatches]            = useState([]);
+  const [loadingMatches,      setLoadingMatches]     = useState(true);
+  const [selectedMatch,       setSelectedMatch]      = useState(null);
+  const [seasonReport,        setSeasonReport]       = useState(null);
+  const [seasonLoading,       setSeasonLoading]      = useState(false);
+  const [viewingSeasonReport, setViewingSeasonReport] = useState(false);
 
-  // Fetch matches once on mount, filtered and sorted client-side to avoid composite index
+  // Fetch matches + cached season report on mount
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const snap = await getDocs(collection(db, "matches"));
+        const [matchSnap, reportSnap] = await Promise.all([
+          getDocs(collection(db, "matches")),
+          getDoc(doc(db, "athletes", athleteId, "reports", "seasonLatest")),
+        ]);
         if (cancelled) return;
-        const all = snap.docs
+        const all = matchSnap.docs
           .map(d => ({ id: d.id, ...d.data() }))
           .filter(m => m.athleteId === athleteId)
           .sort((a, b) => {
@@ -2990,6 +3126,7 @@ function MatchesTab({ athleteId }) {
             return b.matchStartTime.localeCompare(a.matchStartTime);
           });
         setMatches(all);
+        if (reportSnap.exists()) setSeasonReport(reportSnap.data());
       } catch (err) {
         console.error("Failed to load matches:", err);
       } finally {
@@ -2998,6 +3135,120 @@ function MatchesTab({ athleteId }) {
     })();
     return () => { cancelled = true; };
   }, [athleteId]);
+
+  const handleGenerateSeasonAnalysis = async () => {
+    setSeasonLoading(true);
+    setStatus(null);
+    try {
+      const chronoMatches = [...matches].sort((a, b) => {
+        if (!a.matchStartTime) return 1;
+        if (!b.matchStartTime) return -1;
+        return a.matchStartTime.localeCompare(b.matchStartTime);
+      });
+
+      const matchesWithAnalysis = [];
+      for (const match of chronoMatches) {
+        const snap = await getDoc(doc(db, "athletes", athleteId, "matchAnalyses", match.id));
+        if (snap.exists()) matchesWithAnalysis.push({ ...match, analysis: snap.data() });
+      }
+
+      if (matchesWithAnalysis.length === 0) {
+        setStatus({ ok: false, text: "No match analyses found — generate AI analysis for at least one match first." });
+        setSeasonLoading(false);
+        return;
+      }
+
+      const ctx = await buildAthleteContext(athleteId);
+
+      const fmtMatchScore = m => {
+        const sc = m.setScores;
+        if (sc?.p1?.length) return sc.p1.map((s, i) => `${s}–${sc.p2[i] ?? "?"}`).join(", ");
+        return "—";
+      };
+
+      const matchLines = matchesWithAnalysis.map((m, idx) => {
+        const date = m.matchStartTime
+          ? new Date(m.matchStartTime).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })
+          : "Unknown date";
+        const result = m.whoWonMatch === 1 ? "Win" : "Loss";
+        const v = m.valissa ?? {};
+        const o = m.opponent ?? {};
+        const calc = m.calculated ?? {};
+        const rally = calc.rallyDistribution ?? {};
+        const findings = (m.analysis?.criticalFindings ?? []).map(f => `${f.area}: ${f.finding}`).join(" | ");
+        return [
+          `Match ${idx + 1} — ${date} vs ${m.opponentName || "Opponent"} — ${result} ${fmtMatchScore(m)}`,
+          `Tournament: ${m.season || "—"}`,
+          `Valissa: W=${v.winners ?? 0} UE=${v.unforcedErrors ?? 0} FE=${v.forcedErrors ?? 0} 1st serve=${v.firstServePct != null ? Number(v.firstServePct).toFixed(1) : "—"}% DF=${v.doubleFaults ?? 0}`,
+          `Opponent: W=${o.winners ?? 0} UE=${o.unforcedErrors ?? 0}`,
+          `Rally win rates: 0-4shots=${rally["0-4"]?.valissaWinPct ?? "—"}% 5-8shots=${rally["5-8"]?.valissaWinPct ?? "—"}% 9+shots=${rally["9+"]?.valissaWinPct ?? "—"}%`,
+          `W:UE ratio: ${calc.wueRatio ?? "—"}`,
+          findings ? `AI analysis critical findings: ${findings}` : null,
+        ].filter(Boolean).join("\n");
+      }).join("\n\n");
+
+      const userMsg = `Athlete: Valissa, age 12, female junior tennis player
+Season review across ${matchesWithAnalysis.length} matches:
+
+${matchLines}
+
+Current training load context:
+Weekly sRPE: ${ctx.thisWeekSRPE ?? "—"} | ACWR: ${ctx.acuteChronicRatio ?? "—"} | Load level: ${ctx.loadLevel ?? "—"}`;
+
+      const systemPrompt = `You are a junior tennis development coach conducting a season review for a 12-year-old female athlete named Valissa. Analyze the following match statistics across multiple matches in chronological order. Return ONLY a raw JSON object — no markdown fences, start with { and end with }:
+
+{
+  "totalMatchesAnalyzed": integer,
+  "overallRecord": "W-L format",
+  "consistentWeaknesses": [
+    {
+      "metric": "short label",
+      "pattern": "what the data shows across matches with specific numbers",
+      "urgency": "high | medium | low",
+      "trainingFocus": "specific training recommendation"
+    }
+  ],
+  "improvements": [
+    {
+      "metric": "short label",
+      "trend": "specific improvement observed with numbers from earliest to latest match"
+    }
+  ],
+  "inconsistencies": [
+    {
+      "metric": "short label",
+      "observation": "good in some matches poor in others — possible cause"
+    }
+  ],
+  "developmentalStageAssessment": "paragraph on where she is as a developing junior athlete based on all match data — contextualised for age 12",
+  "nextMonthPriority": "the single most important technical or physical development focus for the next 30 days with specific reasoning from the data",
+  "longTermOutlook": "2-3 sentences on trajectory and what consistent training in her weak areas could produce over 6-12 months",
+  "parentNote": "one encouraging paragraph for the parent contextualising the season so far"
+}`;
+
+      const res = await fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ system: systemPrompt, messages: [{ role: "user", content: userMsg }], max_tokens: 4000 }),
+      });
+      const data = await res.json();
+      const raw = data?.content?.[0]?.text ?? "";
+      if (!raw) throw new Error("Empty response from AI");
+      const cleanText = raw.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
+      if (!cleanText.endsWith("}")) throw new Error("AI response was truncated — max_tokens too low");
+      const parsed = JSON.parse(cleanText);
+
+      const report = { ...parsed, generatedAt: new Date().toISOString(), matchCount: matchesWithAnalysis.length };
+      await setDoc(doc(db, "athletes", athleteId, "reports", "seasonLatest"), report);
+      setSeasonReport(report);
+      setViewingSeasonReport(true);
+    } catch (err) {
+      console.error("Season analysis error:", err);
+      setStatus({ ok: false, text: `Season analysis failed: ${err.message}` });
+    } finally {
+      setSeasonLoading(false);
+    }
+  };
 
   const handleFile = async (e) => {
     const file = e.target.files[0];
@@ -3099,13 +3350,24 @@ function MatchesTab({ athleteId }) {
     return <MatchDetail match={selectedMatch} onBack={() => setSelectedMatch(null)} onDelete={handleDelete} athleteId={athleteId} />;
   }
 
+  if (viewingSeasonReport && seasonReport) {
+    return (
+      <SeasonReportView
+        report={seasonReport}
+        onBack={() => setViewingSeasonReport(false)}
+        onRegenerate={handleGenerateSeasonAnalysis}
+        seasonLoading={seasonLoading}
+      />
+    );
+  }
+
   return (
     <div>
       {/* ── Import card ── */}
       <div className="card">
         <div className="card-title"><History size={18} /> Match History</div>
         <p style={{ color: COLORS.muted, fontSize: "0.83rem", marginBottom: 16 }}>
-          Import .matchtrack files to build Valissa's match record. Analysis tools coming soon.
+          Import .matchtrack files to build Valissa's match record.
         </p>
         <input ref={fileRef} name="matchFile" type="file" accept=".matchtrack" style={{ display: "none" }} onChange={handleFile} />
         <button
@@ -3128,6 +3390,55 @@ function MatchesTab({ athleteId }) {
           </div>
         )}
       </div>
+
+      {/* ── Season Intelligence ── */}
+      {!loadingMatches && matches.length >= 3 && (
+        <div className="card" style={{ borderColor: COLORS.accentDim }}>
+          <div className="card-title" style={{ marginBottom: 6 }}>
+            <TrendingUp size={16} style={{ color: COLORS.accent }} /> Season Intelligence
+          </div>
+          {seasonReport ? (
+            <div>
+              <div style={{ color: COLORS.muted, fontSize: "0.8rem", marginBottom: 12 }}>
+                Last generated {new Date(seasonReport.generatedAt).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })}
+                {" · "}Record: <span style={{ color: COLORS.accent, fontWeight: 600 }}>{seasonReport.overallRecord}</span>
+              </div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <button className="btn btn-primary btn-sm" onClick={() => setViewingSeasonReport(true)} style={{ gap: 6 }}>
+                  <BarChart2 size={13} /> View Season Report
+                </button>
+                <button className="btn btn-ghost btn-sm" onClick={handleGenerateSeasonAnalysis} disabled={seasonLoading} style={{ gap: 6 }}>
+                  {seasonLoading ? "Analyzing…" : "↺ Regenerate"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <p style={{ color: COLORS.muted, fontSize: "0.83rem", marginBottom: 12 }}>
+                {matches.length} matches recorded. Generate an AI-powered season analysis to identify patterns, improvements, and development priorities.
+              </p>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={handleGenerateSeasonAnalysis}
+                disabled={seasonLoading}
+                style={{ gap: 6 }}
+              >
+                <TrendingUp size={13} />
+                {seasonLoading ? (
+                  <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{
+                      width: 13, height: 13, border: `2px solid ${COLORS.bg}`,
+                      borderTopColor: "transparent", borderRadius: "50%",
+                      display: "inline-block", animation: "spin 0.7s linear infinite",
+                    }} />
+                    Analyzing season…
+                  </span>
+                ) : "Generate Season Analysis"}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Match list ── */}
       {loadingMatches ? (
