@@ -1888,25 +1888,25 @@ function extractMatchData(plistObj) {
 
   for (const pt of points) {
     const whoServedRaw = pt.whoServed ?? pt.whoHitShot;
-    if (whoServedRaw !== 1 && whoServedRaw !== 2) {
-      console.log('[rec-debug] unexpected whoServed:', whoServedRaw, 'type:', typeof whoServedRaw, 'point:', pt.pointNumber);
-    }
     const whoServedInt = parseInt(whoServedRaw, 10);
-    if (whoServedInt !== 1 && whoServedInt !== 2) continue;
+    if (whoServedInt !== 1 && whoServedInt !== 2) {
+      console.log('[rec-debug] unexpected whoServed:', whoServedRaw, typeof whoServedRaw);
+      continue;
+    }
+    const whoHit      = pt.whoHitShot;
+    const whoWon      = pt.whoWonPoint;
+    const serve       = parseInt(pt.serveType, 10);
+    const wonType     = pt.pointWonType ?? '';
+    const shot        = pt.pointShotType ?? '';
     const isP1Serving = whoServedInt === 1;
+    const serverWon   = parseInt(whoWon, 10) === whoServedInt;
     const server      = isP1Serving ? rec.p1 : rec.p2;
     const returner    = isP1Serving ? rec.p2 : rec.p1;
-    const serverWon   = parseInt(pt.whoWonPoint, 10) === whoServedInt;
-
-    const whoHit    = pt.whoHitShot;
-    const serve     = parseInt(pt.serveType, 10);
-    const wonType   = pt.pointWonType ?? '';
-    const shot      = pt.pointShotType ?? '';
     // eslint-disable-next-line eqeqeq
-    const hitter    = whoHit == 1 ? rec.p1 : rec.p2;
-    const field     = SHOT_FIELD_MAP[shot];
+    const hitter      = whoHit == 1 ? rec.p1 : rec.p2;
+    const field       = SHOT_FIELD_MAP[shot];
     // eslint-disable-next-line eqeqeq
-    const isBreak   = pt.breakPoint == 1;
+    const isBreak     = pt.breakPoint == 1;
 
     // SERVICE STATS
     if (serve === 1) {
@@ -1914,7 +1914,7 @@ function extractMatchData(plistObj) {
       if (serverWon) server.firstServePointsWon += 1;
       if (SVC_WINNER_SHOTS.has(shot)) {
         server.serviceWinners += 1;
-        console.log('[rec-debug] svcW point: serve=', serve, 'serverWon=', serverWon, 'whoServed=', whoServed, 'whoWon=', whoWon);
+        console.log('[rec-debug] svcW point: serve=', serve, 'serverWon=', serverWon, 'whoServedInt=', whoServedInt, 'whoWon=', whoWon);
       }
     } else if (serve === 2) {
       server.secondServePoints += 1;
