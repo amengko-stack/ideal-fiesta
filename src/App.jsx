@@ -779,39 +779,14 @@ function AlertsBanner({ athleteId, wellbeing, sessionHistory, weekLogs }) {
         },
       ];
 
-      const results = await Promise.all(checks.map(fn => fn().catch((e) => { console.error("[alerts] check threw:", e); return null; })));
+      const results = await Promise.all(checks.map(fn => fn().catch(() => null)));
       if (cancelled) return;
-
-      const { acwr, weekSRPEs } = metrics;
-      const recentWb = recentWellbeing(7);
-      const moodDays = recentWb.filter(w => w.mood != null);
-      let consecutiveLowMood = 0;
-      for (let i = moodDays.length - 1; i >= 0; i--) {
-        if (moodDays[i].mood < 2.5) consecutiveLowMood++;
-        else break;
-      }
-      const sleepDays = recentWb.filter(w => w.sleep != null);
-      const avgSleepRecent = sleepDays.length
-        ? sleepDays.reduce((s, w) => s + w.sleep, 0) / sleepDays.length
-        : null;
-      const moodLast3Days = moodDays.slice(-3).map(w => ({ date: w.date, mood: w.mood }));
-
-      console.log("[alerts] loadSpike ACWR:", acwr);
-      console.log("[alerts] weekLogs count:", weekLogs?.length);
-      console.log("[alerts] wellbeing count:", wellbeing?.length);
-      console.log("[alerts] avgSleep:", avgSleepRecent, "over", sleepDays.length, "days");
-      console.log("[alerts] moodLast3Days:", JSON.stringify(moodLast3Days), "consecutiveLow:", consecutiveLowMood);
-      console.log("[alerts] week1sRPE:", weekSRPEs[0], "week2sRPE:", weekSRPEs[1], "week3sRPE:", weekSRPEs[2]);
-      console.log("[alerts] escalations:", results[2]);
-      console.log("[alerts] tournamentDays:", results[4]);
 
       const severityOrder = { red: 0, orange: 1, blue: 2, gray: 3 };
       const flat = results
         .flat()
         .filter(Boolean)
         .sort((a, b) => (severityOrder[a.severity] ?? 9) - (severityOrder[b.severity] ?? 9));
-
-      console.log("[alerts] banners to show:", flat.length, flat.map(a => a.id));
       setAlerts(flat);
       setLoading(false);
     };
@@ -889,7 +864,6 @@ function AlertsBanner({ athleteId, wellbeing, sessionHistory, weekLogs }) {
 
 // ─── ATHLETE MAIN ─────────────────────────────────────────────────────────────
 function AthleteMain({ athleteId, isParent, user, onBack, onSignOut }) {
-  console.log("[dashboard] parent dashboard mounted, user:", user?.uid, "isParent:", isParent, "athleteId:", athleteId);
   const [tab, setTab]                     = useState("plan");
   const [profile, setProfile]             = useState(null);
   const [sessionHistory, setSessionHistory] = useState([]);
