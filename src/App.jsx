@@ -1767,35 +1767,18 @@ function extractMatchData(plistObj) {
     return {};
   };
 
-  // Find players by highest shot activity in stats — works regardless of playerNumber mapping
-  const scoredPlayers = players.map(p => {
+  // Detect if stats completely absent (addMatch format — all stats arrays empty)
+  const totalActivity = players.reduce((sum, p) => {
     const s = resolveStats(p);
-    const activity = (s.winners ?? 0) + (s.unforcedErrors ?? 0) + (s.forcedErrors ?? 0);
-    return { p, s, activity };
-  }).sort((a, b) => b.activity - a.activity);
-
-  const totalActivity = scoredPlayers.reduce((sum, sp) => sum + sp.activity, 0);
+    return sum + (s.winners ?? 0) + (s.unforcedErrors ?? 0) + (s.forcedErrors ?? 0);
+  }, 0);
   const statsCompletelyAbsent = totalActivity === 0;
-  console.log('[matchtrack] statsCompletelyAbsent:', statsCompletelyAbsent, 'totalActivity:', totalActivity);
+  console.log('[matchtrack] statsCompletelyAbsent:', statsCompletelyAbsent);
 
-  let p1Raw = scoredPlayers[0]?.p ?? {};
-  let p2Raw = scoredPlayers[1]?.p ?? {};
-
-  // Cross-check against matchLog pOneName and pTwoName to confirm correct mapping
+  // Player names from matchLog are always reliable
   const firstPoint = matchLog[0] ?? {};
-  const pOneName = firstPoint.pOneName ?? "";
-  const pTwoName = firstPoint.pTwoName ?? "";
-
-  // If highest activity player matches pTwoName, they are swapped — fix it
-  if (p1Raw.name && pTwoName && p1Raw.name === pTwoName) {
-    [p1Raw, p2Raw] = [p2Raw, p1Raw];
-  }
-
-  console.log("[matchtrack] p1Raw:", p1Raw.name, "winners:", resolveStats(p1Raw).winners);
-  console.log("[matchtrack] p2Raw:", p2Raw.name, "winners:", resolveStats(p2Raw).winners);
-
-  const valissaName  = pOneName  || p1Raw.name || "Valissa";
-  const opponentName = pTwoName  || p2Raw.name || "Opponent";
+  const valissaName = firstPoint.pOneName ?? "Valissa";
+  const opponentName = firstPoint.pTwoName ?? "Opponent";
 
   const STAT_FIELDS = [
     "aces", "doubleFaults", "firstServePct", "firstServePoints", "firstServePointsWon",
@@ -1824,79 +1807,31 @@ function extractMatchData(plistObj) {
     return result;
   };
 
-  let p1Stats = pickFields(resolveStats(p1Raw), STAT_FIELDS);
-  let p2Stats = pickFields(resolveStats(p2Raw), STAT_FIELDS);
-
-  function reconstructAllStatsFromMatchLog(points) {
-    const p1 = {}, p2 = {};
-    const fields = ['winners','unforcedErrors','forcedErrors','aces','doubleFaults',
-      'firstServePoints','firstServeIn','firstServePointsWon','secondServePoints',
-      'secondServePointsWon','breakPoints','breakPointsWon','breakPointsFaced','breakPointsSaved',
-      'firstReturnPoints','firstReturnPointsWon','secondReturnPoints','secondReturnPointsWon',
-      'fhWinner','fhError','bhWinner','bhError','fhReturnWinner','fhReturnError',
-      'bhReturnWinner','bhReturnError','fhVolleyWinner','fhVolleyError','bhVolleyWinner',
-      'bhVolleyError','approachWinner','approachError','fhSliceWinner','fhSliceError',
-      'bhSliceWinner','bhSliceError','overheadWinner','overheadError','fhIOWinner','fhIOError'];
-    for (const f of fields) { p1[f] = 0; p2[f] = 0; }
-
-    const SHOT_MAP = {
-      'fh':'fh','fhS':'fhSlice','fhV':'fhVolley','fhR':'fhReturn',
-      'fhIO':'fhIO','fhOH':'overhead','fhA':'approach',
-      'bh':'bh','bhS':'bhSlice','bhV':'bhVolley','bhR':'bhReturn','bhA':'approach',
-    };
-
-    for (const pt of points) {
-      // eslint-disable-next-line eqeqeq
-      const whoHit = pt.whoHitShot == 1 ? p1 : p2;
-      // eslint-disable-next-line eqeqeq
-      const server = pt.serveType != null ? (pt.whoHitShot == 1 ? p1 : p2) : null;
-      // eslint-disable-next-line eqeqeq
-      const serverWon = pt.whoWonPoint == pt.whoHitShot;
-      const shot = pt.pointShotType ?? '';
-      const wonType = pt.pointWonType ?? '';
-      const field = SHOT_MAP[shot];
-      const isBreak = pt.breakPoint;
-
-      if (pt.serveType === 1 || pt.serveType === '1') {
-        server['firstServePoints'] += 1;
-        if (wonType !== 'df') {
-          server['firstServeIn'] = (server['firstServeIn'] || 0) + 1;
-          if (serverWon) server['firstServePointsWon'] += 1;
-        }
-      } else if (pt.serveType === 2 || pt.serveType === '2') {
-        server['secondServePoints'] += 1;
-        if (wonType === 'df') server['doubleFaults'] += 1;
-        else if (serverWon) server['secondServePointsWon'] += 1;
-      }
-      if (['svcW','svcW-t','svcW-w'].includes(shot)) server && (server['aces'] += 1);
-      if (isBreak) {
-        server && (server['breakPointsFaced'] += 1);
-        if (serverWon) server && (server['breakPointsSaved'] += 1);
-      }
-      if (wonType === 'w' && !['svcW','svcW-t','svcW-w'].includes(shot)) {
-        whoHit['winners'] += 1;
-        if (field) whoHit[`${field}Winner`] = (whoHit[`${field}Winner`] || 0) + 1;
-      } else if (wonType === 'ufE') {
-        whoHit['unforcedErrors'] += 1;
-        if (field) whoHit[`${field}Error`] = (whoHit[`${field}Error`] || 0) + 1;
-      } else if (wonType === 'fE') {
-        whoHit['forcedErrors'] += 1;
-        if (field) whoHit[`${field}Error`] = (whoHit[`${field}Error`] || 0) + 1;
-      }
-    }
-    p1['firstServePct'] = p1['firstServePoints'] > 0 ? p1['firstServeIn'] / p1['firstServePoints'] * 100 : 0;
-    p2['firstServePct'] = p2['firstServePoints'] > 0 ? p2['firstServeIn'] / p2['firstServePoints'] * 100 : 0;
-    return { p1, p2 };
-  }
+  let p1Stats, p2Stats;
 
   if (statsCompletelyAbsent) {
-    console.log('[matchtrack] reconstructing all stats from matchLog — statsCompletelyAbsent');
-    const rawPoints = matchLog.map(pt => pickFields(pt, POINT_FIELDS));
-    const reconstructed = reconstructAllStatsFromMatchLog(rawPoints);
-    console.log('[matchtrack] reconstructed p1 winners:', reconstructed.p1.winners, 'ues:', reconstructed.p1.unforcedErrors);
-    console.log('[matchtrack] reconstructed p2 winners:', reconstructed.p2.winners, 'ues:', reconstructed.p2.unforcedErrors);
-    Object.assign(p1Stats, reconstructed.p1);
-    Object.assign(p2Stats, reconstructed.p2);
+    p1Stats = Object.fromEntries(STAT_FIELDS.map(f => [f, 0]));
+    p2Stats = Object.fromEntries(STAT_FIELDS.map(f => [f, 0]));
+  } else {
+    const scoredPlayers = players.map(p => {
+      const s = resolveStats(p);
+      const activity = (s.winners ?? 0) + (s.unforcedErrors ?? 0) + (s.forcedErrors ?? 0);
+      return { p, s, activity };
+    }).sort((a, b) => b.activity - a.activity);
+
+    let p1Raw = scoredPlayers[0]?.p ?? {};
+    let p2Raw = scoredPlayers[1]?.p ?? {};
+
+    const pTwoName = firstPoint.pTwoName ?? "";
+    if (p1Raw.name && pTwoName && p1Raw.name === pTwoName) {
+      [p1Raw, p2Raw] = [p2Raw, p1Raw];
+    }
+
+    console.log('[matchtrack] p1Raw:', p1Raw.name, 'winners:', resolveStats(p1Raw).winners);
+    console.log('[matchtrack] p2Raw:', p2Raw.name, 'winners:', resolveStats(p2Raw).winners);
+
+    p1Stats = pickFields(resolveStats(p1Raw), STAT_FIELDS);
+    p2Stats = pickFields(resolveStats(p2Raw), STAT_FIELDS);
   }
 
   // Parse matchLog — whoWonPoint "1" = Valissa, "2" = opponent
@@ -1940,6 +1875,68 @@ function extractMatchData(plistObj) {
     console.log("[matchtrack] shot breakdown not in stats — using matchLog reconstruction");
     Object.assign(p1Stats, p1Shot);
     Object.assign(p2Stats, p2Shot);
+  }
+
+  // Reconstruct service/return stats from matchLog
+  // Runs for all matches to fill any gaps; applied when absent or zero in current stats
+  const svcStats = { p1: {}, p2: {} };
+  const svcFields = ['firstServePoints','firstServeIn','firstServePointsWon',
+    'secondServePoints','secondServePointsWon','doubleFaults','aces',
+    'breakPointsFaced','breakPointsSaved','breakPointsWon','breakPoints',
+    'firstReturnPoints','firstReturnPointsWon','secondReturnPoints','secondReturnPointsWon'];
+  for (const f of svcFields) { svcStats.p1[f] = 0; svcStats.p2[f] = 0; }
+
+  const SVCWINNER_SHOTS = ['svcW','svcW-t','svcW-w'];
+
+  for (const pt of points) {
+    // eslint-disable-next-line eqeqeq
+    const isP1Serving = pt.whoHitShot == 1;
+    const server = isP1Serving ? svcStats.p1 : svcStats.p2;
+    const returner = isP1Serving ? svcStats.p2 : svcStats.p1;
+    // eslint-disable-next-line eqeqeq
+    const serverWon = pt.whoWonPoint == pt.whoHitShot;
+    const serve = parseInt(pt.serveType, 10);
+    const wonType = pt.pointWonType ?? '';
+    const shot = pt.pointShotType ?? '';
+    const isBreak = pt.breakPoint;
+
+    if (serve === 1) {
+      server.firstServePoints += 1;
+      if (wonType !== 'df') {
+        server.firstServeIn = (server.firstServeIn || 0) + 1;
+        if (serverWon) server.firstServePointsWon += 1;
+        if (SVCWINNER_SHOTS.includes(shot)) server.aces += 1;
+      }
+    } else if (serve === 2) {
+      server.secondServePoints += 1;
+      if (wonType === 'df') server.doubleFaults += 1;
+      else if (serverWon) server.secondServePointsWon += 1;
+    }
+
+    if (isBreak) {
+      server.breakPointsFaced += 1;
+      if (serverWon) server.breakPointsSaved += 1;
+      returner.breakPoints += 1;
+      if (!serverWon) returner.breakPointsWon += 1;
+    }
+
+    if (serve === 1) {
+      returner.firstReturnPoints += 1;
+      if (!serverWon) returner.firstReturnPointsWon += 1;
+    } else if (serve === 2) {
+      returner.secondReturnPoints += 1;
+      if (!serverWon) returner.secondReturnPointsWon += 1;
+    }
+  }
+
+  if (statsCompletelyAbsent || (p1Stats.firstServePoints ?? 0) === 0) {
+    svcStats.p1.firstServePct = svcStats.p1.firstServePoints > 0
+      ? svcStats.p1.firstServeIn / svcStats.p1.firstServePoints * 100 : 0;
+    svcStats.p2.firstServePct = svcStats.p2.firstServePoints > 0
+      ? svcStats.p2.firstServeIn / svcStats.p2.firstServePoints * 100 : 0;
+    Object.assign(p1Stats, svcStats.p1);
+    Object.assign(p2Stats, svcStats.p2);
+    console.log('[matchtrack] service stats reconstructed — p1 firstServePct:', p1Stats.firstServePct?.toFixed(1));
   }
 
   // Derived calculations
