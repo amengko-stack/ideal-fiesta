@@ -895,6 +895,7 @@ function AlertsBanner({ athleteId, wellbeing, sessionHistory, weekLogs }) {
 
 // ─── ATHLETE MAIN ─────────────────────────────────────────────────────────────
 function AthleteMain({ athleteId, isParent, user, onBack, onSignOut }) {
+  console.log("[dashboard] parent dashboard mounted, user:", user?.uid, "isParent:", isParent, "athleteId:", athleteId);
   const [tab, setTab]                     = useState("plan");
   const [profile, setProfile]             = useState(null);
   const [sessionHistory, setSessionHistory] = useState([]);
