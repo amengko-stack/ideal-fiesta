@@ -663,9 +663,7 @@ function AthleteMain({ athleteId, isParent, user, onBack, onSignOut }) {
         setWeekLogs(logsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
         setSessionHistory(sessSnap.docs.map(d => ({ id: d.id, ...d.data() })));
         setWellbeing(wellSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-        console.log("[plan] loaded from Firestore:", planSnap.exists(), planSnap.data()?.generatedAt);
         if (planSnap.exists()) {
-          console.log("[plan] plan data keys:", Object.keys(planSnap.data()));
           setPlanResult(planSnap.data());
         }
       } catch (e) {
@@ -1026,8 +1024,6 @@ PRIORITY HIERARCHY — apply strictly in this order:
 
 Return ONLY a raw JSON object. Do NOT wrap in markdown code fences. Do NOT include \`\`\`json or \`\`\` anywhere in your response. Start your response with { and end with }.`;
 
-    console.log("[plan] user message preview:", prompt.slice(0, 500));
-
     try {
       const res = await fetch(API_URL, {
         method: "POST",
@@ -1036,7 +1032,6 @@ Return ONLY a raw JSON object. Do NOT wrap in markdown code fences. Do NOT inclu
       });
       const data = await res.json();
       const rawText = (data.content?.[0]?.text ?? data.content?.map(b => b.text || "").join("") ?? "").trim();
-      console.log("[plan] raw API response (first 300):", rawText.slice(0, 300));
       const cleanText = rawText
         .replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
       if (!cleanText.endsWith("}")) throw new Error("AI response was truncated — max_tokens too low");
@@ -1073,7 +1068,6 @@ Return ONLY a raw JSON object. Do NOT wrap in markdown code fences. Do NOT inclu
       setPlanResult(planData);
       if (athleteId) {
         await setDoc(doc(db, "athletes", athleteId, "plans", "current"), planData);
-        console.log("[plan] saved to Firestore at athletes/", athleteId, "/plans/current");
       }
 
       // Persist deferred priorities from today's plan
@@ -1712,10 +1706,6 @@ function parsePlistNode(node) {
 }
 
 function parsePlist(xmlString) {
-  // Diagnose format — visible in DevTools > Console
-  const preview = xmlString.substring(0, 400);
-  console.log("[matchtrack] file preview:", preview);
-
   if (xmlString.startsWith("bplist")) {
     throw new Error("binary-plist");
   }
@@ -1739,19 +1729,12 @@ function parsePlist(xmlString) {
     throw new Error("empty-plist");
   }
 
-  console.log("[matchtrack] root element tag:", root.tagName);
   return parsePlistNode(root);
 }
 
 function extractMatchData(plistObj) {
   const players  = plistObj.players ?? [];
   const { id, matchStartTime, season, whoWonMatch, matchLog = [] } = plistObj;
-
-  console.log("[matchtrack] players count:", players.length);
-  players.forEach((p, i) => {
-    const s = Array.isArray(p.stats) ? p.stats[p.stats.length - 1] : null;
-    console.log(`  player[${i}] name="${p.name}" outerPlayerNumber=${p.playerNumber} statsPlayerNumber=${s?.playerNumber} winners=${s?.winners} ues=${s?.unforcedErrors}`);
-  });
 
   // ─── CRITICAL FIX ────────────────────────────────────────────────────────────
   // The plist has 4 player objects. The outer playerNumber is NOT reliable.
@@ -1830,9 +1813,6 @@ function extractMatchData(plistObj) {
     if (p1Raw.name && pTwoName && p1Raw.name === pTwoName) {
       [p1Raw, p2Raw] = [p2Raw, p1Raw];
     }
-
-    console.log('[matchtrack] p1Raw:', p1Raw.name, 'winners:', resolveStats(p1Raw).winners);
-    console.log('[matchtrack] p2Raw:', p2Raw.name, 'winners:', resolveStats(p2Raw).winners);
 
     p1Stats = pickStatFields(resolveStats(p1Raw), STAT_FIELDS);
     p2Stats = pickStatFields(resolveStats(p2Raw), STAT_FIELDS);
@@ -1950,16 +1930,12 @@ function extractMatchData(plistObj) {
   rec.p1.firstServePoints = rec.p1.firstServeIn;
   rec.p2.firstServePoints = rec.p2.firstServeIn;
 
-  console.log('[matchtrack] rec.p1 winners:', rec.p1.winners, 'UE:', rec.p1.unforcedErrors, 'FE:', rec.p1.forcedErrors, '1st%:', rec.p1.firstServePct.toFixed(1));
-  console.log('[matchtrack] rec.p2 winners:', rec.p2.winners, 'UE:', rec.p2.unforcedErrors, 'FE:', rec.p2.forcedErrors);
-
   // Apply reconstruction:
   // For absent-stats matches — use reconstruction for everything
   // For normal matches — only fill in shot breakdown if missing from stats
   if (statsCompletelyAbsent) {
     Object.assign(p1Stats, rec.p1);
     Object.assign(p2Stats, rec.p2);
-    console.log('[matchtrack] applied full reconstruction to absent-stats match');
   } else {
     const statsHasShotData = (p1Stats.fhWinner ?? 0) + (p1Stats.fhError ?? 0) +
       (p1Stats.bhWinner ?? 0) + (p1Stats.bhError ?? 0) > 0;
@@ -1974,7 +1950,6 @@ function extractMatchData(plistObj) {
         p1Stats[f] = rec.p1[f];
         p2Stats[f] = rec.p2[f];
       }
-      console.log('[matchtrack] applied shot-only reconstruction to normal match');
     }
   }
   // ─────────────────────────────────────────────────────────────────────────────
@@ -2031,7 +2006,6 @@ function extractMatchData(plistObj) {
       if (pt.pTwoSetScore != null) setMap[setNum].p2 = Math.max(setMap[setNum].p2, Number(pt.pTwoSetScore));
     }
     const setNums = Object.keys(setMap).map(Number).sort((a, b) => a - b);
-    console.log('[matchtrack] reconstructed setMap:', JSON.stringify(setMap));
     setScores = {
       p1: setNums.map(n => setMap[n].p1),
       p2: setNums.map(n => setMap[n].p2),
@@ -2214,8 +2188,6 @@ async function buildAthleteContext(athleteUid) {
     .filter(m => m.athleteId === athleteUid && (m.matchStartTime ?? "") >= cutoff14)
     .sort((a, b) => (b.matchStartTime ?? "").localeCompare(a.matchStartTime ?? ""))[0] ?? null;
 
-  console.log("[context] recentMatch:", recentMatch?.id, recentMatch?.opponentName);
-
   // ── 6b. AI match analysis for the most recent match ───────────────────────
   let matchAnalysis = { criticalFindings: [], deferredPriorities: [] };
   if (recentMatch?.id) {
@@ -2230,9 +2202,6 @@ async function buildAthleteContext(athleteUid) {
       }
     } catch (_) {}
   }
-
-  console.log("[context] matchAnalysis criticalFindings count:", matchAnalysis.criticalFindings.length);
-  console.log("[context] matchAnalysis sample finding:", JSON.stringify(matchAnalysis.criticalFindings[0]));
 
   // ── 7. Deferred priorities (status = "active") ─────────────────────────────
   const dpSnap = await getDocs(collection(db, "athletes", athleteUid, "deferredPriorities"));
@@ -3279,8 +3248,6 @@ Weekly sRPE: ${ctx.thisWeekSRPE ?? "—"} | ACWR: ${ctx.acuteChronicRatio ?? "�
         return;
       }
 
-      console.log("[matchtrack] parsed plist keys:", Object.keys(plistObj));
-
       let matchData;
       try {
         matchData = extractMatchData(plistObj);
@@ -3290,8 +3257,6 @@ Weekly sRPE: ${ctx.thisWeekSRPE ?? "—"} | ACWR: ${ctx.acuteChronicRatio ?? "�
         setBusy(false);
         return;
       }
-
-      console.log("[matchtrack] matchId:", matchData.matchId, "| matchStartTime:", matchData.matchStartTime, "| players:", matchData.valissa, matchData.opponent);
 
       if (!matchData.matchId || matchData.matchId === "undefined") {
         console.error("[matchtrack] matchId missing — top-level plist keys:", Object.keys(plistObj));
@@ -3308,7 +3273,6 @@ Weekly sRPE: ${ctx.thisWeekSRPE ?? "—"} | ACWR: ${ctx.acuteChronicRatio ?? "�
       }
 
       const stored = { ...matchData, athleteId, importedAt: new Date().toISOString() };
-      console.log("[matchtrack] saving to Firestore — valissa.winners:", matchData.valissa.winners, "| opponent.winners:", matchData.opponent.winners);
       await setDoc(doc(db, "matches", matchData.matchId), stored);
 
       // Optimistically prepend to list so it appears immediately
