@@ -1872,9 +1872,21 @@ function extractMatchData(plistObj) {
     const field    = SHOT_FIELD_MAP[shotCode];
     if (!field) continue;
 
-    if (wonType === 'w')   target[`${field}Winner`] += 1;
-    if (wonType === 'ufE') target[`${field}Error`]  += 1;
-    if (wonType === 'fE')  target[`${field}Error`]  += 1;
+    if (wonType === 'w' && !['svcW','svcW-t','svcW-w'].includes(shotCode)) {
+      target[`${field}Winner`] += 1;
+      if (isP1) p1Stats.winners = (p1Stats.winners || 0) + 1;
+      else p2Stats.winners = (p2Stats.winners || 0) + 1;
+    }
+    if (wonType === 'ufE') {
+      target[`${field}Error`]  += 1;
+      if (isP1) p1Stats.unforcedErrors = (p1Stats.unforcedErrors || 0) + 1;
+      else p2Stats.unforcedErrors = (p2Stats.unforcedErrors || 0) + 1;
+    }
+    if (wonType === 'fE') {
+      target[`${field}Error`]  += 1;
+      if (isP1) p1Stats.forcedErrors = (p1Stats.forcedErrors || 0) + 1;
+      else p2Stats.forcedErrors = (p2Stats.forcedErrors || 0) + 1;
+    }
   }
 
   // Check if stats array has shot breakdown data — if all zero, use reconstructed values
@@ -1898,11 +1910,12 @@ function extractMatchData(plistObj) {
 
   for (const pt of points) {
     // eslint-disable-next-line eqeqeq
-    const isP1Serving = pt.whoHitShot == 1;
+    const isP1Serving = (pt.whoServed ?? pt.whoHitShot) == 1;
     const server = isP1Serving ? svcStats.p1 : svcStats.p2;
     const returner = isP1Serving ? svcStats.p2 : svcStats.p1;
+    const whoServed = isP1Serving ? 1 : 2;
     // eslint-disable-next-line eqeqeq
-    const serverWon = pt.whoWonPoint == pt.whoHitShot;
+    const serverWon = pt.whoWonPoint == whoServed;
     const serve = parseInt(pt.serveType, 10);
     const wonType = pt.pointWonType ?? '';
     const shot = pt.pointShotType ?? '';
