@@ -232,7 +232,8 @@ const css = `
   .badge-red { background: rgba(255,77,109,0.15); color: ${COLORS.red}; }
   .badge-gray { background: rgba(90,106,126,0.2); color: ${COLORS.muted}; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  @media(max-width:640px){ .grid2 { grid-template-columns: 1fr; } }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+  @media(max-width:640px){ .grid2 { grid-template-columns: 1fr; } .grid3 { grid-template-columns: 1fr; } }
   .label { font-size: 0.75rem; color: ${COLORS.muted}; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 6px; }
   input, select, textarea { width: 100%; padding: 10px 12px; background: ${COLORS.surface}; border: 1px solid ${COLORS.border}; border-radius: 8px; color: ${COLORS.text}; font-family: 'DM Sans', sans-serif; font-size: 0.9rem; outline: none; transition: border 0.15s; }
   input:focus, select:focus, textarea:focus { border-color: ${COLORS.accent}; }
@@ -982,6 +983,7 @@ function AthleteMain({ athleteId, isParent, user, onBack, onSignOut }) {
             { id: "strength", Icon: Dumbbell,      label: "Log Strength" },
             { id: "matches",    Icon: History,        label: "Matches" },
             { id: "priorities", Icon: ClipboardCheck, label: "Priorities" },
+            ...(isParent ? [{ id: "benchmarks", Icon: TrendingUp, label: "Benchmarks" }] : []),
             { id: "profile",    Icon: Settings,       label: "Profile" },
           ].map(t => (
             <button key={t.id} className={`tab ${tab === t.id ? "active" : ""}`} onClick={() => setTab(t.id)}>
@@ -995,6 +997,7 @@ function AthleteMain({ athleteId, isParent, user, onBack, onSignOut }) {
         {tab === "strength" && <StrengthLogTab sessionHistory={sessionHistory} addSession={addSession} planResult={planResult} />}
         {tab === "matches"     && <MatchesTab     athleteId={athleteId} />}
         {tab === "priorities"  && <PrioritiesTab  athleteId={athleteId} />}
+        {tab === "benchmarks"  && isParent && <BenchmarksTab profile={profile} />}
         {tab === "profile"     && <ProfileTab     profile={profile} saveProfile={saveProfile} />}
       </div>
     </>
@@ -3849,12 +3852,151 @@ function ProgressTab({ sessionHistory, weekLogs }) {
   );
 }
 
+// ─── BENCHMARKS TAB ───────────────────────────────────────────────────────────
+function BenchmarksTab({ profile }) {
+  const height        = parseFloat(profile?.height)        || null;
+  const sittingHeight = parseFloat(profile?.sittingHeight) || null;
+  const weight        = parseFloat(profile?.weight)        || null;
+  const dob           = profile?.dob ? new Date(profile.dob) : null;
+  const ageYears      = dob ? (Date.now() - dob.getTime()) / (365.25 * 24 * 60 * 60 * 1000) : null;
+
+  let mirwald = null;
+  if (height && sittingHeight && weight && ageYears) {
+    const legLength = height - sittingHeight;
+    const a = ageYears;
+    const mo =
+      -9.376
+      + (0.0001882 * legLength * sittingHeight)
+      + (0.0022    * a         * legLength)
+      + (0.005841  * a         * sittingHeight)
+      - (0.002658  * a         * weight)
+      + (0.07693   * (weight / height) * 100);
+    mirwald = Math.round(mo * 100) / 100;
+  }
+
+  const phvStage = mirwald === null ? null
+    : mirwald < -1  ? "Pre-PHV"
+    : mirwald <= 1  ? "Mid-PHV"
+    : "Post-PHV";
+
+  const phvColor = phvStage === "Pre-PHV"  ? COLORS.accent
+    : phvStage === "Mid-PHV"  ? COLORS.yellow
+    : COLORS.cheer;
+
+  const implications = {
+    "Pre-PHV":  "Foundation phase — emphasise fundamental movement skills, coordination, and technical quality. Growth plates are open; avoid heavy axial loading. Light resistance and bodyweight work are appropriate.",
+    "Mid-PHV":  "Rapid growth phase — most sensitive period for injury. Reduce high-impact and plyometric volume. Monitor flexibility closely as bone growth outpaces muscle length. Prioritise injury prevention and movement quality over performance.",
+    "Post-PHV": "Post-growth phase — progressive loading becomes more appropriate. Strength training gains accelerate. Can begin building structured resistance load while maintaining technical standards.",
+  };
+
+  const missing = [];
+  if (!height)        missing.push("standing height");
+  if (!sittingHeight) missing.push("sitting height");
+  if (!weight)        missing.push("weight");
+  if (!dob)           missing.push("date of birth");
+
+  return (
+    <div>
+      <div className="card">
+        <div className="card-title"><TrendingUp size={18} /> Maturity Assessment</div>
+        <p style={{ color: COLORS.muted, fontSize: "0.83rem", marginBottom: 16 }}>
+          Mirwald maturity offset estimates years to/from Peak Height Velocity (PHV) — the point of fastest growth. Used to calibrate training load and injury risk.
+        </p>
+
+        {missing.length > 0 ? (
+          <div className="note-box" style={{ borderColor: COLORS.yellow, background: "rgba(245,197,24,0.07)" }}>
+            <span style={{ color: COLORS.yellow, fontWeight: 600 }}>Missing data: </span>
+            <span style={{ color: COLORS.text }}>
+              {missing.join(", ")} — enter in the Profile tab to enable this calculation.
+            </span>
+          </div>
+        ) : (
+          <>
+            <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+              <div style={{
+                flex: 1, minWidth: 120, background: COLORS.surface, borderRadius: 10,
+                padding: "14px 16px", textAlign: "center",
+                border: `1px solid ${COLORS.border}`,
+              }}>
+                <div style={{ fontSize: "0.7rem", color: COLORS.muted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Maturity Offset</div>
+                <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", color: mirwald >= 0 ? COLORS.accent : COLORS.yellow, lineHeight: 1 }}>
+                  {mirwald >= 0 ? "+" : ""}{mirwald}
+                </div>
+                <div style={{ fontSize: "0.72rem", color: COLORS.muted, marginTop: 4 }}>years from PHV</div>
+              </div>
+
+              <div style={{
+                flex: 1, minWidth: 120, background: COLORS.surface, borderRadius: 10,
+                padding: "14px 16px", textAlign: "center",
+                border: `2px solid ${phvColor}`,
+              }}>
+                <div style={{ fontSize: "0.7rem", color: COLORS.muted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>PHV Stage</div>
+                <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", color: phvColor, lineHeight: 1.1 }}>
+                  {phvStage}
+                </div>
+                <div style={{ fontSize: "0.72rem", color: COLORS.muted, marginTop: 4 }}>
+                  {phvStage === "Pre-PHV"  && "approaching peak growth"}
+                  {phvStage === "Mid-PHV"  && "in peak growth window"}
+                  {phvStage === "Post-PHV" && "past peak growth"}
+                </div>
+              </div>
+
+              <div style={{
+                flex: 1, minWidth: 120, background: COLORS.surface, borderRadius: 10,
+                padding: "14px 16px", textAlign: "center",
+                border: `1px solid ${COLORS.border}`,
+              }}>
+                <div style={{ fontSize: "0.7rem", color: COLORS.muted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Age</div>
+                <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", color: COLORS.text, lineHeight: 1 }}>
+                  {Math.floor(ageYears)}
+                </div>
+                <div style={{ fontSize: "0.72rem", color: COLORS.muted, marginTop: 4 }}>years old</div>
+              </div>
+            </div>
+
+            <div style={{
+              borderLeft: `3px solid ${phvColor}`,
+              paddingLeft: 12, marginBottom: 16,
+            }}>
+              <div style={{ fontSize: "0.75rem", color: phvColor, fontWeight: 700, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                Training Implication — {phvStage}
+              </div>
+              <div style={{ fontSize: "0.83rem", color: COLORS.text, lineHeight: 1.6 }}>
+                {implications[phvStage]}
+              </div>
+            </div>
+
+            <div style={{ background: COLORS.surface, borderRadius: 8, padding: "10px 14px", fontSize: "0.78rem", color: COLORS.muted }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                <span>Standing height</span><span style={{ color: COLORS.text }}>{height} cm</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                <span>Sitting height</span><span style={{ color: COLORS.text }}>{sittingHeight} cm</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                <span>Leg length (standing − sitting)</span><span style={{ color: COLORS.text }}>{Math.round((height - sittingHeight) * 10) / 10} cm</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span>Weight</span><span style={{ color: COLORS.text }}>{weight} kg</span>
+              </div>
+            </div>
+
+            <div className="note-box mt16">
+              💡 Re-measure monthly and update Profile to track maturity progression over time.
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── PROFILE TAB ─────────────────────────────────────────────────────────────
 function ProfileTab({ profile, saveProfile }) {
   const [form, setForm] = useState(() => profile || {
     name: "", dob: "", gaps: [],
     tennisSchedule: "", cheerSchedule: "", coachNotes: "",
-    weight: "", height: "", measurements: [],
+    weight: "", height: "", sittingHeight: "", measurements: [],
   });
   const [saved, setSaved]         = useState(false);
   const [saveError, setSaveError] = useState(false);
@@ -3873,17 +4015,20 @@ function ProfileTab({ profile, saveProfile }) {
     setSaved(false); setSaveError(false);
     try {
       let updatedForm = { ...form };
-      const w = parseFloat(form.weight);
-      const h = parseFloat(form.height);
-      if (w > 0 || h > 0) {
+      const w  = parseFloat(form.weight);
+      const h  = parseFloat(form.height);
+      const sh = parseFloat(form.sittingHeight);
+      if (w > 0 || h > 0 || sh > 0) {
         const entry = { date: new Date().toISOString().split("T")[0] };
-        if (w > 0) entry.weight = w;
-        if (h > 0) entry.height = h;
+        if (w  > 0) entry.weight        = w;
+        if (h  > 0) entry.height        = h;
+        if (sh > 0) entry.sittingHeight = sh;
         const prev = (form.measurements || []).filter(m => m.date !== entry.date);
         updatedForm = {
           ...updatedForm,
-          weight: w > 0 ? w : (updatedForm.weight || null),
-          height: h > 0 ? h : (updatedForm.height || null),
+          weight:        w  > 0 ? w  : (updatedForm.weight        || null),
+          height:        h  > 0 ? h  : (updatedForm.height        || null),
+          sittingHeight: sh > 0 ? sh : (updatedForm.sittingHeight || null),
           measurements: [entry, ...prev].slice(0, 12),
         };
         setForm(updatedForm);
@@ -3933,16 +4078,7 @@ function ProfileTab({ profile, saveProfile }) {
       <div className="card">
         <div className="card-title"><Ruler size={18} /> Physical Measurements</div>
         <p style={{ color: COLORS.muted, fontSize: "0.83rem", marginBottom: 14 }}>Log monthly. The AI uses this to adjust loading recommendations as she grows.</p>
-        <div className="grid2">
-          <div>
-            <div className="label">Weight (kg)</div>
-            <input
-              name="profileWeight"
-              type="number" placeholder="e.g. 42" min="20" max="120" step="0.1"
-              value={form.weight || ""}
-              onChange={e => setForm(f => ({ ...f, weight: e.target.value }))}
-            />
-          </div>
+        <div className="grid3">
           <div>
             <div className="label">Height (cm)</div>
             <input
@@ -3952,6 +4088,27 @@ function ProfileTab({ profile, saveProfile }) {
               onChange={e => setForm(f => ({ ...f, height: e.target.value }))}
             />
           </div>
+          <div>
+            <div className="label">Sitting Height (cm)</div>
+            <input
+              name="profileSittingHeight"
+              type="number" placeholder="e.g. 82" min="50" max="130" step="0.5"
+              value={form.sittingHeight || ""}
+              onChange={e => setForm(f => ({ ...f, sittingHeight: e.target.value }))}
+            />
+            <div style={{ fontSize: "0.7rem", color: COLORS.muted, marginTop: 5, lineHeight: 1.4 }}>
+              Sit on a flat surface against a wall, measure from surface to top of head.
+            </div>
+          </div>
+          <div>
+            <div className="label">Weight (kg)</div>
+            <input
+              name="profileWeight"
+              type="number" placeholder="e.g. 42" min="20" max="120" step="0.1"
+              value={form.weight || ""}
+              onChange={e => setForm(f => ({ ...f, weight: e.target.value }))}
+            />
+          </div>
         </div>
         {(form.measurements || []).length > 0 && (
           <div style={{ marginTop: 14 }}>
@@ -3959,9 +4116,10 @@ function ProfileTab({ profile, saveProfile }) {
             {(form.measurements || []).slice(0, 6).map((m, i) => (
               <div key={i} className="stat-row" style={{ fontSize: "0.82rem" }}>
                 <span style={{ color: COLORS.muted }}>{m.date}</span>
-                <span>
-                  {m.weight ? <span style={{ color: COLORS.text, marginRight: 12 }}>{m.weight} kg</span> : null}
-                  {m.height ? <span style={{ color: COLORS.text }}>{m.height} cm</span> : null}
+                <span style={{ display: "flex", gap: 12 }}>
+                  {m.height        ? <span style={{ color: COLORS.text }}>{m.height} cm</span>         : null}
+                  {m.sittingHeight ? <span style={{ color: COLORS.muted }}>sit {m.sittingHeight} cm</span> : null}
+                  {m.weight        ? <span style={{ color: COLORS.text }}>{m.weight} kg</span>          : null}
                 </span>
               </div>
             ))}
