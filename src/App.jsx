@@ -1744,7 +1744,7 @@ function parsePlist(xmlString) {
 }
 
 function extractMatchData(plistObj) {
-  console.log('[extract-v2] running updated version');
+  console.log('[extract-v2] running — matchLog length:', (plistObj.matchLog ?? []).length);
   const players  = plistObj.players ?? [];
   const { id, matchStartTime, season, whoWonMatch, matchLog = [] } = plistObj;
 
