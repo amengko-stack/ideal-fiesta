@@ -769,10 +769,13 @@ function PlanTab({ athleteId, profile, weekLogs, sessionHistory, wellbeing, aiLo
   const [sessionTime, setSessionTime] = useState("10:00");
   const [aiError, setAiError] = useState("");
   const [escalations, setEscalations] = useState([]);
+  const isGenerating = useRef(false);
 
   const gaps = profile?.gaps || [];
 
   const handleGenerate = async () => {
+    if (isGenerating.current) return;
+    isGenerating.current = true;
     setAiLoading(true);
     setAiError("");
     setPlanResult(null);
@@ -1097,8 +1100,10 @@ Return ONLY a raw JSON object. Do NOT wrap in markdown code fences. Do NOT inclu
     } catch (e) {
       console.error("Plan generation error:", e);
       setAiError(`Could not generate plan — ${e.message}`);
+    } finally {
+      isGenerating.current = false;
+      setAiLoading(false);
     }
-    setAiLoading(false);
   };
 
   const metrics = calculateMetrics(weekLogs, wellbeing);
