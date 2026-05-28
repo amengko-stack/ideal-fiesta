@@ -782,7 +782,7 @@ function AlertsBanner({ athleteId, wellbeing, sessionHistory, weekLogs }) {
       const results = await Promise.all(checks.map(fn => fn().catch((e) => { console.error("[alerts] check threw:", e); return null; })));
       if (cancelled) return;
 
-      const { acwr, weekSRPEs, avgSleep, avgMood } = metrics;
+      const { acwr, weekSRPEs } = metrics;
       const recentWb = recentWellbeing(7);
       const moodDays = recentWb.filter(w => w.mood != null);
       let consecutiveLowMood = 0;
@@ -792,21 +792,18 @@ function AlertsBanner({ athleteId, wellbeing, sessionHistory, weekLogs }) {
       }
       const sleepDays = recentWb.filter(w => w.sleep != null);
       const avgSleepRecent = sleepDays.length
-        ? (sleepDays.reduce((s, w) => s + w.sleep, 0) / sleepDays.length).toFixed(2)
+        ? sleepDays.reduce((s, w) => s + w.sleep, 0) / sleepDays.length
         : null;
-      const consecutiveHighLoad = weekSRPEs.slice(0, 3).every(s => s > 2000)
-        ? 3 : weekSRPEs.slice(0, 2).every(s => s > 2000) ? 2 : weekSRPEs[0] > 2000 ? 1 : 0;
+      const moodLast3Days = moodDays.slice(-3).map(w => ({ date: w.date, mood: w.mood }));
 
-      console.log("[alerts] check results:", {
-        loadSpike:          acwr,
-        moodDecline:        { consecutiveLowMood, moodDaysCount: moodDays.length, avgMood },
-        escalations:        Array.isArray(results[2]) ? results[2].length : results[2],
-        overdueTest:        results[3],
-        upcomingTournament: results[4],
-        sleepDeficit:       { avgSleepRecent, sleepDaysCount: sleepDays.length },
-        highLoadWeeks:      { consecutiveHighLoad, weekSRPEs },
-      });
-      console.log("[alerts] raw results:", results);
+      console.log("[alerts] loadSpike ACWR:", acwr);
+      console.log("[alerts] weekLogs count:", weekLogs?.length);
+      console.log("[alerts] wellbeing count:", wellbeing?.length);
+      console.log("[alerts] avgSleep:", avgSleepRecent, "over", sleepDays.length, "days");
+      console.log("[alerts] moodLast3Days:", JSON.stringify(moodLast3Days), "consecutiveLow:", consecutiveLowMood);
+      console.log("[alerts] week1sRPE:", weekSRPEs[0], "week2sRPE:", weekSRPEs[1], "week3sRPE:", weekSRPEs[2]);
+      console.log("[alerts] escalations:", results[2]);
+      console.log("[alerts] tournamentDays:", results[4]);
 
       const severityOrder = { red: 0, orange: 1, blue: 2, gray: 3 };
       const flat = results
