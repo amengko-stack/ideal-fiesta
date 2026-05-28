@@ -1847,96 +1847,77 @@ function extractMatchData(plistObj) {
     .map(pt => pickFields(pt, POINT_FIELDS))
     .sort((a, b) => (a.pointNumber ?? 0) - (b.pointNumber ?? 0));
 
-  // Shot type code → field name mapping
+  // ─── COMPLETE STATS RECONSTRUCTION FROM MATCHLOG ─────────────────────────────
+  // Runs for all matches. For absent-stats matches, provides all values.
+  // For normal matches, fills in missing shot breakdown only.
+
   const SHOT_FIELD_MAP = {
     'fh': 'fh', 'fhS': 'fhSlice', 'fhV': 'fhVolley', 'fhR': 'fhReturn',
     'fhIO': 'fhIO', 'fhOH': 'overhead', 'fhA': 'approach',
     'bh': 'bh', 'bhS': 'bhSlice', 'bhV': 'bhVolley', 'bhR': 'bhReturn', 'bhA': 'approach',
   };
+  const SVC_WINNER_SHOTS = new Set(['svcW', 'svcW-t', 'svcW-w']);
 
-  // Initialise shot counters for both players
-  const shotFields = ['fh','fhSlice','fhVolley','fhReturn','fhIO','overhead','approach','bh','bhSlice','bhVolley','bhReturn'];
-  const p1Shot = {}, p2Shot = {};
-  for (const f of shotFields) {
-    p1Shot[`${f}Winner`] = 0; p1Shot[`${f}Error`] = 0;
-    p2Shot[`${f}Winner`] = 0; p2Shot[`${f}Error`] = 0;
-  }
-
-  // Reconstruct from matchLog
-  for (const pt of points) {
-    const shotCode = pt.pointShotType ?? '';
-    const wonType  = pt.pointWonType ?? '';
-    // eslint-disable-next-line eqeqeq
-    const isP1     = pt.whoHitShot == 1;
-    const target   = isP1 ? p1Shot : p2Shot;
-    const field    = SHOT_FIELD_MAP[shotCode];
-    if (!field) continue;
-
-    if (wonType === 'w' && !['svcW','svcW-t','svcW-w'].includes(shotCode)) {
-      target[`${field}Winner`] += 1;
-      if (isP1) p1Stats.winners = (p1Stats.winners || 0) + 1;
-      else p2Stats.winners = (p2Stats.winners || 0) + 1;
+  // Initialize reconstruction accumulators
+  const rec = {
+    p1: { firstServeIn:0, firstServePointsWon:0, secondServePoints:0, secondServePointsWon:0,
+      doubleFaults:0, serviceWinners:0, aces:0,
+      breakPointsFaced:0, breakPointsSaved:0, breakPointsWon:0, breakPoints:0,
+      firstReturnPoints:0, firstReturnPointsWon:0, secondReturnPoints:0, secondReturnPointsWon:0,
+      winners:0, unforcedErrors:0, forcedErrors:0,
+      fhWinner:0, fhError:0, bhWinner:0, bhError:0,
+      fhSliceWinner:0, fhSliceError:0, fhVolleyWinner:0, fhVolleyError:0,
+      fhReturnWinner:0, fhReturnError:0, fhIOWinner:0, fhIOError:0,
+      overheadWinner:0, overheadError:0, approachWinner:0, approachError:0,
+      bhSliceWinner:0, bhSliceError:0, bhVolleyWinner:0, bhVolleyError:0,
+      bhReturnWinner:0, bhReturnError:0,
+    },
+    p2: { firstServeIn:0, firstServePointsWon:0, secondServePoints:0, secondServePointsWon:0,
+      doubleFaults:0, serviceWinners:0, aces:0,
+      breakPointsFaced:0, breakPointsSaved:0, breakPointsWon:0, breakPoints:0,
+      firstReturnPoints:0, firstReturnPointsWon:0, secondReturnPoints:0, secondReturnPointsWon:0,
+      winners:0, unforcedErrors:0, forcedErrors:0,
+      fhWinner:0, fhError:0, bhWinner:0, bhError:0,
+      fhSliceWinner:0, fhSliceError:0, fhVolleyWinner:0, fhVolleyError:0,
+      fhReturnWinner:0, fhReturnError:0, fhIOWinner:0, fhIOError:0,
+      overheadWinner:0, overheadError:0, approachWinner:0, approachError:0,
+      bhSliceWinner:0, bhSliceError:0, bhVolleyWinner:0, bhVolleyError:0,
+      bhReturnWinner:0, bhReturnError:0,
     }
-    if (wonType === 'ufE') {
-      target[`${field}Error`]  += 1;
-      if (isP1) p1Stats.unforcedErrors = (p1Stats.unforcedErrors || 0) + 1;
-      else p2Stats.unforcedErrors = (p2Stats.unforcedErrors || 0) + 1;
-    }
-    if (wonType === 'fE') {
-      target[`${field}Error`]  += 1;
-      if (isP1) p1Stats.forcedErrors = (p1Stats.forcedErrors || 0) + 1;
-      else p2Stats.forcedErrors = (p2Stats.forcedErrors || 0) + 1;
-    }
-  }
-
-  // Check if stats array has shot breakdown data — if all zero, use reconstructed values
-  const statsHasShotData = (p1Stats.fhWinner ?? 0) + (p1Stats.fhError ?? 0) + (p1Stats.bhWinner ?? 0) + (p1Stats.bhError ?? 0) > 0;
-  if (!statsHasShotData) {
-    console.log("[matchtrack] shot breakdown not in stats — using matchLog reconstruction");
-    Object.assign(p1Stats, p1Shot);
-    Object.assign(p2Stats, p2Shot);
-  }
-
-  // Reconstruct service/return stats from matchLog
-  // Runs for all matches to fill any gaps; applied when absent or zero in current stats
-  const svcStats = { p1: {}, p2: {} };
-  const svcFields = ['firstServePoints','firstServeIn','firstServePointsWon',
-    'secondServePoints','secondServePointsWon','doubleFaults','aces',
-    'breakPointsFaced','breakPointsSaved','breakPointsWon','breakPoints',
-    'firstReturnPoints','firstReturnPointsWon','secondReturnPoints','secondReturnPointsWon'];
-  for (const f of svcFields) { svcStats.p1[f] = 0; svcStats.p2[f] = 0; }
-
-  const SVCWINNER_SHOTS = ['svcW','svcW-t','svcW-w'];
+  };
 
   for (const pt of points) {
     // eslint-disable-next-line eqeqeq
-    const isP1Serving = (pt.whoServed ?? pt.whoHitShot) == 1;
-    const server = isP1Serving ? svcStats.p1 : svcStats.p2;
-    const returner = isP1Serving ? svcStats.p2 : svcStats.p1;
-    const whoServed = isP1Serving ? 1 : 2;
+    const whoServed = pt.whoServed ?? pt.whoHitShot;
+    const whoHit    = pt.whoHitShot;
+    const whoWon    = pt.whoWonPoint;
+    const serve     = parseInt(pt.serveType, 10);
+    const wonType   = pt.pointWonType ?? '';
+    const shot      = pt.pointShotType ?? '';
     // eslint-disable-next-line eqeqeq
-    const serverWon = pt.whoWonPoint == whoServed;
-    const serve = parseInt(pt.serveType, 10);
-    const wonType = pt.pointWonType ?? '';
-    const shot = pt.pointShotType ?? '';
-    const isBreak = pt.breakPoint;
+    const isP1Serving  = whoServed == 1;
+    // eslint-disable-next-line eqeqeq
+    const serverWon    = whoWon == whoServed;
+    const server       = isP1Serving ? rec.p1 : rec.p2;
+    const returner     = isP1Serving ? rec.p2 : rec.p1;
+    // eslint-disable-next-line eqeqeq
+    const hitter       = whoHit == 1 ? rec.p1 : rec.p2;
+    const field        = SHOT_FIELD_MAP[shot];
+    // eslint-disable-next-line eqeqeq
+    const isBreak      = pt.breakPoint == 1;
 
+    // SERVICE STATS
     if (serve === 1) {
-      server.firstServePoints += 1;
-      if (wonType !== 'df') {
-        server.firstServeIn = (server.firstServeIn || 0) + 1;
-        if (serverWon) server.firstServePointsWon += 1;
-        if (SVCWINNER_SHOTS.includes(shot)) {
-          server.serviceWinners = (server.serviceWinners || 0) + 1;
-          server.aces = 0; // aces not distinguishable from service winners in matchLog
-        }
-      }
+      server.firstServeIn += 1;
+      if (serverWon) server.firstServePointsWon += 1;
+      if (SVC_WINNER_SHOTS.has(shot)) server.serviceWinners += 1;
     } else if (serve === 2) {
       server.secondServePoints += 1;
       if (wonType === 'df') server.doubleFaults += 1;
       else if (serverWon) server.secondServePointsWon += 1;
     }
 
+    // BREAK POINTS
     if (isBreak) {
       server.breakPointsFaced += 1;
       if (serverWon) server.breakPointsSaved += 1;
@@ -1944,26 +1925,66 @@ function extractMatchData(plistObj) {
       if (!serverWon) returner.breakPointsWon += 1;
     }
 
+    // RETURN STATS
     if (serve === 1) {
       returner.firstReturnPoints += 1;
       if (!serverWon) returner.firstReturnPointsWon += 1;
-    } else if (serve === 2) {
+    } else if (serve === 2 && wonType !== 'df') {
       returner.secondReturnPoints += 1;
       if (!serverWon) returner.secondReturnPointsWon += 1;
     }
+
+    // WINNERS AND ERRORS
+    if (wonType === 'w' && !SVC_WINNER_SHOTS.has(shot)) {
+      hitter.winners += 1;
+      if (field) hitter[`${field}Winner`] += 1;
+    } else if (wonType === 'ufE') {
+      hitter.unforcedErrors += 1;
+      if (field) hitter[`${field}Error`] += 1;
+    } else if (wonType === 'fE') {
+      hitter.forcedErrors += 1;
+      if (field) hitter[`${field}Error`] += 1;
+    }
   }
 
-  if (statsCompletelyAbsent || (p1Stats.firstServePoints ?? 0) === 0) {
-    svcStats.p1.firstServePct = svcStats.p1.firstServePoints > 0
-      ? svcStats.p1.firstServeIn / svcStats.p1.firstServePoints * 100 : 0;
-    svcStats.p2.firstServePct = svcStats.p2.firstServePoints > 0
-      ? svcStats.p2.firstServeIn / svcStats.p2.firstServePoints * 100 : 0;
-    Object.assign(p1Stats, svcStats.p1);
-    Object.assign(p2Stats, svcStats.p2);
-    console.log('[matchtrack] service stats reconstructed — p1 firstServePct:', p1Stats.firstServePct?.toFixed(1));
-    console.log('[matchtrack] p1 UE:', p1Stats.unforcedErrors, 'FE:', p1Stats.forcedErrors, 'W:', p1Stats.winners);
-    console.log('[matchtrack] p2 UE:', p2Stats.unforcedErrors, 'FE:', p2Stats.forcedErrors, 'W:', p2Stats.winners);
+  // Calculate first serve %
+  const p1TotalFirstAttempts = rec.p1.firstServeIn + rec.p1.secondServePoints;
+  const p2TotalFirstAttempts = rec.p2.firstServeIn + rec.p2.secondServePoints;
+  rec.p1.firstServePct = p1TotalFirstAttempts > 0 ? rec.p1.firstServeIn / p1TotalFirstAttempts * 100 : 0;
+  rec.p2.firstServePct = p2TotalFirstAttempts > 0 ? rec.p2.firstServeIn / p2TotalFirstAttempts * 100 : 0;
+  rec.p1.firstServePoints = rec.p1.firstServeIn;
+  rec.p2.firstServePoints = rec.p2.firstServeIn;
+
+  console.log('[matchtrack] rec.p1 winners:', rec.p1.winners, 'UE:', rec.p1.unforcedErrors, 'FE:', rec.p1.forcedErrors, '1st%:', rec.p1.firstServePct.toFixed(1));
+  console.log('[matchtrack] rec.p2 winners:', rec.p2.winners, 'UE:', rec.p2.unforcedErrors, 'FE:', rec.p2.forcedErrors);
+
+  // Apply reconstruction:
+  // For absent-stats matches — use reconstruction for everything
+  // For normal matches — only fill in shot breakdown if missing from stats
+  if (statsCompletelyAbsent) {
+    Object.assign(p1Stats, rec.p1);
+    Object.assign(p2Stats, rec.p2);
+    console.log('[matchtrack] applied full reconstruction to absent-stats match');
+  } else {
+    const statsHasShotData = (p1Stats.fhWinner ?? 0) + (p1Stats.fhError ?? 0) +
+      (p1Stats.bhWinner ?? 0) + (p1Stats.bhError ?? 0) > 0;
+    if (!statsHasShotData) {
+      const shotOnlyFields = ['fhWinner','fhError','bhWinner','bhError',
+        'fhSliceWinner','fhSliceError','fhVolleyWinner','fhVolleyError',
+        'fhReturnWinner','fhReturnError','fhIOWinner','fhIOError',
+        'overheadWinner','overheadError','approachWinner','approachError',
+        'bhSliceWinner','bhSliceError','bhVolleyWinner','bhVolleyError',
+        'bhReturnWinner','bhReturnError','winners','unforcedErrors','forcedErrors'];
+      for (const f of shotOnlyFields) {
+        p1Stats[f] = rec.p1[f];
+        p2Stats[f] = rec.p2[f];
+      }
+      console.log('[matchtrack] applied shot-only reconstruction to normal match');
+    }
   }
+  // ─────────────────────────────────────────────────────────────────────────────
+
+
 
   // Derived calculations
   const wueRatio = p1Stats.unforcedErrors > 0
