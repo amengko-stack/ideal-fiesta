@@ -1887,24 +1887,26 @@ function extractMatchData(plistObj) {
   };
 
   for (const pt of points) {
-    // eslint-disable-next-line eqeqeq
-    const whoServed = pt.whoServed ?? pt.whoHitShot;
+    const whoServedRaw = pt.whoServed ?? pt.whoHitShot;
+    if (whoServedRaw !== 1 && whoServedRaw !== 2) {
+      console.log('[rec-debug] unexpected whoServed:', whoServedRaw, 'type:', typeof whoServedRaw, 'point:', pt.pointNumber);
+    }
+    const whoServedInt = parseInt(whoServedRaw, 10);
+    if (whoServedInt !== 1 && whoServedInt !== 2) continue;
+    const isP1Serving = whoServedInt === 1;
+    const server      = isP1Serving ? rec.p1 : rec.p2;
+    const returner    = isP1Serving ? rec.p2 : rec.p1;
+    const serverWon   = parseInt(pt.whoWonPoint, 10) === whoServedInt;
+
     const whoHit    = pt.whoHitShot;
-    const whoWon    = pt.whoWonPoint;
     const serve     = parseInt(pt.serveType, 10);
     const wonType   = pt.pointWonType ?? '';
     const shot      = pt.pointShotType ?? '';
     // eslint-disable-next-line eqeqeq
-    const isP1Serving  = whoServed == 1;
+    const hitter    = whoHit == 1 ? rec.p1 : rec.p2;
+    const field     = SHOT_FIELD_MAP[shot];
     // eslint-disable-next-line eqeqeq
-    const serverWon    = whoWon == whoServed;
-    const server       = isP1Serving ? rec.p1 : rec.p2;
-    const returner     = isP1Serving ? rec.p2 : rec.p1;
-    // eslint-disable-next-line eqeqeq
-    const hitter       = whoHit == 1 ? rec.p1 : rec.p2;
-    const field        = SHOT_FIELD_MAP[shot];
-    // eslint-disable-next-line eqeqeq
-    const isBreak      = pt.breakPoint == 1;
+    const isBreak   = pt.breakPoint == 1;
 
     // SERVICE STATS
     if (serve === 1) {
