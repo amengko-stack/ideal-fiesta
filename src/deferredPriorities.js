@@ -41,14 +41,16 @@ export async function saveDeferredPriorities(athleteUid, deferredArray) {
 }
 
 // ── resolveDeferred ──────────────────────────────────────────────────────────
-// Sets status to 'resolved' and records addressedDate for the active document
-// matching the given priority label.
+// Sets status to 'resolved' and records addressedDate for any active or
+// escalated document matching the given priority label.
 export async function resolveDeferred(athleteUid, priorityLabel) {
-  const snap = await getDocs(
-    query(col(athleteUid), where("priority", "==", priorityLabel), where("status", "==", "active"))
-  );
+  const [activeSnap, escalatedSnap] = await Promise.all([
+    getDocs(query(col(athleteUid), where("priority", "==", priorityLabel), where("status", "==", "active"))),
+    getDocs(query(col(athleteUid), where("priority", "==", priorityLabel), where("status", "==", "escalated"))),
+  ]);
 
-  for (const d of snap.docs) {
+  const allDocs = [...activeSnap.docs, ...escalatedSnap.docs];
+  for (const d of allDocs) {
     await updateDoc(doc(db, "athletes", athleteUid, "deferredPriorities", d.id), {
       status:        "resolved",
       addressedDate: serverTimestamp(),

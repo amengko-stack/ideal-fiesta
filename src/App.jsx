@@ -3143,9 +3143,16 @@ function PrioritiesTab({ athleteId }) {
                 borderBottom:  i < escalated.length - 1 ? `1px solid ${COLORS.border}` : "none",
               }}>
                 <div style={{ fontWeight: 700, fontSize: "0.88rem", color: COLORS.text, marginBottom: 4 }}>{item.priority}</div>
-                <div style={{ fontSize: "0.76rem", color: COLORS.muted }}>
+                <div style={{ fontSize: "0.76rem", color: COLORS.muted, marginBottom: 8 }}>
                   First deferred: {fmtDate(item.deferredDate)} · Escalated: {fmtDate(item.escalatedDate)}
                 </div>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  style={{ color: COLORS.accent, borderColor: COLORS.accentDim, fontSize: "0.78rem" }}
+                  onClick={() => handleResolve(item.priority)}
+                >
+                  ✓ Mark as Addressed
+                </button>
               </div>
             ))}
             <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${COLORS.red}33`, fontSize: "0.78rem", color: COLORS.red, fontStyle: "italic" }}>
