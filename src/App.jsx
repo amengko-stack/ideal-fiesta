@@ -1744,7 +1744,6 @@ function parsePlist(xmlString) {
 }
 
 function extractMatchData(plistObj) {
-  console.log('[extract-v2] running — matchLog length:', (plistObj.matchLog ?? []).length);
   const players  = plistObj.players ?? [];
   const { id, matchStartTime, season, whoWonMatch, matchLog = [] } = plistObj;
 
@@ -1774,7 +1773,6 @@ function extractMatchData(plistObj) {
     return sum + (s.winners ?? 0) + (s.unforcedErrors ?? 0) + (s.forcedErrors ?? 0);
   }, 0);
   const statsCompletelyAbsent = totalActivity === 0;
-  console.log('[matchtrack] totalActivity:', totalActivity, 'statsCompletelyAbsent:', statsCompletelyAbsent);
 
   // Player names from matchLog are always reliable
   const firstPoint = matchLog[0] ?? {};
@@ -1816,11 +1814,9 @@ function extractMatchData(plistObj) {
   let p1Stats, p2Stats;
 
   if (statsCompletelyAbsent) {
-    console.log('[matchtrack] BRANCH: absent-stats — initializing all fields to 0');
     p1Stats = Object.fromEntries(STAT_FIELDS.map(f => [f, 0]));
     p2Stats = Object.fromEntries(STAT_FIELDS.map(f => [f, 0]));
   } else {
-    console.log('[matchtrack] BRANCH: normal — reading stats from player objects');
     const scoredPlayers = players.map(p => {
       const s = resolveStats(p);
       const activity = (s.winners ?? 0) + (s.unforcedErrors ?? 0) + (s.forcedErrors ?? 0);
@@ -1841,7 +1837,6 @@ function extractMatchData(plistObj) {
     p1Stats = pickStatFields(resolveStats(p1Raw), STAT_FIELDS);
     p2Stats = pickStatFields(resolveStats(p2Raw), STAT_FIELDS);
   }
-  console.log('[matchtrack] p1Stats.winners after branch:', p1Stats.winners, 'unforcedErrors:', p1Stats.unforcedErrors);
 
   // Parse matchLog — whoWonPoint "1" = Valissa, "2" = opponent
   const points = matchLog
@@ -1890,10 +1885,7 @@ function extractMatchData(plistObj) {
   for (const pt of points) {
     const whoServedRaw = pt.whoServed ?? pt.whoHitShot;
     const whoServedInt = parseInt(whoServedRaw, 10);
-    if (whoServedInt !== 1 && whoServedInt !== 2) {
-      console.log('[rec-debug] unexpected whoServed:', whoServedRaw, typeof whoServedRaw);
-      continue;
-    }
+    if (whoServedInt !== 1 && whoServedInt !== 2) continue;
     const whoHit      = pt.whoHitShot;
     const whoWon      = pt.whoWonPoint;
     const serve       = parseInt(pt.serveType, 10);
@@ -1913,10 +1905,7 @@ function extractMatchData(plistObj) {
     if (serve === 1) {
       server.firstServeIn += 1;
       if (serverWon) server.firstServePointsWon += 1;
-      if (SVC_WINNER_SHOTS.has(shot)) {
-        server.serviceWinners += 1;
-        console.log('[rec-debug] svcW point: serve=', serve, 'serverWon=', serverWon, 'whoServedInt=', whoServedInt, 'whoWon=', whoWon);
-      }
+      if (SVC_WINNER_SHOTS.has(shot)) server.serviceWinners += 1;
     } else if (serve === 2) {
       server.secondServePoints += 1;
       if (wonType === 'df') server.doubleFaults += 1;
@@ -1952,8 +1941,6 @@ function extractMatchData(plistObj) {
       if (field) hitter[`${field}Error`] += 1;
     }
   }
-
-  console.log('[rec-debug] p1 firstServeIn:', rec.p1.firstServeIn, 'serviceWinners:', rec.p1.serviceWinners, 'firstServePointsWon:', rec.p1.firstServePointsWon, 'secondServePoints:', rec.p1.secondServePoints);
 
   // Calculate first serve %
   const p1TotalFirstAttempts = rec.p1.firstServeIn + rec.p1.secondServePoints;
@@ -3047,7 +3034,6 @@ function MatchesTab({ athleteId }) {
       try {
         matchData = extractMatchData(plistObj);
       } catch (extractErr) {
-        console.error("[rec-debug] LOOP ERROR:", extractErr.message, extractErr.stack);
         console.error("[matchtrack] extractMatchData threw:", extractErr);
         setStatus({ ok: false, text: "Invalid file format — please select a .matchtrack file" });
         setBusy(false);
