@@ -3047,6 +3047,7 @@ function MatchesTab({ athleteId }) {
       try {
         matchData = extractMatchData(plistObj);
       } catch (extractErr) {
+        console.error("[rec-debug] LOOP ERROR:", extractErr.message, extractErr.stack);
         console.error("[matchtrack] extractMatchData threw:", extractErr);
         setStatus({ ok: false, text: "Invalid file format — please select a .matchtrack file" });
         setBusy(false);
