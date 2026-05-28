@@ -1773,7 +1773,7 @@ function extractMatchData(plistObj) {
     return sum + (s.winners ?? 0) + (s.unforcedErrors ?? 0) + (s.forcedErrors ?? 0);
   }, 0);
   const statsCompletelyAbsent = totalActivity === 0;
-  console.log('[matchtrack] statsCompletelyAbsent:', statsCompletelyAbsent);
+  console.log('[matchtrack] totalActivity:', totalActivity, 'statsCompletelyAbsent:', statsCompletelyAbsent);
 
   // Player names from matchLog are always reliable
   const firstPoint = matchLog[0] ?? {};
@@ -1801,6 +1801,11 @@ function extractMatchData(plistObj) {
     "pOneGameScore", "pTwoGameScore", "pOneSetScore", "pTwoSetScore", "pointTime",
   ];
 
+  const pickStatFields = (source, fields) => {
+    const result = {};
+    for (const f of fields) result[f] = (source ?? {})[f] ?? 0;
+    return result;
+  };
   const pickFields = (source, fields) => {
     const result = {};
     for (const f of fields) result[f] = (source ?? {})[f] ?? null;
@@ -1810,9 +1815,11 @@ function extractMatchData(plistObj) {
   let p1Stats, p2Stats;
 
   if (statsCompletelyAbsent) {
+    console.log('[matchtrack] BRANCH: absent-stats — initializing all fields to 0');
     p1Stats = Object.fromEntries(STAT_FIELDS.map(f => [f, 0]));
     p2Stats = Object.fromEntries(STAT_FIELDS.map(f => [f, 0]));
   } else {
+    console.log('[matchtrack] BRANCH: normal — reading stats from player objects');
     const scoredPlayers = players.map(p => {
       const s = resolveStats(p);
       const activity = (s.winners ?? 0) + (s.unforcedErrors ?? 0) + (s.forcedErrors ?? 0);
@@ -1830,9 +1837,10 @@ function extractMatchData(plistObj) {
     console.log('[matchtrack] p1Raw:', p1Raw.name, 'winners:', resolveStats(p1Raw).winners);
     console.log('[matchtrack] p2Raw:', p2Raw.name, 'winners:', resolveStats(p2Raw).winners);
 
-    p1Stats = pickFields(resolveStats(p1Raw), STAT_FIELDS);
-    p2Stats = pickFields(resolveStats(p2Raw), STAT_FIELDS);
+    p1Stats = pickStatFields(resolveStats(p1Raw), STAT_FIELDS);
+    p2Stats = pickStatFields(resolveStats(p2Raw), STAT_FIELDS);
   }
+  console.log('[matchtrack] p1Stats.winners after branch:', p1Stats.winners, 'unforcedErrors:', p1Stats.unforcedErrors);
 
   // Parse matchLog — whoWonPoint "1" = Valissa, "2" = opponent
   const points = matchLog
