@@ -4471,6 +4471,7 @@ function AVGrowth({ athleteId }) {
   const [measurements, setMeasurements] = useState([]);
   const [weight, setWeight]             = useState("");
   const [height, setHeight]             = useState("");
+  const [sittingHeight, setSittingHeight] = useState("");
   const [saving, setSaving]             = useState(false);
   const [celebration, setCelebration]   = useState(null);
   const [loading, setLoading]           = useState(true);
@@ -4513,25 +4514,28 @@ function AVGrowth({ athleteId }) {
   };
 
   const handleSave = async () => {
-    const w = parseFloat(weight);
-    const h = parseFloat(height);
-    if ((!w || w <= 0) && (!h || h <= 0)) return;
+    const w  = parseFloat(weight);
+    const h  = parseFloat(height);
+    const sh = parseFloat(sittingHeight);
+    if ((!w || w <= 0) && (!h || h <= 0) && (!sh || sh <= 0)) return;
     setSaving(true);
     const today = new Date().toISOString().split("T")[0];
     const entry = { date: today };
-    if (w > 0) entry.weight = w;
-    if (h > 0) entry.height = h;
+    if (w  > 0) entry.weight        = w;
+    if (h  > 0) entry.height        = h;
+    if (sh > 0) entry.sittingHeight = sh;
     const prev = measurements.filter(m => m.date !== today);
     const updated = [entry, ...prev].slice(0, 12);
     await setDoc(doc(db, "athletes", athleteId), {
       measurements: updated,
-      weight: w > 0 ? w : (measurements[0]?.weight || null),
-      height: h > 0 ? h : (measurements[0]?.height || null),
+      weight:        w  > 0 ? w  : (measurements[0]?.weight        || null),
+      height:        h  > 0 ? h  : (measurements[0]?.height        || null),
+      sittingHeight: sh > 0 ? sh : (measurements[0]?.sittingHeight || null),
     }, { merge: true });
     const prevEntry = measurements.find(m => m.date !== today) || null;
     setCelebration(getCelebration(entry, prevEntry));
     setMeasurements(updated);
-    setWeight(""); setHeight("");
+    setWeight(""); setHeight(""); setSittingHeight("");
     setSaving(false);
   };
 
@@ -4558,11 +4562,12 @@ function AVGrowth({ athleteId }) {
   return (
     <div>
       <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", color: COLORS.text, marginBottom: 4 }}>My Growth</div>
-      <div style={{ fontSize: "0.8rem", color: COLORS.muted, marginBottom: 20 }}>Track your height and weight. Every measurement helps your AI coach plan smarter for you.</div>
+      <div style={{ fontSize: "0.8rem", color: COLORS.muted, marginBottom: 20 }}>Track your height, sitting height, and weight. Every measurement helps your AI coach plan smarter for you.</div>
 
       {/* Current stats hero */}
       <div style={{ display: "flex", gap: 12, marginBottom: 24 }}>
         <StatBubble label="Height" value={latest?.height} unit="cm" color={COLORS.tennis} />
+        <StatBubble label="Sitting Ht" value={latest?.sittingHeight} unit="cm" color={COLORS.yellow} />
         <StatBubble label="Weight" value={latest?.weight} unit="kg" color={COLORS.accent} />
       </div>
       {latest && (
@@ -4587,31 +4592,45 @@ function AVGrowth({ athleteId }) {
       {/* Log new measurement */}
       <div style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 16, padding: "20px 16px", marginBottom: 24 }}>
         <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.1rem", color: COLORS.accent, marginBottom: 14, display: "flex", alignItems: "center", gap: 8 }}><Ruler size={16} /> Log New Measurement</div>
-        <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
-          <div style={{ flex: 1 }}>
-            <div className="av-big-label">Height (cm)</div>
-            <input
-              name="height"
-              type="number" placeholder="e.g. 155" min="100" max="220" step="0.5"
-              value={height} onChange={e => setHeight(e.target.value)}
-              style={{ fontSize: "1.1rem", padding: "13px 14px" }}
-            />
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 16 }}>
+          <div style={{ display: "flex", gap: 12 }}>
+            <div style={{ flex: 1 }}>
+              <div className="av-big-label">Height (cm)</div>
+              <input
+                name="height"
+                type="number" placeholder="e.g. 155" min="100" max="220" step="0.5"
+                value={height} onChange={e => setHeight(e.target.value)}
+                style={{ fontSize: "1.1rem", padding: "13px 14px" }}
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div className="av-big-label">Weight (kg)</div>
+              <input
+                name="weight"
+                type="number" placeholder="e.g. 42" min="20" max="120" step="0.1"
+                value={weight} onChange={e => setWeight(e.target.value)}
+                style={{ fontSize: "1.1rem", padding: "13px 14px" }}
+              />
+            </div>
           </div>
-          <div style={{ flex: 1 }}>
-            <div className="av-big-label">Weight (kg)</div>
+          <div>
+            <div className="av-big-label">Sitting Height (cm)</div>
             <input
-              name="weight"
-              type="number" placeholder="e.g. 42" min="20" max="120" step="0.1"
-              value={weight} onChange={e => setWeight(e.target.value)}
+              name="sittingHeight"
+              type="number" placeholder="e.g. 82" min="50" max="130" step="0.5"
+              value={sittingHeight} onChange={e => setSittingHeight(e.target.value)}
               style={{ fontSize: "1.1rem", padding: "13px 14px" }}
             />
+            <div style={{ fontSize: "0.75rem", color: COLORS.muted, marginTop: 6, lineHeight: 1.4 }}>
+              Sit straight against a wall — measure from seat to top of head.
+            </div>
           </div>
         </div>
-        <div className="av-hint" style={{ marginBottom: 14 }}>You can log just height, just weight, or both — whatever you have today.</div>
+        <div className="av-hint" style={{ marginBottom: 14 }}>Log what you have — height, sitting height, weight, or all three.</div>
         <button
           className="btn btn-primary"
           onClick={handleSave}
-          disabled={saving || (!parseFloat(weight) && !parseFloat(height))}
+          disabled={saving || (!parseFloat(weight) && !parseFloat(height) && !parseFloat(sittingHeight))}
           style={{ width: "100%", justifyContent: "center", padding: "16px", fontSize: "1rem" }}
         >
           {saving ? "Saving…" : "Save Measurement 🌱"}
@@ -4635,8 +4654,9 @@ function AVGrowth({ athleteId }) {
                 <div>
                   <div style={{ fontSize: "0.72rem", color: COLORS.muted, marginBottom: 4 }}>{m.date}</div>
                   <div style={{ display: "flex", gap: 14 }}>
-                    {m.height && <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", color: COLORS.tennis }}>{m.height}<span style={{ fontSize: "0.7rem", color: COLORS.muted, fontFamily: "'DM Sans', sans-serif" }}> cm</span></span>}
-                    {m.weight && <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", color: COLORS.accent }}>{m.weight}<span style={{ fontSize: "0.7rem", color: COLORS.muted, fontFamily: "'DM Sans', sans-serif" }}> kg</span></span>}
+                    {m.height        && <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", color: COLORS.tennis }}>{m.height}<span style={{ fontSize: "0.7rem", color: COLORS.muted, fontFamily: "'DM Sans', sans-serif" }}> cm</span></span>}
+                    {m.sittingHeight && <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", color: COLORS.yellow }}>{m.sittingHeight}<span style={{ fontSize: "0.7rem", color: COLORS.muted, fontFamily: "'DM Sans', sans-serif" }}> sit</span></span>}
+                    {m.weight        && <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", color: COLORS.accent }}>{m.weight}<span style={{ fontSize: "0.7rem", color: COLORS.muted, fontFamily: "'DM Sans', sans-serif" }}> kg</span></span>}
                   </div>
                 </div>
                 {(hDiff !== null || wDiff !== null) && (
