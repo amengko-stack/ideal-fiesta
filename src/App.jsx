@@ -713,18 +713,15 @@ function AlertsBanner({ athleteId, wellbeing, sessionHistory, weekLogs }) {
           }));
         },
 
-        // 4. Overdue fitness test — no benchmark session in 56 days
+        // 4. Overdue fitness test — no benchmark session in 56 days, or never logged
         async () => {
           const cutoff = new Date();
           cutoff.setDate(cutoff.getDate() - 56);
           const cutoffStr = cutoff.toISOString().split("T")[0];
-          const hasBenchmark = (sessionHistory || []).some(
-            s => s.type === "fitness_test" || s.isBenchmark
-          );
           const hasRecent = (sessionHistory || []).some(
             s => (s.type === "fitness_test" || s.isBenchmark) && s.date >= cutoffStr
           );
-          if (!hasBenchmark || hasRecent) return null;
+          if (hasRecent) return null;
           const id = `fitness-test-overdue`;
           return {
             id, severity: "gray",
