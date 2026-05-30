@@ -3948,7 +3948,7 @@ function TechnicalTab({ athleteId }) {
     setFormSource("Video Analysis");
     setFormText("");
     setFormPriority("Medium");
-    setFormSchedule(false);
+    setFormSchedule(true);
     setFormReviewDate(today6wk());
     setShowForm(true);
     setTimeout(() => document.getElementById("tech-form-top")?.scrollIntoView({ behavior: "smooth" }), 50);
@@ -4033,7 +4033,7 @@ function TechnicalTab({ athleteId }) {
           <div className="grid2" style={{ marginBottom: 12 }}>
             <div>
               <div className="label">Source</div>
-              <select value={formSource} onChange={e => setFormSource(e.target.value)}>
+              <select value={formSource} onChange={e => { setFormSource(e.target.value); setFormSchedule(e.target.value === "Video Analysis"); }}>
                 {["Video Analysis", "Court Coach", "Match Observation", "Self"].map(s => <option key={s}>{s}</option>)}
               </select>
             </div>
