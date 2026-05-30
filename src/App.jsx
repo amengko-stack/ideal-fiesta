@@ -4948,6 +4948,12 @@ function AVLogSession({ athleteId }) {
   const [saved, setSaved]         = useState(false);
   const [recentLogs, setRecentLogs] = useState([]);
 
+  // Motivation overlay
+  const [showMotivation,    setShowMotivation]    = useState(false);
+  const [motivationLoading, setMotivationLoading] = useState(false);
+  const [motivationMsg,     setMotivationMsg]     = useState(null);
+  const [savedEntry,        setSavedEntry]        = useState(null);
+
   useEffect(() => {
     getDocs(query(
       collection(db, "athletes", athleteId, "weekLogs"),
@@ -4970,12 +4976,18 @@ function AVLogSession({ athleteId }) {
   const handleSave = async () => {
     if (!duration || !rpe || saving) return;
     setSaving(true);
+    const now = new Date();
+    const hour = now.getHours();
+    const timeOfDay = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
+    const dayOfWeek = new Date(date + "T12:00:00").toLocaleDateString("en-AU", { weekday: "long" });
     const entry = {
       type, duration: parseInt(duration),
       intensity: Math.ceil(rpe / 2), rpe,
-      focus, date, time: new Date().toTimeString().slice(0, 5),
+      focus, date, time: now.toTimeString().slice(0, 5),
     };
     if (type === "other" && sportName.trim()) entry.sportName = sportName.trim();
+
+    // Save to Firestore immediately
     const ref = await addDoc(collection(db, "athletes", athleteId, "weekLogs"), entry);
     setRecentLogs(prev => {
       const updated = [{ id: ref.id, ...entry }, ...prev];
@@ -4984,9 +4996,34 @@ function AVLogSession({ athleteId }) {
       );
       return updated.slice(0, 5);
     });
-    setSaved(true); setDuration(""); setRpe(null); setFocus(""); setSportName("");
+
+    // Show overlay immediately with loading state, reset form
+    setSavedEntry({ ...entry, timeOfDay, dayOfWeek });
+    setMotivationMsg(null);
+    setMotivationLoading(true);
+    setShowMotivation(true);
+    setDuration(""); setRpe(null); setFocus(""); setSportName("");
     setSaving(false);
-    setTimeout(() => setSaved(false), 2000);
+
+    // Fetch motivational message in background
+    const activityLabel = type === "tennis" ? "Tennis" : type === "cheer" ? "Cheerleading" : entry.sportName || "Other Sport";
+    const userMsg = `Valissa just logged a ${activityLabel} session:\n- Duration: ${entry.duration} minutes\n- Intensity: ${entry.intensity}/5\n- Focus: ${entry.focus || "general training"}\n- Time of day: ${timeOfDay}\n- Day of week: ${dayOfWeek}\n\nWrite a motivational confirmation message specifically referencing what she just did. Make it feel personal and real.`;
+    fetch(API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        system: "You are an encouraging sports coach writing a short motivational message to a 12-year-old female tennis and cheerleading athlete named Valissa. Keep it genuine, specific, and energetic — not generic. Never use the same phrasing twice. Write like a coach who actually watched her train, not a robot. Maximum 2 sentences.",
+        messages: [{ role: "user", content: userMsg }],
+        max_tokens: 120,
+      }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        const msg = data?.content?.[0]?.text || data?.choices?.[0]?.message?.content || null;
+        setMotivationMsg(msg || "Great work today — every session counts! Keep showing up. 💪");
+      })
+      .catch(() => setMotivationMsg("Great work today — every session counts! Keep showing up. 💪"))
+      .finally(() => setMotivationLoading(false));
   };
 
   const TypeBtn = ({ t, icon, label, color }) => (
@@ -5006,8 +5043,55 @@ function AVLogSession({ athleteId }) {
     </button>
   );
 
+  const overlayEmoji = savedEntry?.type === "tennis" ? "🎾" : savedEntry?.type === "cheer" ? "📣" : "🏃";
+
   return (
     <div>
+      {/* Full-screen motivational overlay */}
+      {showMotivation && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 200,
+          background: COLORS.accent,
+          display: "flex", flexDirection: "column",
+          alignItems: "center", justifyContent: "center",
+          padding: "40px 28px", textAlign: "center",
+        }}>
+          <div style={{ fontSize: "4.5rem", marginBottom: 28, lineHeight: 1 }}>{overlayEmoji}</div>
+          {motivationLoading ? (
+            <>
+              <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "#003d28", marginBottom: 20 }}>
+                Getting your message…
+              </div>
+              <div className="spinner" style={{
+                width: 28, height: 28,
+                border: "3px solid rgba(0,0,0,0.15)",
+                borderTopColor: "#003d28",
+              }} />
+            </>
+          ) : (
+            <>
+              <div style={{
+                fontSize: "1.35rem", fontWeight: 700, color: "#002a1c",
+                lineHeight: 1.55, marginBottom: 40, maxWidth: 340,
+              }}>
+                "{motivationMsg}"
+              </div>
+              <button
+                onClick={() => setShowMotivation(false)}
+                style={{
+                  background: "#002a1c", color: COLORS.accent,
+                  border: "none", borderRadius: 14, cursor: "pointer",
+                  fontFamily: "'DM Sans', sans-serif", fontWeight: 700,
+                  fontSize: "1rem", padding: "16px 48px",
+                }}
+              >
+                Done ✓
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", color: COLORS.text, marginBottom: 20 }}>Log Session</div>
 
       <div style={{ marginBottom: 22 }}>
@@ -5116,7 +5200,7 @@ function AVLogSession({ athleteId }) {
         disabled={saving || !duration || !rpe}
         style={{ width: "100%", justifyContent: "center", padding: "18px", fontSize: "1rem" }}
       >
-        {saving ? "Saving…" : saved ? "✓ Session Logged!" : "Save Session"}
+        {saving ? "Saving…" : "Save Session"}
       </button>
 
       {recentLogs.length > 0 && (
