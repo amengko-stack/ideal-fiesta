@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Activity, BarChart2, Calendar, ChevronLeft, ClipboardCheck, ClipboardList,
   Dumbbell, FileText, Heart, History, MessageSquare, Moon,
-  Plus, Ruler, Settings, Sprout, Sun, Target, TrendingUp,
+  Plus, Ruler, Settings, Sprout, Sun, Target, Trash2, TrendingUp,
   User, UserPlus, Users, Zap,
 } from "lucide-react";
 import { auth, db } from "./firebase";
@@ -4954,20 +4954,36 @@ function AVLogSession({ athleteId }) {
   const [motivationMsg,     setMotivationMsg]     = useState(null);
   const [savedEntry,        setSavedEntry]        = useState(null);
 
+  // Delete confirmation
+  const [confirmDeleteLog, setConfirmDeleteLog] = useState(null);
+
   useEffect(() => {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 7);
+    const cutoffStr = cutoff.toISOString().split("T")[0];
     getDocs(query(
       collection(db, "athletes", athleteId, "weekLogs"),
-      orderBy("date", "desc"), limit(5)
+      orderBy("date", "desc"), limit(30)
     ))
       .then(snap => {
-        const logs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        logs.sort((a, b) =>
-          `${b.date}${b.time || ""}`.localeCompare(`${a.date}${a.time || ""}`)
-        );
+        const logs = snap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .filter(l => l.date >= cutoffStr)
+          .sort((a, b) => `${b.date}${b.time || ""}`.localeCompare(`${a.date}${a.time || ""}`));
         setRecentLogs(logs);
       })
       .catch(() => {});
   }, [athleteId]);
+
+  const handleDeleteLog = async (logId) => {
+    try {
+      await deleteDoc(doc(db, "athletes", athleteId, "weekLogs", logId));
+      setRecentLogs(prev => prev.filter(l => l.id !== logId));
+    } catch (e) {
+      console.error("Delete log error:", e);
+    }
+    setConfirmDeleteLog(null);
+  };
 
   const TENNIS_FOCUS = ["Baseline rallying", "Serve practice", "Footwork / movement", "Match play", "Volley / net", "Conditioning", "Full practice"];
   const CHEER_FOCUS  = ["Stunt practice", "Tumbling", "Dance / routine", "Competition prep", "Conditioning", "Full practice"];
@@ -5205,26 +5221,42 @@ function AVLogSession({ athleteId }) {
 
       {recentLogs.length > 0 && (
         <div style={{ marginTop: 28 }}>
-          <div style={{ fontSize: "0.72rem", color: COLORS.muted, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10 }}>Recent Sessions</div>
+          <div style={{ fontSize: "0.72rem", color: COLORS.muted, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10 }}>Last 7 Days</div>
           {recentLogs.map(log => {
             const typeColor = log.type === "tennis" ? COLORS.tennis : log.type === "cheer" ? COLORS.cheer : COLORS.yellow;
             const typeLabel = log.type === "tennis" ? "🎾 Tennis" : log.type === "cheer" ? "📣 Cheer" : `🏃 ${log.sportName || "Other"}`;
             const rpeVal = log.rpe ?? (log.intensity ? log.intensity * 2 : "?");
+            const isConfirming = confirmDeleteLog === log.id;
             return (
               <div key={log.id} style={{
-                background: COLORS.card, border: `1px solid ${COLORS.border}`,
+                background: COLORS.card, border: `1px solid ${isConfirming ? COLORS.red : COLORS.border}`,
                 borderRadius: 12, padding: "12px 14px", marginBottom: 8,
-                display: "flex", justifyContent: "space-between", alignItems: "center",
               }}>
-                <div>
-                  <span style={{ fontWeight: 700, fontSize: "0.9rem", color: typeColor }}>{typeLabel}</span>
-                  {log.focus && <span style={{ color: COLORS.muted, fontSize: "0.8rem", marginLeft: 8 }}>{log.focus}</span>}
-                  <div style={{ color: COLORS.muted, fontSize: "0.72rem", marginTop: 3 }}>{log.date} · {log.duration} min</div>
-                </div>
-                <div style={{
-                  fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.3rem",
-                  color: COLORS.accent, textAlign: "right",
-                }}>RPE {rpeVal}</div>
+                {isConfirming ? (
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: "0.88rem", color: COLORS.text, marginBottom: 12 }}>Delete this session?</div>
+                    <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+                      <button className="btn btn-ghost btn-sm" onClick={() => setConfirmDeleteLog(null)}>Cancel</button>
+                      <button className="btn btn-sm" onClick={() => handleDeleteLog(log.id)}
+                        style={{ background: COLORS.red, color: "#fff", border: "none" }}>Delete</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <span style={{ fontWeight: 700, fontSize: "0.9rem", color: typeColor }}>{typeLabel}</span>
+                      {log.focus && <span style={{ color: COLORS.muted, fontSize: "0.8rem", marginLeft: 8 }}>{log.focus}</span>}
+                      <div style={{ color: COLORS.muted, fontSize: "0.72rem", marginTop: 3 }}>{log.date} · {log.duration} min</div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.3rem", color: COLORS.accent }}>RPE {rpeVal}</div>
+                      <button onClick={() => setConfirmDeleteLog(log.id)}
+                        style={{ background: "none", border: "none", cursor: "pointer", color: COLORS.muted, padding: 4, lineHeight: 1 }}>
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -5469,16 +5501,32 @@ function AVWellbeing({ athleteId }) {
   // History
   const [history, setHistory]   = useState([]);
   const [histLoading, setHistLoading] = useState(true);
+  const [confirmDeleteWell, setConfirmDeleteWell] = useState(null);
 
   useEffect(() => {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 7);
+    const cutoffStr = cutoff.toISOString().split("T")[0];
     getDocs(query(
       collection(db, "athletes", athleteId, "wellbeing"),
-      orderBy("date", "desc"), limit(5)
+      orderBy("date", "desc"), limit(30)
     ))
-      .then(snap => setHistory(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+      .then(snap => setHistory(
+        snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(e => e.date >= cutoffStr)
+      ))
       .catch(e => console.error("Load wellbeing history error:", e))
       .finally(() => setHistLoading(false));
   }, [athleteId]);
+
+  const handleDeleteWell = async (entryId) => {
+    try {
+      await deleteDoc(doc(db, "athletes", athleteId, "wellbeing", entryId));
+      setHistory(prev => prev.filter(e => e.id !== entryId));
+    } catch (e) {
+      console.error("Delete wellbeing error:", e);
+    }
+    setConfirmDeleteWell(null);
+  };
 
   const saveEntry = async (type, data, setSaving, setSaved) => {
     setSaving(true);
@@ -5630,31 +5678,53 @@ function AVWellbeing({ athleteId }) {
       </button>
 
       {/* ── HISTORY ── */}
-      <div style={{ fontSize: "0.72rem", color: COLORS.muted, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10 }}>Recent Check-ins</div>
+      <div style={{ fontSize: "0.72rem", color: COLORS.muted, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10 }}>Last 7 Days</div>
       {histLoading
         ? <div className="empty"><div className="spinner" /></div>
         : history.length === 0
           ? <div style={{ color: COLORS.muted, fontSize: "0.85rem", textAlign: "center", padding: "16px 0" }}>No check-ins logged yet</div>
-          : history.map(entry => (
-              <div key={entry.id} style={{
-                background: COLORS.card, border: `1px solid ${COLORS.border}`,
-                borderRadius: 10, padding: "12px 14px", marginBottom: 8,
-              }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                  <span style={{ fontSize: "0.8rem", fontWeight: 600, color: COLORS.text }}>{entry.date}</span>
-                  <span style={{ fontSize: "0.7rem", color: COLORS.muted, background: COLORS.surface, padding: "2px 8px", borderRadius: 8 }}>
-                    {entry.type === "night" ? "🌙 Tonight" : entry.type === "morning" ? "☀️ Morning" : "Check-in"}
-                  </span>
+          : history.map(entry => {
+              const isConfirming = confirmDeleteWell === entry.id;
+              return (
+                <div key={entry.id} style={{
+                  background: COLORS.card, border: `1px solid ${isConfirming ? COLORS.red : COLORS.border}`,
+                  borderRadius: 10, padding: "12px 14px", marginBottom: 8,
+                }}>
+                  {isConfirming ? (
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ fontSize: "0.88rem", color: COLORS.text, marginBottom: 12 }}>Delete this check-in?</div>
+                      <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+                        <button className="btn btn-ghost btn-sm" onClick={() => setConfirmDeleteWell(null)}>Cancel</button>
+                        <button className="btn btn-sm" onClick={() => handleDeleteWell(entry.id)}
+                          style={{ background: COLORS.red, color: "#fff", border: "none" }}>Delete</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: "0.8rem", fontWeight: 600, color: COLORS.text }}>{entry.date}</span>
+                          <span style={{ fontSize: "0.7rem", color: COLORS.muted, background: COLORS.surface, padding: "2px 8px", borderRadius: 8 }}>
+                            {entry.type === "night" ? "🌙 Tonight" : entry.type === "morning" ? "☀️ Morning" : "Check-in"}
+                          </span>
+                        </div>
+                        <button onClick={() => setConfirmDeleteWell(entry.id)}
+                          style={{ background: "none", border: "none", cursor: "pointer", color: COLORS.muted, padding: 4, lineHeight: 1 }}>
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                      <div style={{ display: "flex", gap: 12, fontSize: "0.78rem", color: COLORS.muted, flexWrap: "wrap" }}>
+                        {entry.sleep    && <span>🌙 {entry.sleep}h sleep</span>}
+                        {entry.energy   && <span>⚡ Energy {entry.energy}/5 ({energyLabel[entry.energy]})</span>}
+                        {entry.mood     && <span>😊 Mood {entry.mood}/5 ({moodLabel[entry.mood]})</span>}
+                        {entry.soreness && <span>💪 Soreness {entry.soreness}/5 ({sorenessLabel[entry.soreness]})</span>}
+                        {entry.notes    && <span style={{ color: COLORS.text, fontStyle: "italic", width: "100%", marginTop: 2 }}>"{entry.notes}"</span>}
+                      </div>
+                    </>
+                  )}
                 </div>
-                <div style={{ display: "flex", gap: 12, fontSize: "0.78rem", color: COLORS.muted, flexWrap: "wrap" }}>
-                  {entry.sleep    && <span>🌙 {entry.sleep}h sleep</span>}
-                  {entry.energy   && <span>⚡ Energy {entry.energy}/5 ({energyLabel[entry.energy]})</span>}
-                  {entry.mood     && <span>😊 Mood {entry.mood}/5 ({moodLabel[entry.mood]})</span>}
-                  {entry.soreness && <span>💪 Soreness {entry.soreness}/5 ({sorenessLabel[entry.soreness]})</span>}
-                  {entry.notes    && <span style={{ color: COLORS.text, fontStyle: "italic", width: "100%", marginTop: 2 }}>"{entry.notes}"</span>}
-                </div>
-              </div>
-            ))
+              );
+            })
       }
     </div>
   );
