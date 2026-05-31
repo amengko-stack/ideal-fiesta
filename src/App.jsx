@@ -2515,9 +2515,11 @@ async function buildAthleteContext(athleteUid) {
     const taSnap = await getDocs(
       query(collection(db, "athletes", athleteUid, "technicalAssessments"), orderBy("date", "desc"), limit(30))
     );
+    const priorityOrder = { High: 0, Medium: 1, Monitor: 2 };
     technicalAssessments = taSnap.docs
       .map(d => d.data())
-      .filter(a => a.priority === "High")
+      .filter(a => a.priority === "High" || a.priority === "Medium")
+      .sort((a, b) => (priorityOrder[a.priority] ?? 3) - (priorityOrder[b.priority] ?? 3))
       .slice(0, 3)
       .map(a => ({
         strokeArea:  a.strokeArea  ?? null,
