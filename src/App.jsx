@@ -1233,6 +1233,22 @@ ${(ctx?.deferredPriorities || []).length > 0
       : "  None."}
 
 ═══════════════════════════════════════════
+RECENT TECHNICAL ASSESSMENTS (High priority only)
+═══════════════════════════════════════════
+${(ctx?.technicalAssessments || []).length > 0
+      ? ctx.technicalAssessments.map(a =>
+          `- ${a.strokeArea} (${a.category}) — assessed ${a.date} via ${a.source}:\n  ${a.assessment}`
+        ).join('\n\n')
+      : 'None recorded.'}
+
+INSTRUCTION: Use the technical assessments above to inform exercise selection. Map each assessment to the most relevant physical training component:
+- Kinetic chain issues → rotational power, hip hinge, med ball rotational throws
+- Drive consistency → core stability, lateral movement, deceleration
+- Serve mechanics → shoulder stability, overhead pressing, trunk rotation
+- Movement/footwork → agility, plyometrics, lateral hops
+If a technical assessment conflicts with load constraints, acknowledge it and defer the physical component — do not ignore it entirely.
+
+═══════════════════════════════════════════
 YOUR TASK
 ═══════════════════════════════════════════
 Design the best possible Sunday session using ALL context above:
@@ -1254,6 +1270,7 @@ Respond with ONLY valid JSON, no other text:
   "sessionDuration": 60,
   "loadRationale": "2-3 sentences on how this week's load shaped the prescription",
   "matchRationale": "2-3 sentences on which match findings are addressed today and which are deferred — or null if no recent match",
+  "techAssessmentRationale": "1-2 sentences on which technical assessments influenced today's exercise selection and how — or null if none recorded",
   "overallRationale": "one paragraph integrating load + match + tournament into a coherent session explanation",
   "exercises": [
     {
@@ -1324,7 +1341,8 @@ Return ONLY a raw JSON object. Do NOT wrap in markdown code fences. Do NOT inclu
         sessionType:     parsed.sessionType     ?? null,
         sessionDuration: parsed.sessionDuration ?? null,
         loadRationale:   parsed.loadRationale   ?? null,
-        matchRationale:  parsed.matchRationale  ?? null,
+        matchRationale:          parsed.matchRationale          ?? null,
+        techAssessmentRationale: parsed.techAssessmentRationale ?? null,
         coachNote:       parsed.coachNote       ?? null,
         athleteNote:     parsed.athleteNote     ?? null,
         matchInformedBy: rm ? { opponentName: rm.opponentName, matchStartTime: rm.matchStartTime } : null,
@@ -1608,6 +1626,13 @@ Return ONLY a raw JSON object. Do NOT wrap in markdown code fences. Do NOT inclu
               <p style={{ fontSize: "0.82rem", color: COLORS.muted, lineHeight: 1.5, margin: "6px 0 0" }}>{planResult.matchRationale}</p>
             )}
           </div>
+
+          {planResult.techAssessmentRationale && (
+            <div className="card" style={{ borderColor: "#7c3aed" }}>
+              <div className="card-title" style={{ color: "#7c3aed" }}><FileText size={18} /> Technical Focus</div>
+              <p style={{ fontSize: "0.88rem", lineHeight: 1.65, color: COLORS.text }}>{planResult.techAssessmentRationale}</p>
+            </div>
+          )}
 
           <div className="card" style={{ borderColor: COLORS.accentDim }}>
             <div className="card-title"><MessageSquare size={18} /> Coach's Briefing</div>
@@ -2516,7 +2541,6 @@ async function buildAthleteContext(athleteUid) {
     technicalAssessments,
   };
 
-  console.log("[buildAthleteContext] assembled context:", JSON.stringify(context, null, 2));
   return context;
 }
 
