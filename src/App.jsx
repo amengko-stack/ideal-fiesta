@@ -1308,6 +1308,7 @@ PRIORITY HIERARCHY — apply strictly in this order:
 Return ONLY a raw JSON object. Do NOT wrap in markdown code fences. Do NOT include \`\`\`json or \`\`\` anywhere in your response. Start your response with { and end with }.`;
 
     try {
+      console.log('[plan-debug] technicalAssessments in context:', ctx?.technicalAssessments?.length, JSON.stringify(ctx?.technicalAssessments?.[0]));
       const res = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1324,6 +1325,7 @@ Return ONLY a raw JSON object. Do NOT wrap in markdown code fences. Do NOT inclu
           .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "") + '"'
       );
       const parsed = JSON.parse(clean);
+      console.log('[plan-debug] techAssessmentRationale:', parsed?.techAssessmentRationale);
 
       // Map new exercises schema → existing plan format so all display logic is unchanged
       const plan = (parsed.exercises || []).map(ex => ({
