@@ -21,6 +21,12 @@ const API_URL = import.meta.env.DEV
   ? "http://localhost:3001/api/chat"
   : "/api/chat";
 
+const ALLOWED_USERS = {
+  'jFXQ9SamJ6QnIpaam5dLedKcFkA2': { role: 'parent',  athleteId: 'kDybMQH9lefwHI0dRway' },
+  '2Hxj2FUJP4YQSvnsR2fkStu0uoC2': { role: 'parent',  athleteId: 'kDybMQH9lefwHI0dRway' },
+  'qmj32jhoYnQ9OJCQCXM1soIhHPx2': { role: 'athlete', athleteId: 'kDybMQH9lefwHI0dRway' },
+};
+
 // ─── EXERCISE DATABASE ─────────────────────────────────────────────────────────
 const EXERCISE_DB = [
   // LOWER BODY STRENGTH
@@ -304,37 +310,16 @@ export default function App() {
         return;
       }
       setUser(u);
-      try {
-        const snap = await getDoc(doc(db, "users", u.uid));
-        if (!snap.exists()) {
-          setAuthState("setup");
-        } else {
-          const data = snap.data();
-          if (data.role === "athlete") {
-            setAthleteId(data.athleteId);
-            setAuthState("athlete");
-          } else {
-            setAuthState("parent");
-          }
-        }
-      } catch (e) {
-        console.error("Auth check error:", e);
-        setAuthState("setup");
+      const userConfig = ALLOWED_USERS[u.uid];
+      if (!userConfig) {
+        await signOut(auth);
+        setAuthState("unauthorized");
+        return;
       }
+      setAthleteId(userConfig.athleteId);
+      setAuthState(userConfig.role);
     });
   }, []);
-
-  const handleSetupComplete = useCallback(async (role, newAthleteId) => {
-    const userData = { role, displayName: user.displayName, email: user.email };
-    if (role === "athlete") userData.athleteId = newAthleteId;
-    await setDoc(doc(db, "users", user.uid), userData);
-    if (role === "athlete") {
-      setAthleteId(newAthleteId);
-      setAuthState("athlete");
-    } else {
-      setAuthState("parent");
-    }
-  }, [user]);
 
   const handleSignOut = useCallback(() => signOut(auth), []);
 
@@ -351,8 +336,15 @@ export default function App() {
     return <LoginScreen />;
   }
 
-  if (authState === "setup") {
-    return <RoleSetup user={user} onComplete={handleSetupComplete} />;
+  if (authState === "unauthorized") {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100vh", background: "#0a0e14", color: "#e8edf5", fontFamily: "DM Sans, sans-serif", gap: 16 }}>
+        <style>{css}</style>
+        <div style={{ fontSize: "2rem" }}>🔒</div>
+        <div style={{ fontSize: "1.1rem", fontWeight: 600 }}>Access Restricted</div>
+        <div style={{ color: "#5a6a7e", fontSize: "0.9rem", textAlign: "center", maxWidth: 280 }}>This app is private. You are not authorised to access it.</div>
+      </div>
+    );
   }
 
   if (authState === "parent" && viewingAthleteId) {
@@ -418,98 +410,6 @@ function LoginScreen() {
           {loading ? <><span className="spinner" style={{ width: 16, height: 16 }} /> Signing in…</> : "Sign in with Google"}
         </button>
         {error && <div className="note-box warn" style={{ marginTop: 16, textAlign: "left" }}>{error}</div>}
-      </div>
-    </div>
-  );
-}
-
-// ─── ROLE SETUP ───────────────────────────────────────────────────────────────
-function RoleSetup({ user, onComplete }) {
-  const [role, setRole]           = useState("parent");
-  const [athleteName, setName]    = useState(user?.displayName?.split(" ")[0] || "");
-  const [saving, setSaving]       = useState(false);
-  const [error, setError]         = useState("");
-
-  const handleSubmit = async () => {
-    setSaving(true);
-    setError("");
-    try {
-      if (role === "athlete") {
-        if (!athleteName.trim()) { setError("Please enter your name."); setSaving(false); return; }
-        const ref = await addDoc(collection(db, "athletes"), {
-          name: athleteName.trim(), dob: "", gaps: [],
-          tennisSchedule: "", cheerSchedule: "", coachNotes: "",
-          weight: null, height: null, measurements: [],
-          createdBy: user.uid,
-        });
-        await onComplete("athlete", ref.id);
-      } else {
-        await onComplete("parent", null);
-      }
-    } catch (e) {
-      setError(e.message);
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: COLORS.bg, padding: 16 }}>
-      <style>{css}</style>
-      <div className="card" style={{ maxWidth: 480, width: "100%", padding: "32px 28px" }}>
-        <div className="card-title">Welcome, {user?.displayName?.split(" ")[0] || "there"} 👋</div>
-        <p style={{ color: COLORS.muted, fontSize: "0.85rem", marginBottom: 20 }}>Choose your role to get started.</p>
-
-        <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
-          <button
-            className={`btn ${role === "parent" ? "btn-primary" : "btn-ghost"}`}
-            style={{ flex: 1, justifyContent: "center" }}
-            onClick={() => setRole("parent")}
-          >
-            👨‍👩‍👧 Parent / Coach
-          </button>
-          <button
-            className={`btn ${role === "athlete" ? "btn-primary" : "btn-ghost"}`}
-            style={{ flex: 1, justifyContent: "center" }}
-            onClick={() => setRole("athlete")}
-          >
-            🎾 Athlete
-          </button>
-        </div>
-
-        {role === "parent" && (
-          <div className="note-box" style={{ marginBottom: 20 }}>
-            As a parent/coach you can create and manage multiple athlete profiles and see all their data.
-          </div>
-        )}
-
-        {role === "athlete" && (
-          <div style={{ marginBottom: 20 }}>
-            <div className="label">Your Name</div>
-            <input
-              name="athleteName"
-              placeholder="e.g. Sofia"
-              value={athleteName}
-              onChange={e => setName(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && handleSubmit()}
-            />
-            <div className="note-box" style={{ marginTop: 12 }}>
-              As an athlete you will see only your own training logs and current plan.
-            </div>
-          </div>
-        )}
-
-        {error && <div className="note-box warn" style={{ marginBottom: 12 }}>{error}</div>}
-
-        <button
-          className="btn btn-primary"
-          onClick={handleSubmit}
-          disabled={saving}
-          style={{ width: "100%", justifyContent: "center", padding: "13px" }}
-        >
-          {saving
-            ? <><span className="spinner" style={{ width: 16, height: 16 }} /> Setting up…</>
-            : "Continue →"}
-        </button>
       </div>
     </div>
   );
