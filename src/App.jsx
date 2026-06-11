@@ -416,38 +416,18 @@ function LoginScreen() {
 }
 
 // ─── PARENT DASHBOARD ────────────────────────────────────────────────────────
+const KNOWN_ATHLETE_ID = "kDybMQH9lefwHI0dRway";
+
 function ParentDashboard({ user, onSelectAthlete, onSignOut }) {
-  const [athletes, setAthletes]   = useState([]);
-  const [loading, setLoading]     = useState(true);
-  const [showCreate, setShowCreate] = useState(false);
-  const [newName, setNewName]     = useState("");
-  const [creating, setCreating]   = useState(false);
+  const [athlete, setAthlete] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getDocs(collection(db, "athletes"))
-      .then(snap => setAthletes(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
-      .catch(e => console.error("Load athletes error:", e))
+    getDoc(doc(db, "athletes", KNOWN_ATHLETE_ID))
+      .then(snap => { if (snap.exists()) setAthlete({ id: snap.id, ...snap.data() }); })
+      .catch(e => console.error("Load athlete error:", e))
       .finally(() => setLoading(false));
   }, []);
-
-  const handleCreate = async () => {
-    if (!newName.trim()) return;
-    setCreating(true);
-    try {
-      const ref = await addDoc(collection(db, "athletes"), {
-        name: newName.trim(), dob: "", gaps: [],
-        tennisSchedule: "", cheerSchedule: "", coachNotes: "",
-        weight: null, height: null, measurements: [],
-        createdBy: user.uid,
-      });
-      setAthletes(prev => [...prev, { id: ref.id, name: newName.trim(), gaps: [] }]);
-      setNewName("");
-      setShowCreate(false);
-    } catch (e) {
-      console.error("Create athlete error:", e);
-    }
-    setCreating(false);
-  };
 
   return (
     <div style={{ background: COLORS.bg, minHeight: "100vh" }}>
@@ -470,63 +450,26 @@ function ParentDashboard({ user, onSelectAthlete, onSignOut }) {
           <div className="card-title"><Users size={18} /> Athletes</div>
           {loading
             ? <div className="empty"><div className="spinner" /></div>
-            : athletes.length === 0
-              ? <div className="empty">No athletes yet — add one below</div>
-              : athletes.map(a => (
-                  <div
-                    key={a.id}
-                    className="log-item athlete-row"
-                    onClick={() => onSelectAthlete(a.id)}
-                  >
-                    <div>
-                      <span style={{ fontWeight: 600, fontSize: "0.95rem" }}>{a.name || "Unnamed athlete"}</span>
-                      {a.gaps?.length > 0 && (
-                        <div style={{ color: COLORS.muted, fontSize: "0.75rem", marginTop: 3 }}>
-                          {a.gaps.length} tennis gap{a.gaps.length !== 1 ? "s" : ""} set
-                        </div>
-                      )}
-                    </div>
-                    <span style={{ color: COLORS.accent, fontWeight: 600 }}>View →</span>
+            : !athlete
+              ? <div className="empty">Athlete profile not found.</div>
+              : (
+                <div
+                  className="log-item athlete-row"
+                  onClick={() => onSelectAthlete(athlete.id)}
+                >
+                  <div>
+                    <span style={{ fontWeight: 600, fontSize: "0.95rem" }}>{athlete.name}</span>
+                    {athlete.gaps?.length > 0 && (
+                      <div style={{ color: COLORS.muted, fontSize: "0.75rem", marginTop: 3 }}>
+                        {athlete.gaps.length} tennis gap{athlete.gaps.length !== 1 ? "s" : ""} set
+                      </div>
+                    )}
                   </div>
-                ))
+                  <span style={{ color: COLORS.accent, fontWeight: 600 }}>View →</span>
+                </div>
+              )
           }
         </div>
-
-        {showCreate ? (
-          <div className="card">
-            <div className="card-title"><UserPlus size={18} /> New Athlete</div>
-            <div className="label">Athlete Name</div>
-            <input
-              name="newAthleteName"
-              placeholder="e.g. Sofia"
-              value={newName}
-              onChange={e => setNewName(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && handleCreate()}
-              style={{ marginBottom: 14 }}
-            />
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                className="btn btn-primary"
-                onClick={handleCreate}
-                disabled={creating}
-                style={{ flex: 1, justifyContent: "center" }}
-              >
-                {creating ? "Creating…" : "Create Athlete"}
-              </button>
-              <button className="btn btn-ghost" onClick={() => { setShowCreate(false); setNewName(""); }}>
-                Cancel
-              </button>
-            </div>
-          </div>
-        ) : (
-          <button
-            className="btn btn-ghost"
-            onClick={() => setShowCreate(true)}
-            style={{ width: "100%", justifyContent: "center", padding: "12px" }}
-          >
-            + Add New Athlete
-          </button>
-        )}
       </div>
     </div>
   );
