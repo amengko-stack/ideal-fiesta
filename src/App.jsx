@@ -417,15 +417,10 @@ function LoginScreen() {
 
 // ─── PARENT DASHBOARD ────────────────────────────────────────────────────────
 const KNOWN_ATHLETE_ID = "kDybMQH9lefwHI0dRway";
-// Old athlete doc created by the pre-lockdown signup flow; Valissa's early logs live here
-const OLD_ATHLETE_ID = "5G2KLPRpHHnySLMyYRrL";
 
 function ParentDashboard({ user, onSelectAthlete, onSignOut }) {
   const [athlete, setAthlete] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [migrating, setMigrating]         = useState(false);
-  const [migrateResult, setMigrateResult] = useState(null);
-  const [migrateError, setMigrateError]   = useState("");
 
   useEffect(() => {
     getDoc(doc(db, "athletes", KNOWN_ATHLETE_ID))
@@ -433,54 +428,6 @@ function ParentDashboard({ user, onSelectAthlete, onSignOut }) {
       .catch(e => console.error("Load athlete error:", e))
       .finally(() => setLoading(false));
   }, []);
-
-  const handleMigrate = async () => {
-    setMigrating(true);
-    setMigrateError("");
-    try {
-      const counts = { weekLogs: 0, wellbeing: 0, measurements: 0 };
-
-      // Copy subcollection docs keeping original IDs so re-runs overwrite, never duplicate
-      for (const colName of ["weekLogs", "wellbeing"]) {
-        const snap = await getDocs(collection(db, "athletes", OLD_ATHLETE_ID, colName));
-        for (const d of snap.docs) {
-          await setDoc(doc(db, "athletes", KNOWN_ATHLETE_ID, colName, d.id), d.data());
-          counts[colName]++;
-        }
-      }
-
-      // Merge growth measurements; on same-date collision the current doc's entry wins
-      const [oldSnap, newSnap] = await Promise.all([
-        getDoc(doc(db, "athletes", OLD_ATHLETE_ID)),
-        getDoc(doc(db, "athletes", KNOWN_ATHLETE_ID)),
-      ]);
-      const oldM = oldSnap.exists() ? (oldSnap.data().measurements || []) : [];
-      const curr = newSnap.exists() ? newSnap.data() : {};
-      if (oldM.length > 0) {
-        const byDate = {};
-        [...(curr.measurements || []), ...oldM].forEach(m => {
-          if (m?.date && !byDate[m.date]) byDate[m.date] = m;
-        });
-        const merged = Object.values(byDate)
-          .sort((a, b) => b.date.localeCompare(a.date))
-          .slice(0, 12);
-        const latestField = f => merged.find(m => m[f] != null)?.[f] ?? curr[f] ?? null;
-        await setDoc(doc(db, "athletes", KNOWN_ATHLETE_ID), {
-          measurements:  merged,
-          weight:        latestField("weight"),
-          height:        latestField("height"),
-          sittingHeight: latestField("sittingHeight"),
-        }, { merge: true });
-        counts.measurements = oldM.length;
-      }
-
-      setMigrateResult(counts);
-    } catch (e) {
-      console.error("Migration error:", e);
-      setMigrateError(e.message);
-    }
-    setMigrating(false);
-  };
 
   return (
     <div style={{ background: COLORS.bg, minHeight: "100vh" }}>
@@ -522,34 +469,6 @@ function ParentDashboard({ user, onSelectAthlete, onSignOut }) {
                 </div>
               )
           }
-        </div>
-
-        <div className="card">
-          <div className="card-title"><Settings size={18} /> Data Repair</div>
-          <p style={{ fontSize: "0.8rem", color: COLORS.muted, lineHeight: 1.5, marginBottom: 12 }}>
-            One-time fix: copies Valissa's session logs, wellbeing check-ins and growth measurements
-            from the old athlete record into this one. Safe to run more than once — nothing is deleted.
-          </p>
-          {migrateResult ? (
-            <div className="note-box">
-              ✅ Recovered {migrateResult.weekLogs} session log{migrateResult.weekLogs !== 1 ? "s" : ""},{" "}
-              {migrateResult.wellbeing} check-in{migrateResult.wellbeing !== 1 ? "s" : ""} and{" "}
-              {migrateResult.measurements} measurement{migrateResult.measurements !== 1 ? "s" : ""}.
-              Open the athlete view to confirm everything is back.
-            </div>
-          ) : (
-            <button
-              className="btn btn-primary"
-              onClick={handleMigrate}
-              disabled={migrating}
-              style={{ width: "100%", justifyContent: "center", padding: "12px" }}
-            >
-              {migrating
-                ? <><span className="spinner" style={{ width: 16, height: 16 }} /> Recovering…</>
-                : "Recover Valissa's logs"}
-            </button>
-          )}
-          {migrateError && <div className="note-box warn" style={{ marginTop: 10 }}>{migrateError}</div>}
         </div>
       </div>
     </div>
