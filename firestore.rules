@@ -1,0 +1,27 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Only the three family accounts may touch data. This mirrors
+    // ALLOWED_USERS in src/App.jsx — update both together.
+    function isFamilyMember() {
+      return request.auth != null
+        && request.auth.uid in [
+          'jFXQ9SamJ6QnIpaam5dLedKcFkA2',
+          '2Hxj2FUJP4YQSvnsR2fkStu0uoC2',
+          'qmj32jhoYnQ9OJCQCXM1soIhHPx2'
+        ];
+    }
+
+    match /athletes/{athleteId}/{document=**} {
+      allow read, write: if isFamilyMember();
+    }
+
+    match /matches/{matchId} {
+      allow read, write: if isFamilyMember();
+    }
+
+    // Everything else (legacy users, plans, family_members collections)
+    // is denied by default.
+  }
+}
