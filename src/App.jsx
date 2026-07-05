@@ -1154,7 +1154,7 @@ Return ONLY a raw JSON object. Do NOT wrap in markdown code fences. Do NOT inclu
       const res = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ system: systemPrompt, messages: [{ role: "user", content: prompt }], max_tokens: 4000 })
+        body: JSON.stringify({ system: systemPrompt, messages: [{ role: "user", content: prompt }], max_tokens: 6000 })
       });
       const data = await res.json();
       const rawText = (data.content?.[0]?.text ?? data.content?.map(b => b.text || "").join("") ?? "").trim();

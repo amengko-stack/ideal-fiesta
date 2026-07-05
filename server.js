@@ -12,7 +12,7 @@ app.post("/api/chat", async (req, res) => {
     return res.status(500).json({ error: "ANTHROPIC_API_KEY not set in .env" });
   }
 
-  const { messages, system } = req.body;
+  const { messages, system, max_tokens } = req.body;
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: "messages array is required" });
   }
@@ -27,7 +27,7 @@ app.post("/api/chat", async (req, res) => {
       },
       body: JSON.stringify({
         model: process.env.ANTHROPIC_MODEL || "claude-haiku-4-5-20251001",
-        max_tokens: 2048,
+        max_tokens: max_tokens || 4000,
         system: system || "",
         messages,
       }),
