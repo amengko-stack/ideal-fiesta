@@ -13,7 +13,7 @@ import {
   doc, getDoc, setDoc, addDoc, deleteDoc,
   collection, getDocs, query, orderBy, limit,
 } from "firebase/firestore";
-import { saveDeferredPriorities, refreshEscalations, resolveDeferred } from "./deferredPriorities.js";
+import { saveDeferredPriorities, refreshEscalations, resolveDeferred } from "./lib/deferredPriorities.js";
 import { toLocalDateStr, getWeekBounds } from "./lib/dates.js";
 import { sessionSRPE, computeLoad, mergeWellbeingByDate, calculateMetrics, getACWRContext } from "./lib/load.js";
 

@@ -2,8 +2,8 @@ import {
   collection, getDocs, addDoc, updateDoc,
   query, where, doc, serverTimestamp,
 } from "firebase/firestore";
-import { db } from "./firebase.js";
-import { currentWeekKey } from "./lib/dates.js";
+import { db } from "../firebase.js";
+import { currentWeekKey } from "./dates.js";
 
 const col = (athleteUid) =>
   collection(db, "athletes", athleteUid, "deferredPriorities");
