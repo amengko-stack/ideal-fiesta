@@ -13,7 +13,7 @@ import {
   doc, getDoc, setDoc, addDoc, deleteDoc,
   collection, getDocs, query, orderBy, limit,
 } from "firebase/firestore";
-import { saveDeferredPriorities, checkEscalations, resolveDeferred } from "./deferredPriorities.js";
+import { saveDeferredPriorities, refreshEscalations, resolveDeferred } from "./deferredPriorities.js";
 
 // In development the Express proxy runs on localhost:3001.
 // In production (Firebase Hosting) /api/chat is rewritten to the Cloud Function.
@@ -113,6 +113,16 @@ const TENNIS_GAPS = [
   { id: "conditioning",      label: "Aerobic Conditioning",  desc: "Fatigues in long matches or 3rd sets" },
 ];
 
+// ─── DATE HELPERS ─────────────────────────────────────────────────────────────
+// Format a Date as YYYY-MM-DD using LOCAL date parts (never toISOString, which
+// shifts the calendar day for users east of UTC — this app runs in UTC+7/+8).
+function toLocalDateStr(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 // ─── LOAD CALCULATOR ──────────────────────────────────────────────────────────
 function getWeekBounds(weeksAgo) {
   const now = new Date();
@@ -124,8 +134,8 @@ function getWeekBounds(weeksAgo) {
   const end = new Date(start);
   end.setDate(start.getDate() + 7);
   return {
-    start: start.toISOString().split("T")[0],
-    end:   end.toISOString().split("T")[0],
+    start: toLocalDateStr(start),
+    end:   toLocalDateStr(end),
   };
 }
 
@@ -136,32 +146,50 @@ function sessionSRPE(log) {
   return rpe * duration * multiplier;
 }
 
-function calculateMetrics(logs, wellbeing) {
+// Shared acute:chronic load computation used by BOTH the dashboard and the AI
+// context, so they always report the same numbers. Acute = this week; chronic =
+// mean of the 4 most recent complete Mon–Sun weeks (this week + 3 prior).
+function computeLoad(logs) {
   const weekSRPEs = [0, 1, 2, 3].map(weeksAgo => {
     const { start, end } = getWeekBounds(weeksAgo);
     return (logs || [])
       .filter(l => l.date >= start && l.date < end)
       .reduce((sum, l) => sum + sessionSRPE(l), 0);
   });
-
   const thisWeekSRPE = weekSRPEs[0];
   const fourWeekAvg  = weekSRPEs.reduce((a, b) => a + b, 0) / 4;
   const acwr = fourWeekAvg > 0
     ? Math.round((thisWeekSRPE / fourWeekAvg) * 100) / 100
     : null;
+  return { weekSRPEs, thisWeekSRPE, fourWeekAvg, acwr };
+}
+
+// Wellbeing is written as two docs per day (a morning doc carrying `sleep`, a
+// night doc carrying `energy`/`notes`). Merge them per date so no field is lost;
+// later-time non-null values win on conflict. Returns a { date → entry } map.
+function mergeWellbeingByDate(entries) {
+  const byDate = {};
+  const sorted = [...(entries || [])].sort((a, b) => (a.time || "").localeCompare(b.time || ""));
+  for (const w of sorted) {
+    const merged = { ...(byDate[w.date] || {}) };
+    for (const [k, v] of Object.entries(w)) {
+      if (v != null) merged[k] = v;
+    }
+    byDate[w.date] = merged;
+  }
+  return byDate;
+}
+
+function calculateMetrics(logs, wellbeing) {
+  const { weekSRPEs, thisWeekSRPE, fourWeekAvg, acwr } = computeLoad(logs);
 
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-  const sevenDaysAgoStr = sevenDaysAgo.toISOString().split("T")[0];
+  const sevenDaysAgoStr = toLocalDateStr(sevenDaysAgo);
 
-  const byDate = {};
-  (wellbeing || [])
-    .filter(w => w.date >= sevenDaysAgoStr)
-    .forEach(w => {
-      if (!byDate[w.date] || (w.time || "") > (byDate[w.date].time || ""))
-        byDate[w.date] = w;
-    });
-  const dailyEntries = Object.values(byDate);
+  const dailyEntries = Object.values(
+    mergeWellbeingByDate((wellbeing || []).filter(w => w.date >= sevenDaysAgoStr))
+  );
 
   const avg = field => {
     const vals = dailyEntries.filter(w => w[field] != null).map(w => w[field]);
@@ -502,14 +530,8 @@ function AlertsBanner({ athleteId, wellbeing, sessionHistory, weekLogs }) {
       const recentWellbeing = (days) => {
         const cutoff = new Date();
         cutoff.setDate(cutoff.getDate() - days);
-        const cutoffStr = cutoff.toISOString().split("T")[0];
-        const byDate = {};
-        (wellbeing || [])
-          .filter(w => w.date >= cutoffStr)
-          .forEach(w => {
-            if (!byDate[w.date] || (w.time || "") > (byDate[w.date].time || ""))
-              byDate[w.date] = w;
-          });
+        const cutoffStr = toLocalDateStr(cutoff);
+        const byDate = mergeWellbeingByDate((wellbeing || []).filter(w => w.date >= cutoffStr));
         return Object.values(byDate).sort((a, b) => a.date < b.date ? -1 : 1);
       };
 
@@ -547,7 +569,7 @@ function AlertsBanner({ athleteId, wellbeing, sessionHistory, weekLogs }) {
 
         // 3. Deferred escalations
         async () => {
-          const escalated = await checkEscalations(athleteId);
+          const escalated = await refreshEscalations(athleteId);
           if (!escalated.length) return null;
           return escalated.map(e => ({
             id:       `escalation-${e.id}`,
@@ -1157,10 +1179,17 @@ Return ONLY a raw JSON object. Do NOT wrap in markdown code fences. Do NOT inclu
         body: JSON.stringify({ system: systemPrompt, messages: [{ role: "user", content: prompt }], max_tokens: 6000 })
       });
       const data = await res.json();
+      if (!res.ok || data?.error || data?.type === "error") {
+        throw new Error(`AI request failed: ${data?.error?.message || data?.error || res.status}`);
+      }
       const rawText = (data.content?.[0]?.text ?? data.content?.map(b => b.text || "").join("") ?? "").trim();
       const cleanText = rawText
         .replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
-      if (!cleanText.endsWith("}")) throw new Error("AI response was truncated — max_tokens too low");
+      if (!cleanText.endsWith("}")) {
+        throw new Error(data.stop_reason === "max_tokens"
+          ? "AI response was truncated — max_tokens too low"
+          : "AI response was not valid JSON");
+      }
       const clean = cleanText.replace(/"((?:[^"\\]|\\[\s\S])*)"/g, (_, inner) =>
         '"' + inner
           .replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t")
@@ -1215,7 +1244,7 @@ Return ONLY a raw JSON object. Do NOT wrap in markdown code fences. Do NOT inclu
 
       // Check for any escalated priorities
       if (athleteId) {
-        const escalatedItems = await checkEscalations(athleteId);
+        const escalatedItems = await refreshEscalations(athleteId);
         setEscalations(escalatedItems);
       }
     } catch (e) {
@@ -1543,10 +1572,8 @@ function LogTab({ weekLogs, addWeekLog, deleteWeekLog }) {
     setTimeout(() => setSaved(false), 2000);
   };
 
-  const thisWeekStart = new Date();
-  const _day = thisWeekStart.getDay();
-  thisWeekStart.setDate(thisWeekStart.getDate() - (_day === 0 ? 6 : _day - 1));
-  const thisWeek = weekLogs.filter(l => new Date(l.date) >= thisWeekStart);
+  const { start: thisWeekStart } = getWeekBounds(0);
+  const thisWeek = weekLogs.filter(l => l.date >= thisWeekStart);
 
   return (
     <div>
@@ -2178,19 +2205,9 @@ function extractMatchData(plistObj) {
 async function buildAthleteContext(athleteUid) {
   const now       = new Date();
   const msPerDay  = 24 * 60 * 60 * 1000;
-  const isoToday  = now.toISOString().slice(0, 10);
   const cutoff28  = new Date(now - 28 * msPerDay).toISOString().slice(0, 10);
   const cutoff14  = new Date(now - 14 * msPerDay).toISOString().slice(0, 10);
   const cutoff7   = new Date(now - 7  * msPerDay).toISOString().slice(0, 10);
-
-  // Assign a ISO week key (Monday-anchored) to a YYYY-MM-DD date string
-  const weekKey = dateStr => {
-    const d   = new Date(dateStr);
-    const mon = new Date(d);
-    mon.setDate(d.getDate() - ((d.getDay() + 6) % 7));
-    return mon.toISOString().slice(0, 10);
-  };
-  const thisWeekKey = weekKey(isoToday);
 
   // ── 1. Session logs (weekLogs) — last 28 days ──────────────────────────────
   const logsSnap = await getDocs(
@@ -2200,26 +2217,17 @@ async function buildAthleteContext(athleteUid) {
     .map(d => ({ id: d.id, ...d.data() }))
     .filter(l => l.date >= cutoff28);
 
-  const logsWithSrpe = allLogs.map(l => ({
-    ...l,
-    srpe: (l.rpe ?? 0) * (l.duration ?? 0),
-  }));
+  // Use the SAME sRPE definition the dashboard uses (sessionSRPE) so the AI and
+  // the parent view never diverge on load/ACWR.
+  const logsWithSrpe = allLogs.map(l => ({ ...l, srpe: sessionSRPE(l) }));
 
-  const weeklyTotals = {};
-  for (const l of logsWithSrpe) {
-    const wk = weekKey(l.date);
-    weeklyTotals[wk] = (weeklyTotals[wk] ?? 0) + l.srpe;
-  }
-  const thisWeekSrpe  = weeklyTotals[thisWeekKey] ?? 0;
-  // 4-week average divides total load by 4 regardless of how many weeks have data
-  const fourWeekTotal = Object.values(weeklyTotals).reduce((s, v) => s + v, 0);
-  const fourWeekAvg   = +(fourWeekTotal / 4).toFixed(1);
-  const acwr          = fourWeekAvg > 0 ? +(thisWeekSrpe / fourWeekAvg).toFixed(2) : null;
+  // Shared acute:chronic computation — identical numbers to calculateMetrics.
+  const { thisWeekSRPE, fourWeekAvg, acwr } = computeLoad(allLogs);
 
   const sessionLogs = {
     sessions:        logsWithSrpe,
-    thisWeekSrpe,
-    fourWeekAvgSrpe: fourWeekAvg,
+    thisWeekSrpe:    Math.round(thisWeekSRPE),
+    fourWeekAvgSrpe: Math.round(fourWeekAvg),
     acwr,
   };
 
@@ -2505,14 +2513,20 @@ Respond with exactly this JSON structure:
       const res = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ system: systemPrompt, messages: [{ role: "user", content: userPrompt }], max_tokens: 4000 })
+        body: JSON.stringify({ system: systemPrompt, messages: [{ role: "user", content: userPrompt }], max_tokens: 6000 })
       });
       const data = await res.json();
+      if (!res.ok || data?.error || data?.type === "error") {
+        throw new Error(`AI request failed: ${data?.error?.message || data?.error || res.status}`);
+      }
       const rawText = (data.content?.[0]?.text ?? data.content?.map(b => b.text || "").join("") ?? "").trim();
-      console.log("[analysis] raw API response (first 300):", rawText.slice(0, 300));
       const cleanText = rawText
         .replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
-      if (!cleanText.endsWith("}")) throw new Error("AI response was truncated — max_tokens too low");
+      if (!cleanText.endsWith("}")) {
+        throw new Error(data.stop_reason === "max_tokens"
+          ? "AI response was truncated — max_tokens too low"
+          : "AI response was not valid JSON");
+      }
       const clean = cleanText.replace(/"((?:[^"\\]|\\[\s\S])*)"/g, (_, inner) =>
         '"' + inner
           .replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t")
@@ -2530,7 +2544,7 @@ Respond with exactly this JSON structure:
         await saveDeferredPriorities(athleteId, parsed.deferredPriorities);
       }
 
-      const escalatedItems = await checkEscalations(athleteId);
+      const escalatedItems = await refreshEscalations(athleteId);
 
       setAnalysis(parsed);
       setEscalations(escalatedItems);
@@ -2920,10 +2934,15 @@ function PrioritiesTab({ athleteId }) {
 
   useEffect(() => {
     if (!athleteId) return;
-    loadItems();
-    checkEscalations(athleteId)
-      .then(escalated => { if (escalated.length > 0) setEscalationBanner(escalated); })
-      .catch(() => {});
+    (async () => {
+      // Promote eligible items first, then load the list, so the list reflects
+      // the post-escalation state (no active/escalated split-brain on first paint).
+      try {
+        const escalated = await refreshEscalations(athleteId);
+        if (escalated.length > 0) setEscalationBanner(escalated);
+      } catch (_) {}
+      await loadItems();
+    })();
   }, [athleteId]);
 
   const handleResolve = async (priority) => {
@@ -3364,10 +3383,17 @@ Weekly sRPE: ${ctx.thisWeekSRPE ?? "—"} | ACWR: ${ctx.acuteChronicRatio ?? "�
         body: JSON.stringify({ system: systemPrompt, messages: [{ role: "user", content: userMsg }], max_tokens: 4000 }),
       });
       const data = await res.json();
+      if (!res.ok || data?.error || data?.type === "error") {
+        throw new Error(`AI request failed: ${data?.error?.message || data?.error || res.status}`);
+      }
       const raw = data?.content?.[0]?.text ?? "";
       if (!raw) throw new Error("Empty response from AI");
       const cleanText = raw.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
-      if (!cleanText.endsWith("}")) throw new Error("AI response was truncated — max_tokens too low");
+      if (!cleanText.endsWith("}")) {
+        throw new Error(data.stop_reason === "max_tokens"
+          ? "AI response was truncated — max_tokens too low"
+          : "AI response was not valid JSON");
+      }
       const parsed = JSON.parse(cleanText);
 
       const report = { ...parsed, generatedAt: new Date().toISOString(), matchCount: matchesWithAnalysis.length };
