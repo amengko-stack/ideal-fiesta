@@ -14,6 +14,7 @@ import {
   collection, getDocs, query, orderBy, limit,
 } from "firebase/firestore";
 import { saveDeferredPriorities, refreshEscalations, resolveDeferred } from "./deferredPriorities.js";
+import { toLocalDateStr, getWeekBounds } from "./lib/dates.js";
 
 // In development the Express proxy runs on localhost:3001.
 // In production (Firebase Hosting) /api/chat is rewritten to the Cloud Function.
@@ -113,31 +114,6 @@ const TENNIS_GAPS = [
   { id: "conditioning",      label: "Aerobic Conditioning",  desc: "Fatigues in long matches or 3rd sets" },
 ];
 
-// ─── DATE HELPERS ─────────────────────────────────────────────────────────────
-// Format a Date as YYYY-MM-DD using LOCAL date parts (never toISOString, which
-// shifts the calendar day for users east of UTC — this app runs in UTC+7/+8).
-function toLocalDateStr(d) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-// ─── LOAD CALCULATOR ──────────────────────────────────────────────────────────
-function getWeekBounds(weeksAgo) {
-  const now = new Date();
-  const day = now.getDay();
-  const daysToMonday = day === 0 ? 6 : day - 1;
-  const start = new Date(now);
-  start.setDate(now.getDate() - daysToMonday - weeksAgo * 7);
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
-  end.setDate(start.getDate() + 7);
-  return {
-    start: toLocalDateStr(start),
-    end:   toLocalDateStr(end),
-  };
-}
 
 function sessionSRPE(log) {
   const rpe        = log.rpe ?? (log.intensity ? log.intensity * 2 : 5);

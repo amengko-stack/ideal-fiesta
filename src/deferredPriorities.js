@@ -3,24 +3,11 @@ import {
   query, where, doc, serverTimestamp,
 } from "firebase/firestore";
 import { db } from "./firebase.js";
+import { currentWeekKey } from "./lib/dates.js";
 
 const col = (athleteUid) =>
   collection(db, "athletes", athleteUid, "deferredPriorities");
 
-// Monday-anchored week key (YYYY-MM-DD) for "now", using local date parts.
-// Used to ensure weeksDeferredCount increments at most once per calendar week
-// regardless of how many times a plan / match analysis is generated.
-function currentWeekKey() {
-  const d = new Date();
-  const day = d.getDay();
-  const daysToMonday = day === 0 ? 6 : day - 1;
-  const mon = new Date(d);
-  mon.setDate(d.getDate() - daysToMonday);
-  const y = mon.getFullYear();
-  const m = String(mon.getMonth() + 1).padStart(2, "0");
-  const dd = String(mon.getDate()).padStart(2, "0");
-  return `${y}-${m}-${dd}`;
-}
 
 // ── saveDeferredPriorities ───────────────────────────────────────────────────
 // Takes the deferredPriorities array returned by the AI and upserts each item.
