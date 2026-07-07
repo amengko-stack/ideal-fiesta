@@ -19,12 +19,7 @@ import { sessionSRPE, computeLoad, mergeWellbeingByDate, calculateMetrics, getAC
 import { COLORS, css } from "./styles/theme.js";
 import { EXERCISE_DB, TENNIS_GAPS } from "./lib/exerciseDb.js";
 import { parsePlist, extractMatchData } from "./lib/plist.js";
-
-// In development the Express proxy runs on localhost:3001.
-// In production (Firebase Hosting) /api/chat is rewritten to the Cloud Function.
-const API_URL = import.meta.env.DEV
-  ? "http://localhost:3001/api/chat"
-  : "/api/chat";
+import { callClaudeJSON, callClaudeText } from "./lib/ai.js";
 
 const ALLOWED_USERS = {
   'jFXQ9SamJ6QnIpaam5dLedKcFkA2': { role: 'parent',  athleteId: 'kDybMQH9lefwHI0dRway' },
@@ -883,29 +878,7 @@ PRIORITY HIERARCHY — apply strictly in this order:
 Return ONLY a raw JSON object. Do NOT wrap in markdown code fences. Do NOT include \`\`\`json or \`\`\` anywhere in your response. Start your response with { and end with }.`;
 
     try {
-      const res = await fetch(API_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ system: systemPrompt, messages: [{ role: "user", content: prompt }], max_tokens: 6000 })
-      });
-      const data = await res.json();
-      if (!res.ok || data?.error || data?.type === "error") {
-        throw new Error(`AI request failed: ${data?.error?.message || data?.error || res.status}`);
-      }
-      const rawText = (data.content?.[0]?.text ?? data.content?.map(b => b.text || "").join("") ?? "").trim();
-      const cleanText = rawText
-        .replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
-      if (!cleanText.endsWith("}")) {
-        throw new Error(data.stop_reason === "max_tokens"
-          ? "AI response was truncated — max_tokens too low"
-          : "AI response was not valid JSON");
-      }
-      const clean = cleanText.replace(/"((?:[^"\\]|\\[\s\S])*)"/g, (_, inner) =>
-        '"' + inner
-          .replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t")
-          .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "") + '"'
-      );
-      const parsed = JSON.parse(clean);
+      const parsed = await callClaudeJSON({ system: systemPrompt, userContent: prompt, maxTokens: 6000 });
 
       // Map new exercises schema → existing plan format so all display logic is unchanged
       const plan = (parsed.exercises || []).map(ex => ({
@@ -1864,29 +1837,7 @@ Respond with exactly this JSON structure:
   "athleteNote": "Direct message for ${context.athleteProfile?.name || "Valissa"} — positive, motivating, 1-2 action points"
 }`;
 
-      const res = await fetch(API_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ system: systemPrompt, messages: [{ role: "user", content: userPrompt }], max_tokens: 6000 })
-      });
-      const data = await res.json();
-      if (!res.ok || data?.error || data?.type === "error") {
-        throw new Error(`AI request failed: ${data?.error?.message || data?.error || res.status}`);
-      }
-      const rawText = (data.content?.[0]?.text ?? data.content?.map(b => b.text || "").join("") ?? "").trim();
-      const cleanText = rawText
-        .replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
-      if (!cleanText.endsWith("}")) {
-        throw new Error(data.stop_reason === "max_tokens"
-          ? "AI response was truncated — max_tokens too low"
-          : "AI response was not valid JSON");
-      }
-      const clean = cleanText.replace(/"((?:[^"\\]|\\[\s\S])*)"/g, (_, inner) =>
-        '"' + inner
-          .replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t")
-          .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "") + '"'
-      );
-      const parsed = JSON.parse(clean);
+      const parsed = await callClaudeJSON({ system: systemPrompt, userContent: userPrompt, maxTokens: 6000 });
 
       await setDoc(doc(db, "athletes", athleteId, "matchAnalyses", matchId), {
         ...parsed,
@@ -2731,24 +2682,7 @@ Weekly sRPE: ${ctx.thisWeekSRPE ?? "—"} | ACWR: ${ctx.acuteChronicRatio ?? "�
   "parentNote": "one encouraging paragraph for the parent contextualising the season so far"
 }`;
 
-      const res = await fetch(API_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ system: systemPrompt, messages: [{ role: "user", content: userMsg }], max_tokens: 4000 }),
-      });
-      const data = await res.json();
-      if (!res.ok || data?.error || data?.type === "error") {
-        throw new Error(`AI request failed: ${data?.error?.message || data?.error || res.status}`);
-      }
-      const raw = data?.content?.[0]?.text ?? "";
-      if (!raw) throw new Error("Empty response from AI");
-      const cleanText = raw.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
-      if (!cleanText.endsWith("}")) {
-        throw new Error(data.stop_reason === "max_tokens"
-          ? "AI response was truncated — max_tokens too low"
-          : "AI response was not valid JSON");
-      }
-      const parsed = JSON.parse(cleanText);
+      const parsed = await callClaudeJSON({ system: systemPrompt, userContent: userMsg, maxTokens: 4000 });
 
       const report = { ...parsed, generatedAt: new Date().toISOString(), matchCount: matchesWithAnalysis.length };
       await setDoc(doc(db, "athletes", athleteId, "reports", "seasonLatest"), report);
@@ -4273,20 +4207,12 @@ function AVLogSession({ athleteId }) {
     // Fetch motivational message in background
     const activityLabel = type === "tennis" ? "Tennis" : type === "cheer" ? "Cheerleading" : entry.sportName || "Other Sport";
     const userMsg = `Valissa just logged a ${activityLabel} session:\n- Duration: ${entry.duration} minutes\n- Intensity: ${entry.intensity}/5\n- Focus: ${entry.focus || "general training"}\n- Time of day: ${timeOfDay}\n- Day of week: ${dayOfWeek}\n\nWrite a motivational confirmation message specifically referencing what she just did. Make it feel personal and real.`;
-    fetch(API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        system: "You are an encouraging sports coach writing a short motivational message to a 12-year-old female tennis and cheerleading athlete named Valissa. Keep it genuine, specific, and energetic — not generic. Never use the same phrasing twice. Write like a coach who actually watched her train, not a robot. Maximum 2 sentences.",
-        messages: [{ role: "user", content: userMsg }],
-        max_tokens: 120,
-      }),
+    callClaudeText({
+      system: "You are an encouraging sports coach writing a short motivational message to a 12-year-old female tennis and cheerleading athlete named Valissa. Keep it genuine, specific, and energetic — not generic. Never use the same phrasing twice. Write like a coach who actually watched her train, not a robot. Maximum 2 sentences.",
+      userContent: userMsg,
+      maxTokens: 120,
     })
-      .then(r => r.json())
-      .then(data => {
-        const msg = data?.content?.[0]?.text || data?.choices?.[0]?.message?.content || null;
-        setMotivationMsg(msg || "Great work today — every session counts! Keep showing up. 💪");
-      })
+      .then(msg => setMotivationMsg(msg || "Great work today — every session counts! Keep showing up. 💪"))
       .catch(() => setMotivationMsg("Great work today — every session counts! Keep showing up. 💪"))
       .finally(() => setMotivationLoading(false));
   };
