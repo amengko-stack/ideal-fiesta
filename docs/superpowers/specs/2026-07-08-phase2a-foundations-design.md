@@ -1,7 +1,7 @@
 # Phase 2a: Foundations — Load History, Streak, Cheer Retirement (Design)
 
 **Date:** 2026-07-08
-**Status:** Approved pending user spec review
+**Status:** Implemented — see docs/superpowers/plans/2026-07-08-phase2a-foundations.md
 **Author:** Claude session with Allova
 
 ## Background & roadmap change
