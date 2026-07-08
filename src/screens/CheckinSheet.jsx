@@ -27,34 +27,20 @@ export default function CheckinSheet({ athleteId, initial, onSaved, onClose }) {
   const [soreness, setSoreness] = useState(initial?.soreness ?? 2);
   const [saving, setSaving]     = useState(false);
 
-  const save = async () => {
+  const save = () => {
     if (saving) return;
     setSaving(true);
-    try {
-      const now = new Date();
-      // XP only for the FIRST check-in of the day (updates are free — no tap-farming).
-      const firstToday = initial == null;
-      await addDoc(collection(db, "athletes", athleteId, "wellbeing"), {
-        type: "checkin", mood, sleep, soreness,
-        date: toLocalDateStr(now), time: now.toTimeString().slice(0, 5),
-      });
-      let msg = "Check-in updated ✨";
-      if (firstToday) {
-        try {
-          await awardXp(athleteId, XP.CHECKIN);
-          msg = `Check-in saved · +${XP.CHECKIN} XP ✨`;
-        } catch {
-          msg = "Check-in saved! (XP syncs later) ✨";
-        }
-      }
-      onSaved(msg);
-      onClose();
-    } catch (e) {
-      console.error("CheckinSheet save:", e);
-      onSaved("Couldn't save — try again 🙈");
-    } finally {
-      setSaving(false);
-    }
+    const now = new Date();
+    // XP only for the FIRST check-in of the day (updates are free — no tap-farming).
+    const firstToday = initial == null;
+    // Fire-and-forget: local commit is instant; syncs when online.
+    addDoc(collection(db, "athletes", athleteId, "wellbeing"), {
+      type: "checkin", mood, sleep, soreness,
+      date: toLocalDateStr(now), time: now.toTimeString().slice(0, 5),
+    }).catch(e => console.error("CheckinSheet save:", e));
+    if (firstToday) awardXp(athleteId, XP.CHECKIN).catch(e => console.error("Checkin xp:", e));
+    onSaved(firstToday ? `Check-in saved · +${XP.CHECKIN} XP ✨` : "Check-in updated ✨");
+    onClose();
   };
 
   const stepBtn = {

@@ -167,7 +167,9 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
     cutoffDate.setDate(cutoffDate.getDate() - 60);
     const cutoff = toLocalDateStr(cutoffDate);
 
-    Promise.all([
+    // allSettled: one unreachable doc (e.g. first offline launch with a cold
+    // cache) degrades that slice of the UI instead of blanking the whole app.
+    Promise.allSettled([
       getDoc(doc(db, "athletes", athleteId)),
       getDocs(query(collection(db, "athletes", athleteId, "weekLogs"), where("date", ">=", cutoff))),
       getDocs(query(collection(db, "athletes", athleteId, "wellbeing"), where("date", ">=", cutoff))),
@@ -181,27 +183,32 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
       getDocs(collection(db, "athletes", athleteId, "benchmarks")),
       getDocs(collection(db, "athletes", athleteId, "technicalAssessments")),
     ])
-      .then(([profileSnap, logsSnap, wbSnap, sessSnap, xpSnap, matchesSnap, tournamentsSnap, seasonSnap, planSnap, prioritiesSnap, benchmarksSnap, technicalSnap]) => {
+      .then((results) => {
         if (cancelled) return;
-        if (profileSnap.exists()) setProfile({ id: profileSnap.id, ...profileSnap.data() });
-        const logs = logsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-        const wb   = wbSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-        const sess = sessSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-        setWeekLogs(logs);
-        setWellbeing(wb);
-        setSessionHistory(sess);
-        setXp(xpSnap.exists() ? xpSnap.data().xp || 0 : 0);
-        setMatches(matchesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-        setTournaments(tournamentsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-        setSeasonReport(seasonSnap.exists() ? seasonSnap.data() : null);
-        setPlanResult(planSnap.exists() ? planSnap.data() : null);
-        setPriorities(
+        const val = (i) => (results[i].status === "fulfilled" ? results[i].value : null);
+        const failed = results.filter(r => r.status === "rejected");
+        if (failed.length) console.error(`MobileApp data load: ${failed.length}/12 reads failed`, failed[0].reason);
+        const [profileSnap, logsSnap, wbSnap, sessSnap, xpSnap, matchesSnap, tournamentsSnap, seasonSnap, planSnap, prioritiesSnap, benchmarksSnap, technicalSnap] =
+          results.map((_, i) => val(i));
+        if (profileSnap?.exists()) setProfile({ id: profileSnap.id, ...profileSnap.data() });
+        const logs = logsSnap ? logsSnap.docs.map(d => ({ id: d.id, ...d.data() })) : [];
+        const wb   = wbSnap ? wbSnap.docs.map(d => ({ id: d.id, ...d.data() })) : [];
+        const sess = sessSnap ? sessSnap.docs.map(d => ({ id: d.id, ...d.data() })) : [];
+        if (logsSnap) setWeekLogs(logs);
+        if (wbSnap) setWellbeing(wb);
+        if (sessSnap) setSessionHistory(sess);
+        if (xpSnap) setXp(xpSnap.exists() ? xpSnap.data().xp || 0 : 0);
+        if (matchesSnap) setMatches(matchesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        if (tournamentsSnap) setTournaments(tournamentsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        if (seasonSnap) setSeasonReport(seasonSnap.exists() ? seasonSnap.data() : null);
+        if (planSnap) setPlanResult(planSnap.exists() ? planSnap.data() : null);
+        if (prioritiesSnap) setPriorities(
           prioritiesSnap.docs
             .map(d => ({ id: d.id, ...d.data() }))
             .filter(p => p.status === "active" || p.status === "escalated")
         );
-        setBenchmarks(benchmarksSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-        setTechnical(technicalSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        if (benchmarksSnap) setBenchmarks(benchmarksSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        if (technicalSnap) setTechnical(technicalSnap.docs.map(d => ({ id: d.id, ...d.data() })));
         const dates = [
           ...logs.map(l => l.date),
           ...wb.map(w => w.date),
@@ -210,10 +217,13 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
         const streak = computeStreak(dates, toLocalDateStr(new Date()));
         setStreakInfo(streak);
 
+        // Badge evaluation only with a trustworthy picture: skip when any read
+        // failed so a degraded load can't mis-award or double-toast.
+        if (failed.length > 0 || !xpSnap) return;
         const stored = xpSnap.exists() ? xpSnap.data().badges || {} : {};
         setEarnedBadges(stored);
         const xpVal = xpSnap.exists() ? xpSnap.data().xp || 0 : 0;
-        const planDoc = planSnap.exists() ? planSnap.data() : null;
+        const planDoc = planSnap?.exists() ? planSnap.data() : null;
         const stats = {
           sessionCount: logs.length,
           streak: streak.current,

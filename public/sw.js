@@ -28,7 +28,11 @@ self.addEventListener("fetch", (e) => {
         return res;
       })
       .catch(() =>
-        caches.match(e.request).then((m) => m || caches.match("/index.html"))
+        caches.match(e.request)
+          // Hosting serves the SPA at "/" (server-side rewrite), so the shell's
+          // cache key is "/" — ignoreSearch also covers ?classic / ?newui URLs.
+          .then((m) => m || caches.match("/", { ignoreSearch: true }))
+          .then((m) => m || Response.error())
       )
   );
 });

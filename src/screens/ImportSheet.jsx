@@ -20,9 +20,11 @@ export default function ImportSheet({ athleteId, onSaved, onClose }) {
       if (!matchData.matchId || matchData.matchId === "undefined") {
         throw new Error("missing match id");
       }
-      await setDoc(doc(db, "matches", matchData.matchId), {
+      // Fire-and-forget: local commit is instant; syncs when online. (Parsing
+      // above stays awaited — it's local and its failures matter to the user.)
+      setDoc(doc(db, "matches", matchData.matchId), {
         ...matchData, athleteId, importedAt: new Date().toISOString(),
-      });
+      }).catch(err => console.error("ImportSheet save:", err));
       onSaved(`Match vs ${matchData.opponentName || "Opponent"} imported! 🎾`);
       onClose();
     } catch (err) {

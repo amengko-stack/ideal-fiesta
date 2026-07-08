@@ -14,21 +14,15 @@ export default function TournamentSheet({ athleteId, onSaved, onClose }) {
   const [level, setLevel] = useState("Club");
   const [saving, setSaving] = useState(false);
 
-  const save = async () => {
-    if (saving) return;
+  const save = () => {
+    if (saving || !date) return;
     setSaving(true);
-    try {
-      await addDoc(collection(db, "athletes", athleteId, "tournaments"), {
-        name: name.trim() || "Tournament", date, level, createdAt: serverTimestamp(),
-      });
-      onSaved(`${name.trim() || "Tournament"} added 🏟️`);
-      onClose();
-    } catch (e) {
-      console.error("TournamentSheet save:", e);
-      onSaved("Couldn't save — try again 🙈");
-    } finally {
-      setSaving(false);
-    }
+    // Fire-and-forget: local commit is instant; syncs when online.
+    addDoc(collection(db, "athletes", athleteId, "tournaments"), {
+      name: name.trim() || "Tournament", date, level, createdAt: serverTimestamp(),
+    }).catch(e => console.error("TournamentSheet save:", e));
+    onSaved(`${name.trim() || "Tournament"} added 🏟️`);
+    onClose();
   };
 
   const input = {

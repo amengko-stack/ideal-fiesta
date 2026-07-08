@@ -32,34 +32,24 @@ export default function LogSheet({ athleteId, onSaved, onClose }) {
   const [win, setWin]             = useState(true);
   const [saving, setSaving]       = useState(false);
 
-  const save = async () => {
+  const save = () => {
     if (saving) return;
     setSaving(true);
-    try {
-      const now = new Date();
-      const entry = {
-        type, duration: dur, rpe, feel,
-        date: toLocalDateStr(now), time: now.toTimeString().slice(0, 5),
-        ...(type === "other" ? { sportName: sportName.trim() || "Other sport" } : {}),
-        ...(type === "match" ? { result: win ? "W" : "L" } : {}),
-      };
-      await addDoc(collection(db, "athletes", athleteId, "weekLogs"), entry);
-      let msg;
-      try {
-        const xp = xpForSession(sessionSRPE(entry));
-        await awardXp(athleteId, xp);
-        msg = `+${xp} XP · awesome! 🎾`;
-      } catch {
-        msg = "Saved! (XP syncs later) ✨";
-      }
-      onSaved(msg);
-      onClose();
-    } catch (e) {
-      console.error("LogSheet save:", e);
-      onSaved("Couldn't save — try again 🙈");
-    } finally {
-      setSaving(false);
-    }
+    const now = new Date();
+    const entry = {
+      type, duration: dur, rpe, feel,
+      date: toLocalDateStr(now), time: now.toTimeString().slice(0, 5),
+      ...(type === "other" ? { sportName: sportName.trim() || "Other sport" } : {}),
+      ...(type === "match" ? { result: win ? "W" : "L" } : {}),
+    };
+    // Fire-and-forget (latency compensation): Firestore commits locally at once
+    // and syncs when online — awaiting server ack would hang the sheet offline.
+    addDoc(collection(db, "athletes", athleteId, "weekLogs"), entry)
+      .catch(e => console.error("LogSheet save:", e));
+    const xp = xpForSession(sessionSRPE(entry));
+    awardXp(athleteId, xp).catch(e => console.error("LogSheet xp:", e));
+    onSaved(`+${xp} XP · awesome! 🎾`);
+    onClose();
   };
 
   return (
