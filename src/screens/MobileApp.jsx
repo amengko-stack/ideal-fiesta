@@ -18,11 +18,13 @@ import TournamentSheet from "./TournamentSheet.jsx";
 import ImportSheet from "./ImportSheet.jsx";
 import PlanScreen from "./PlanScreen.jsx";
 import MeScreen from "./MeScreen.jsx";
+import BadgeSheet from "./BadgeSheet.jsx";
 import { mergeWellbeingByDate } from "../lib/load.js";
 import { generateSeasonReport } from "../lib/seasonReport.js";
 import { generateSundayPlan } from "../lib/planGen.js";
 import { awardXp } from "../lib/gamificationStore.js";
-import { XP } from "../lib/gamification.js";
+import { XP, levelFromXp } from "../lib/gamification.js";
+import { BADGES, evaluateBadges } from "../lib/badges.js";
 import { resolveDeferred } from "../lib/deferredPriorities.js";
 
 const SCREENS = {
@@ -47,6 +49,8 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
   const [planResult, setPlanResult] = useState(null);
   const [planLoading, setPlanLoading] = useState(false);
   const [sheet, setSheet]       = useState(null); // null | "log" | "checkin" | "tournament" | "import"
+  const [earnedBadges, setEarnedBadges] = useState({});
+  const [badgeSheet, setBadgeSheet] = useState(null); // null | BADGES entry
   const [toast, setToast]       = useState(null);
   const [tick, setTick]         = useState(0);
   const [priorities, setPriorities] = useState([]);
@@ -203,7 +207,33 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
           ...wb.map(w => w.date),
           ...sess.map(s => s.date),
         ].filter(Boolean);
-        setStreakInfo(computeStreak(dates, toLocalDateStr(new Date())));
+        const streak = computeStreak(dates, toLocalDateStr(new Date()));
+        setStreakInfo(streak);
+
+        const stored = xpSnap.exists() ? xpSnap.data().badges || {} : {};
+        setEarnedBadges(stored);
+        const xpVal = xpSnap.exists() ? xpSnap.data().xp || 0 : 0;
+        const planDoc = planSnap.exists() ? planSnap.data() : null;
+        const stats = {
+          sessionCount: logs.length,
+          streak: streak.current,
+          wins: matchesSnap.docs.filter(d => d.data().whoWonMatch === 1).length,
+          checkinDays: new Set(wb.map(w => w.date)).size,
+          level: levelFromXp(xpVal).level,
+          planCompleted: !!(planDoc && (planDoc.plan || []).length > 0 && (planDoc.plan || []).every(ex => planDoc.doneMap?.[ex.id])),
+        };
+        const satisfied = evaluateBadges(stats);
+        const fresh = satisfied.filter(id => !stored[id]);
+        if (fresh.length > 0) {
+          const today = toLocalDateStr(new Date());
+          const additions = Object.fromEntries(fresh.map(id => [id, today]));
+          setEarnedBadges({ ...stored, ...additions });
+          setDoc(doc(db, "athletes", athleteId, "gamification", "state"),
+            { badges: { ...stored, ...additions } }, { merge: true })
+            .catch(err => console.error("badge save:", err));
+          const first = BADGES.find(b => b.id === fresh[0]);
+          showToast(fresh.length === 1 ? `Badge earned: ${first.emoji} ${first.name}!` : `🏆 ${fresh.length} new badges earned!`);
+        }
       })
       .catch(e => console.error("MobileApp data load:", e));
 
@@ -239,6 +269,8 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
               activeThisWeek={streakInfo.activeThisWeek}
               streak={streakInfo.current}
               onOpenCheckin={() => setSheet("checkin")}
+              earnedBadges={earnedBadges}
+              onOpenBadge={(b) => setBadgeSheet(b)}
             />
           ) : screen === "load" ? (
             <LoadScreen weekLogs={weekLogs} />
@@ -299,6 +331,9 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
       </BottomSheet>
       <BottomSheet open={sheet === "import"} onClose={() => setSheet(null)}>
         <ImportSheet athleteId={athleteId} onSaved={onSaved} onClose={() => setSheet(null)} />
+      </BottomSheet>
+      <BottomSheet open={badgeSheet != null} onClose={() => setBadgeSheet(null)}>
+        <BadgeSheet badge={badgeSheet} earnedDate={badgeSheet ? earnedBadges[badgeSheet.id] : null} />
       </BottomSheet>
 
       <Toast message={toast} />
