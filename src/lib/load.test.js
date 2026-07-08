@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { sessionSRPE, computeLoad, mergeWellbeingByDate, calculateMetrics } from "./load.js";
+import { sessionSRPE, computeLoad, computeLoadHistory, mergeWellbeingByDate, calculateMetrics } from "./load.js";
 import { getWeekBounds, toLocalDateStr } from "./dates.js";
 
 describe("sessionSRPE", () => {
@@ -78,5 +78,56 @@ describe("calculateMetrics", () => {
     ]);
     expect(m.avgSleep).toBe("8.0");
     expect(m.wellbeingDays).toBe(1);
+  });
+});
+
+describe("computeLoadHistory", () => {
+  it("returns exactly `weeks` entries, oldest → newest, Monday-keyed", () => {
+    const h = computeLoadHistory([], 12);
+    expect(h).toHaveLength(12);
+    expect(h[11].weekStart).toBe(getWeekBounds(0).start);
+    expect(h[0].weekStart).toBe(getWeekBounds(11).start);
+  });
+  it("gives null ACWR and zero totals with no data", () => {
+    const h = computeLoadHistory([], 4);
+    expect(h.every(w => w.totalSrpe === 0 && w.acwr === null)).toBe(true);
+  });
+  it("buckets logs into the correct week and type", () => {
+    const logs = [
+      { type: "tennis", rpe: 5, duration: 60, date: getWeekBounds(0).start }, // 300
+      { type: "cheer",  rpe: 4, duration: 30, date: getWeekBounds(1).start }, // 120
+      { type: "other",  rpe: 6, duration: 60, date: getWeekBounds(0).start }, // 360 (full weight)
+    ];
+    const h = computeLoadHistory(logs, 4);
+    const now = h[3], prev = h[2];
+    expect(now.srpeByType).toEqual({ tennis: 300, cheer: 0, other: 360 });
+    expect(now.totalSrpe).toBe(660);
+    expect(prev.srpeByType.cheer).toBe(120);
+    expect(prev.totalSrpe).toBe(120);
+  });
+  it("computes each week's ACWR from that week + 3 prior", () => {
+    const logs = [
+      { type: "tennis", rpe: 5, duration: 60, date: getWeekBounds(0).start }, // this wk: 300
+      { type: "tennis", rpe: 5, duration: 60, date: getWeekBounds(1).start }, // prev wk: 300
+    ];
+    const h = computeLoadHistory(logs, 2);
+    // newest week: window = [0,0,300,300] → avg 150 → acwr 2
+    expect(h[1].acwr).toBe(2);
+    // previous week: window = [0,0,0,300] → avg 75 → acwr 4
+    expect(h[0].acwr).toBe(4);
+  });
+  it("matches computeLoad for the current week (shared source of truth)", () => {
+    const logs = [
+      { type: "tennis", rpe: 7, duration: 90, date: getWeekBounds(0).start },
+      { type: "other",  rpe: 4, duration: 45, date: getWeekBounds(2).start },
+    ];
+    const current = computeLoadHistory(logs, 12).at(-1);
+    const snapshot = computeLoad(logs);
+    expect(current.totalSrpe).toBe(snapshot.thisWeekSRPE);
+    expect(current.acwr).toBe(snapshot.acwr);
+  });
+  it("folds unknown types into 'other'", () => {
+    const h = computeLoadHistory([{ type: "swimming", rpe: 5, duration: 60, date: getWeekBounds(0).start }], 1);
+    expect(h[0].srpeByType.other).toBe(300);
   });
 });

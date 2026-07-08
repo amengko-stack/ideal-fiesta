@@ -96,3 +96,33 @@ export function getACWRContext(acwr, tournamentStatus, sessionTime) {
   }
   return notes;
 }
+
+// Per-week load history, oldest → newest, for trend charts. Each entry carries
+// that week's sRPE split by type and its ACWR (that week ÷ mean of that week +
+// 3 prior — the same window semantics as computeLoad). Three extra weeks are
+// computed before the visible window so the oldest visible week still has a
+// full ACWR denominator.
+export function computeLoadHistory(logs, weeks = 12) {
+  const totalWeeks = weeks + 3;
+  const buckets = [];
+  for (let weeksAgo = totalWeeks - 1; weeksAgo >= 0; weeksAgo--) {
+    const { start, end } = getWeekBounds(weeksAgo);
+    const srpeByType = { tennis: 0, cheer: 0, other: 0 };
+    let totalSrpe = 0;
+    for (const l of logs || []) {
+      if (l.date >= start && l.date < end) {
+        const srpe = sessionSRPE(l);
+        const key = srpeByType[l.type] != null ? l.type : "other";
+        srpeByType[key] += srpe;
+        totalSrpe += srpe;
+      }
+    }
+    buckets.push({ weekStart: start, srpeByType, totalSrpe });
+  }
+  return buckets.slice(3).map((b, i) => {
+    const window = buckets.slice(i, i + 4); // 3 prior weeks + this one
+    const avg = window.reduce((s, w) => s + w.totalSrpe, 0) / 4;
+    const acwr = avg > 0 ? Math.round((b.totalSrpe / avg) * 100) / 100 : null;
+    return { ...b, acwr };
+  });
+}
