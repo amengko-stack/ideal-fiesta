@@ -29,3 +29,13 @@ export function getWeekBounds(weeksAgo) {
 export function currentWeekKey() {
   return getWeekBounds(0).start;
 }
+
+// Monday of the week containing the given YYYY-MM-DD date string.
+export function weekStartOf(dateStr) {
+  const d = new Date(`${dateStr}T00:00:00`);
+  const day = d.getDay();
+  const daysToMonday = day === 0 ? 6 : day - 1;
+  const mon = new Date(d);
+  mon.setDate(d.getDate() - daysToMonday);
+  return toLocalDateStr(mon);
+}

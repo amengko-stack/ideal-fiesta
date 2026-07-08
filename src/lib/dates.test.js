@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { toLocalDateStr, getWeekBounds, currentWeekKey } from "./dates.js";
+import { toLocalDateStr, getWeekBounds, currentWeekKey, weekStartOf } from "./dates.js";
 
 describe("toLocalDateStr", () => {
   it("formats local date parts as YYYY-MM-DD", () => {
@@ -30,5 +30,17 @@ describe("getWeekBounds", () => {
 describe("currentWeekKey", () => {
   it("equals this week's Monday (consistent with getWeekBounds)", () => {
     expect(currentWeekKey()).toBe(getWeekBounds(0).start);
+  });
+});
+
+describe("weekStartOf", () => {
+  it("maps a mid-week date to its Monday", () => {
+    expect(weekStartOf("2026-07-08")).toBe("2026-07-06"); // Wed → Mon
+  });
+  it("maps Sunday to the preceding Monday", () => {
+    expect(weekStartOf("2026-07-12")).toBe("2026-07-06");
+  });
+  it("maps Monday to itself", () => {
+    expect(weekStartOf("2026-07-06")).toBe("2026-07-06");
   });
 });
