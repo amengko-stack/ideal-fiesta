@@ -9,7 +9,7 @@ const secTitle = { fontFamily: M.display, fontWeight: 700, fontSize: 15, color: 
 const PARENT_BADGE = (
   <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", color: M.parentBlue, background: M.parentBlueBg, padding: "3px 8px", borderRadius: 20 }}>PARENT</span>
 );
-const PRIORITY_COLOR = { critical: M.danger, important: M.warn, monitor: M.parentBlue };
+const PRIORITY_COLOR = { High: M.danger, Medium: M.warn, Monitor: M.parentBlue };
 
 const latestPer = (rows, key) => {
   const map = {};
@@ -28,7 +28,9 @@ export default function MeScreen({ profile, xp, streak, sessionHistory, prioriti
   const gaps = profile?.gaps || [];
   const measurements = profile?.measurements || [];
   const velocity = growthVelocity(measurements);
-  const heights = measurements.filter(m => m.height != null).slice(-5);
+  // measurements are stored newest-first — sort ascending so the chart reads left→right in time
+  const heights = measurements.filter(m => m.height != null)
+    .sort((a, b) => (a.date || "").localeCompare(b.date || "")).slice(-5);
   const maxH = Math.max(...heights.map(h => h.height), 1);
   const minH = Math.min(...heights.map(h => h.height), maxH) - 12;
 
