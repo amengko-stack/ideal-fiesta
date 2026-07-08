@@ -1,7 +1,7 @@
 # Phase 2b Slice 2: Log Sheet + Home Screen + Check-in (Design)
 
 **Date:** 2026-07-08
-**Status:** Approved (user delegated design decisions)
+**Status:** Implemented — see docs/superpowers/plans/2026-07-08-phase2b-slice2-home-log.md (post-review: check-in XP limited to first save of the day)
 **Author:** Claude session with Allova
 
 ## Scope

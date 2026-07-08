@@ -32,12 +32,14 @@ export default function CheckinSheet({ athleteId, initial, onSaved, onClose }) {
     setSaving(true);
     try {
       const now = new Date();
+      // XP only for the FIRST check-in of the day (updates are free — no tap-farming).
+      const firstToday = initial == null;
       await addDoc(collection(db, "athletes", athleteId, "wellbeing"), {
         type: "checkin", mood, sleep, soreness,
         date: toLocalDateStr(now), time: now.toTimeString().slice(0, 5),
       });
-      await awardXp(athleteId, XP.CHECKIN);
-      onSaved(`Check-in saved · +${XP.CHECKIN} XP ✨`);
+      if (firstToday) await awardXp(athleteId, XP.CHECKIN);
+      onSaved(firstToday ? `Check-in saved · +${XP.CHECKIN} XP ✨` : "Check-in updated ✨");
       onClose();
     } catch (e) {
       console.error("CheckinSheet save:", e);
