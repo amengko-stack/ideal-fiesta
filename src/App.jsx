@@ -7,6 +7,12 @@ import ParentDashboard from "./components/ParentDashboard.jsx";
 
 const AthleteMain = lazy(() => import("./tabs/AthleteMain.jsx"));
 const AthleteView = lazy(() => import("./athlete/AthleteView.jsx"));
+const MobileApp = lazy(() => import("./screens/MobileApp.jsx"));
+
+// New-UI feature flag: visit ?newui once to opt this device in, ?newui=0 to opt out.
+const params = new URLSearchParams(window.location.search);
+if (params.has("newui")) localStorage.setItem("newui", params.get("newui") === "0" ? "0" : "1");
+const NEW_UI = localStorage.getItem("newui") === "1";
 
 const ALLOWED_USERS = {
   'jFXQ9SamJ6QnIpaam5dLedKcFkA2': { role: 'parent',  athleteId: 'kDybMQH9lefwHI0dRway' },
@@ -64,6 +70,14 @@ export default function App() {
         <div style={{ fontSize: "1.1rem", fontWeight: 600 }}>Access Restricted</div>
         <div style={{ color: "#5a6a7e", fontSize: "0.9rem", textAlign: "center", maxWidth: 280 }}>This app is private. You are not authorised to access it.</div>
       </div>
+    );
+  }
+
+  if (NEW_UI && (authState === "parent" || authState === "athlete")) {
+    return (
+      <Suspense fallback={<FullScreenSpinner />}>
+        <MobileApp athleteId={athleteId} isParent={authState === "parent"} user={user} onSignOut={handleSignOut} />
+      </Suspense>
     );
   }
 
