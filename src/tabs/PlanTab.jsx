@@ -45,7 +45,7 @@ export default function PlanTab({ athleteId, profile, weekLogs, sessionHistory, 
           .sort((a, b) => a.date.localeCompare(b.date))
           .map(l => {
             const rpe = l.rpe ?? (l.intensity ? l.intensity * 2 : "?");
-            return `  - ${l.date} ${l.time}: ${typeLabel[l.type] || l.type}${l.sportName ? ` (${l.sportName})` : ""} — ${l.duration} min, RPE ${rpe}/10${l.focus ? ", focus: " + l.focus : ""}${l.type === "other" ? " [0.6× load multiplier]" : ""}`;
+            return `  - ${l.date} ${l.time}: ${typeLabel[l.type] || l.type}${l.sportName ? ` (${l.sportName})` : ""} — ${l.duration} min, RPE ${rpe}/10${l.focus ? ", focus: " + l.focus : ""}`;
           })
           .join("\n");
 
@@ -143,7 +143,7 @@ ${weekActivity}
 ═══════════════════════════════════════════
 TRAINING LOAD ANALYSIS
 ═══════════════════════════════════════════
-sRPE = RPE × duration in minutes | Other sports weighted 0.6×
+sRPE = RPE × duration in minutes
 
 - This week sRPE: ${metrics.thisWeekSRPE}
 - Weekly sRPE last 4 weeks (oldest → newest): ${[...metrics.weekSRPEs].reverse().join(" → ")}

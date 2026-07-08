@@ -69,7 +69,7 @@ export default function LogTab({ weekLogs, addWeekLog, deleteWeekLog }) {
               onChange={e => setSportName(e.target.value)}
             />
             <div style={{ fontSize: "0.72rem", color: COLORS.muted, marginTop: 4 }}>
-              Other sport sessions are weighted at 0.6× in load calculations.
+              Counts at full weight in load calculations.
             </div>
           </div>
         )}

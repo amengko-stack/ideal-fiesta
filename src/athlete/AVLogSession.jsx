@@ -192,7 +192,7 @@ export default function AVLogSession({ athleteId }) {
             onChange={e => setSportName(e.target.value)}
             style={{ fontSize: "1rem", padding: "13px 14px" }}
           />
-          <div className="av-hint" style={{ marginTop: 6 }}>Weighted at 0.6× in load calculations</div>
+          <div className="av-hint" style={{ marginTop: 6 }}>Counts at full weight in load calculations</div>
         </div>
       )}
 
