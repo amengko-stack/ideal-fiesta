@@ -187,7 +187,7 @@ export default function MobileApp({ athleteId }) {
         <TournamentSheet athleteId={athleteId} onSaved={onSaved} onClose={() => setSheet(null)} />
       </BottomSheet>
       <BottomSheet open={sheet === "import"} onClose={() => setSheet(null)}>
-        <ImportSheet onSaved={onSaved} onClose={() => setSheet(null)} />
+        <ImportSheet athleteId={athleteId} onSaved={onSaved} onClose={() => setSheet(null)} />
       </BottomSheet>
 
       <Toast message={toast} />

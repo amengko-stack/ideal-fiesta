@@ -4,7 +4,7 @@ import { db } from "../firebase";
 import { M } from "../styles/mobileTheme.js";
 import { parsePlist, extractMatchData } from "../lib/plist.js";
 
-export default function ImportSheet({ onSaved, onClose }) {
+export default function ImportSheet({ athleteId, onSaved, onClose }) {
   const [busy, setBusy] = useState(false);
 
   const onFile = async (e) => {
@@ -15,8 +15,13 @@ export default function ImportSheet({ onSaved, onClose }) {
       const text = await file.text();
       const plistObj = parsePlist(text);
       const matchData = extractMatchData(plistObj);
+      // Same guard as the classic importer: a plist without an id yields the
+      // literal string "undefined" — never write matches/undefined.
+      if (!matchData.matchId || matchData.matchId === "undefined") {
+        throw new Error("missing match id");
+      }
       await setDoc(doc(db, "matches", matchData.matchId), {
-        ...matchData, importedAt: new Date().toISOString(),
+        ...matchData, athleteId, importedAt: new Date().toISOString(),
       });
       onSaved(`Match vs ${matchData.opponentName || "Opponent"} imported! 🎾`);
       onClose();
