@@ -76,7 +76,6 @@ export default function AVLogSession({ athleteId }) {
   };
 
   const TENNIS_FOCUS = ["Baseline rallying", "Serve practice", "Footwork / movement", "Match play", "Volley / net", "Conditioning", "Full practice"];
-  const CHEER_FOCUS  = ["Stunt practice", "Tumbling", "Dance / routine", "Competition prep", "Conditioning", "Full practice"];
   const OTHER_FOCUS  = ["Practice / Training", "Competition", "Conditioning", "Full session"];
 
   const handleSave = async () => {
@@ -112,10 +111,10 @@ export default function AVLogSession({ athleteId }) {
     setSaving(false);
 
     // Fetch motivational message in background
-    const activityLabel = type === "tennis" ? "Tennis" : type === "cheer" ? "Cheerleading" : entry.sportName || "Other Sport";
+    const activityLabel = type === "tennis" ? "Tennis" : entry.sportName || "Other Sport";
     const userMsg = `Valissa just logged a ${activityLabel} session:\n- Duration: ${entry.duration} minutes\n- Intensity: ${entry.intensity}/5\n- Focus: ${entry.focus || "general training"}\n- Time of day: ${timeOfDay}\n- Day of week: ${dayOfWeek}\n\nWrite a motivational confirmation message specifically referencing what she just did. Make it feel personal and real.`;
     callClaudeText({
-      system: "You are an encouraging sports coach writing a short motivational message to a 12-year-old female tennis and cheerleading athlete named Valissa. Keep it genuine, specific, and energetic — not generic. Never use the same phrasing twice. Write like a coach who actually watched her train, not a robot. Maximum 2 sentences.",
+      system: "You are an encouraging sports coach writing a short motivational message to a 12-year-old female tennis athlete named Valissa who also cross-trains in other sports. Keep it genuine, specific, and energetic — not generic. Never use the same phrasing twice. Write like a coach who actually watched her train, not a robot. Maximum 2 sentences.",
       userContent: userMsg,
       maxTokens: 120,
     })
@@ -179,7 +178,6 @@ export default function AVLogSession({ athleteId }) {
         <div className="av-big-label">Activity</div>
         <div style={{ display: "flex", gap: 10 }}>
           <TypeBtn t="tennis" icon="🎾" label="Tennis"      color={COLORS.tennis} type={type} setType={setType} setFocus={setFocus} setSportName={setSportName} />
-          <TypeBtn t="cheer"  icon="📣" label="Cheerleading" color={COLORS.cheer}  type={type} setType={setType} setFocus={setFocus} setSportName={setSportName} />
           <TypeBtn t="other"  icon="🏃" label="Other Sport"  color={COLORS.yellow} type={type} setType={setType} setFocus={setFocus} setSportName={setSportName} />
         </div>
       </div>
@@ -264,7 +262,7 @@ export default function AVLogSession({ athleteId }) {
         <div className="av-big-label">Session Focus</div>
         <select name="focus" value={focus} onChange={e => setFocus(e.target.value)} style={{ fontSize: "1rem", padding: "13px 14px" }}>
           <option value="">Select focus…</option>
-          {(type === "tennis" ? TENNIS_FOCUS : type === "cheer" ? CHEER_FOCUS : OTHER_FOCUS).map(f => (
+          {(type === "tennis" ? TENNIS_FOCUS : OTHER_FOCUS).map(f => (
             <option key={f} value={f}>{f}</option>
           ))}
         </select>

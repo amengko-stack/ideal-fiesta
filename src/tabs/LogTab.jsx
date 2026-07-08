@@ -16,7 +16,6 @@ export default function LogTab({ weekLogs, addWeekLog, deleteWeekLog }) {
   const [saved, setSaved]       = useState(false);
 
   const TENNIS_FOCUS = ["Baseline rallying", "Serve practice", "Footwork / movement", "Match play", "Volley / net", "Conditioning", "Full practice"];
-  const CHEER_FOCUS  = ["Stunt practice", "Tumbling", "Dance / routine", "Competition prep", "Conditioning", "Full practice"];
   const OTHER_FOCUS  = ["Practice / Training", "Competition", "Conditioning", "Full session"];
 
   const handleLog = async () => {
@@ -43,7 +42,6 @@ export default function LogTab({ weekLogs, addWeekLog, deleteWeekLog }) {
             <div className="label">Activity Type</div>
             <select name="activityType" value={type} onChange={e => { setType(e.target.value); setFocus(""); setSportName(""); }}>
               <option value="tennis">🎾 Tennis</option>
-              <option value="cheer">📣 Cheerleading</option>
               <option value="other">🏃 Other Sport</option>
             </select>
           </div>
@@ -114,7 +112,7 @@ export default function LogTab({ weekLogs, addWeekLog, deleteWeekLog }) {
           <div className="label">Session Focus</div>
           <select name="focus" value={focus} onChange={e => setFocus(e.target.value)}>
             <option value="">Select focus…</option>
-            {(type === "tennis" ? TENNIS_FOCUS : type === "cheer" ? CHEER_FOCUS : OTHER_FOCUS).map(f => (
+            {(type === "tennis" ? TENNIS_FOCUS : OTHER_FOCUS).map(f => (
               <option key={f} value={f}>{f}</option>
             ))}
           </select>
