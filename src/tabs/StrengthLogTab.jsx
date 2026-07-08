@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
 import { Dumbbell } from "lucide-react";
+import { toLocalDateStr } from "../lib/dates.js";
 import { COLORS } from "../styles/theme.js";
 
 // ─── STRENGTH LOG TAB ─────────────────────────────────────────────────────────
 export default function StrengthLogTab({ sessionHistory, addSession, planResult }) {
   const [logExercises, setLogExercises]   = useState([]);
-  const [sessionDate, setSessionDate]     = useState(new Date().toISOString().split("T")[0]);
+  const [sessionDate, setSessionDate]     = useState(toLocalDateStr(new Date()));
   const [sessionTimeLog, setSessionTimeLog] = useState(new Date().toTimeString().slice(0, 5));
   const [saving, setSaving]               = useState(false);
   const [saved, setSaved]                 = useState(false);

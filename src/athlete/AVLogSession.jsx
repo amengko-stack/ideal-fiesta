@@ -6,6 +6,7 @@ import {
 } from "firebase/firestore";
 import { COLORS } from "../styles/theme.js";
 import { callClaudeText } from "../lib/ai.js";
+import { toLocalDateStr } from "../lib/dates.js";
 
 function TypeBtn({ t, icon, label, color, type, setType, setFocus, setSportName }) {
   return (
@@ -33,7 +34,7 @@ export default function AVLogSession({ athleteId }) {
   const [duration, setDuration]   = useState("");
   const [rpe, setRpe]             = useState(null);
   const [focus, setFocus]         = useState("");
-  const [date, setDate]           = useState(new Date().toISOString().split("T")[0]);
+  const [date, setDate]           = useState(toLocalDateStr(new Date()));
   const [saving, setSaving]       = useState(false);
   const [saved, setSaved]         = useState(false);
   const [recentLogs, setRecentLogs] = useState([]);
@@ -50,7 +51,7 @@ export default function AVLogSession({ athleteId }) {
   useEffect(() => {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - 7);
-    const cutoffStr = cutoff.toISOString().split("T")[0];
+    const cutoffStr = toLocalDateStr(cutoff);
     getDocs(query(
       collection(db, "athletes", athleteId, "weekLogs"),
       orderBy("date", "desc"), limit(30)

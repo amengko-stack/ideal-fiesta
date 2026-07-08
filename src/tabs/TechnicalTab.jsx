@@ -4,6 +4,7 @@ import {
   addDoc, collection, getDocs, query, orderBy,
 } from "firebase/firestore";
 import { db } from "../firebase";
+import { toLocalDateStr } from "../lib/dates.js";
 import { COLORS } from "../styles/theme.js";
 
 const STROKE_AREAS = {
@@ -19,9 +20,9 @@ const STROKE_AREAS = {
 export default function TechnicalTab({ athleteId }) {
   const today6wk = () => {
     const d = new Date(); d.setDate(d.getDate() + 42);
-    return d.toISOString().split("T")[0];
+    return toLocalDateStr(d);
   };
-  const todayStr = new Date().toISOString().split("T")[0];
+  const todayStr = toLocalDateStr(new Date());
 
   const [assessments,      setAssessments]      = useState([]);
   const [loading,          setLoading]          = useState(true);

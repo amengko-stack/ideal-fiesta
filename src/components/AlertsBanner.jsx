@@ -88,7 +88,7 @@ export default function AlertsBanner({ athleteId, wellbeing, sessionHistory, wee
         async () => {
           const cutoff = new Date();
           cutoff.setDate(cutoff.getDate() - 56);
-          const cutoffStr = cutoff.toISOString().split("T")[0];
+          const cutoffStr = toLocalDateStr(cutoff);
           const hasRecent = (sessionHistory || []).some(
             s => (s.type === "fitness_test" || s.isBenchmark) && s.date >= cutoffStr
           );
@@ -105,10 +105,10 @@ export default function AlertsBanner({ athleteId, wellbeing, sessionHistory, wee
         async () => {
           const snap = await getDocs(collection(db, "athletes", athleteId, "weekLogs"));
           const logs = snap.docs.map(d => d.data());
-          const today = new Date().toISOString().split("T")[0];
+          const today = toLocalDateStr(new Date());
           const in7 = new Date();
           in7.setDate(in7.getDate() + 7);
-          const in7Str = in7.toISOString().split("T")[0];
+          const in7Str = toLocalDateStr(in7);
           const upcoming = logs.find(
             l => l.tournamentDate && l.tournamentDate >= today && l.tournamentDate <= in7Str
           );
@@ -150,7 +150,7 @@ export default function AlertsBanner({ athleteId, wellbeing, sessionHistory, wee
 
         // 8. Technical review due
         async () => {
-          const today = new Date().toISOString().split("T")[0];
+          const today = toLocalDateStr(new Date());
           const snap = await getDocs(collection(db, "athletes", athleteId, "technicalAssessments"));
           const allDocs = snap.docs.map(d => d.data());
           // latest entry per stroke area

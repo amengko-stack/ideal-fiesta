@@ -4,6 +4,7 @@ import { db } from "../firebase";
 import {
   doc, addDoc, deleteDoc, collection, getDocs, query, orderBy, limit,
 } from "firebase/firestore";
+import { toLocalDateStr } from "../lib/dates.js";
 import { COLORS } from "../styles/theme.js";
 
 function EmojiRow({ options, value, onChange, activeColor }) {
@@ -76,7 +77,7 @@ export default function AVWellbeing({ athleteId }) {
   useEffect(() => {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - 7);
-    const cutoffStr = cutoff.toISOString().split("T")[0];
+    const cutoffStr = toLocalDateStr(cutoff);
     getDocs(query(
       collection(db, "athletes", athleteId, "wellbeing"),
       orderBy("date", "desc"), limit(30)
@@ -102,7 +103,7 @@ export default function AVWellbeing({ athleteId }) {
     setSaving(true);
     const entry = {
       ...data, type,
-      date: new Date().toISOString().split("T")[0],
+      date: toLocalDateStr(new Date()),
       time: new Date().toTimeString().slice(0, 5),
     };
     const ref = await addDoc(collection(db, "athletes", athleteId, "wellbeing"), entry);

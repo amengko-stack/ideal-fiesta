@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Calendar, Plus } from "lucide-react";
-import { getWeekBounds } from "../lib/dates.js";
+import { getWeekBounds, toLocalDateStr } from "../lib/dates.js";
 import { COLORS } from "../styles/theme.js";
 
 // ─── LOG ACTIVITY TAB ─────────────────────────────────────────────────────────
@@ -10,7 +10,7 @@ export default function LogTab({ weekLogs, addWeekLog, deleteWeekLog }) {
   const [duration, setDuration] = useState("");
   const [rpe, setRpe]           = useState(null);
   const [focus, setFocus]       = useState("");
-  const [date, setDate]         = useState(new Date().toISOString().split("T")[0]);
+  const [date, setDate]         = useState(toLocalDateStr(new Date()));
   const [time, setTime]         = useState(new Date().toTimeString().slice(0, 5));
   const [saving, setSaving]     = useState(false);
   const [saved, setSaved]       = useState(false);

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Calendar, FileText, Ruler, Target, User } from "lucide-react";
 import { TENNIS_GAPS } from "../lib/exerciseDb.js";
+import { toLocalDateStr } from "../lib/dates.js";
 import { COLORS } from "../styles/theme.js";
 
 // ─── PROFILE TAB ─────────────────────────────────────────────────────────────
@@ -31,7 +32,7 @@ export default function ProfileTab({ profile, saveProfile }) {
       const h  = parseFloat(form.height);
       const sh = parseFloat(form.sittingHeight);
       if (w > 0 || h > 0 || sh > 0) {
-        const entry = { date: new Date().toISOString().split("T")[0] };
+        const entry = { date: toLocalDateStr(new Date()) };
         if (w  > 0) entry.weight        = w;
         if (h  > 0) entry.height        = h;
         if (sh > 0) entry.sittingHeight = sh;

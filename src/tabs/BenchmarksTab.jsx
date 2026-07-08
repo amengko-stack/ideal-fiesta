@@ -4,6 +4,7 @@ import {
   addDoc, collection, getDocs, query, orderBy,
 } from "firebase/firestore";
 import { db } from "../firebase";
+import { toLocalDateStr } from "../lib/dates.js";
 import { COLORS } from "../styles/theme.js";
 
 const FITNESS_TESTS = [
@@ -28,7 +29,7 @@ export default function BenchmarksTab({ athleteId, profile }) {
   const [ftLoading,    setFtLoading]    = useState(true);
   const [ftTestName,   setFtTestName]   = useState(FITNESS_TESTS[0].name);
   const [ftResult,     setFtResult]     = useState("");
-  const [ftDate,       setFtDate]       = useState(new Date().toISOString().split("T")[0]);
+  const [ftDate,       setFtDate]       = useState(toLocalDateStr(new Date()));
   const [ftNotes,      setFtNotes]      = useState("");
   const [ftSaving,     setFtSaving]     = useState(false);
   const [expandedTest, setExpandedTest] = useState(null);
@@ -243,7 +244,7 @@ export default function BenchmarksTab({ athleteId, profile }) {
         {ftLoading ? (
           <div style={{ textAlign: "center", padding: 20 }}><div className="spinner" /></div>
         ) : (() => {
-          const cutoff56 = new Date(Date.now() - 56 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+          const cutoff56 = toLocalDateStr(new Date(Date.now() - 56 * 24 * 60 * 60 * 1000));
 
           // Group entries by test name, sorted newest-first per test
           const byTest = {};

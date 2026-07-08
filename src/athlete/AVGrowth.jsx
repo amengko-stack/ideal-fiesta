@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Ruler } from "lucide-react";
 import { db } from "../firebase";
 import { doc, getDoc, setDoc } from "firebase/firestore";
+import { toLocalDateStr } from "../lib/dates.js";
 import { COLORS } from "../styles/theme.js";
 
 function StatBubble({ label, value, unit, color }) {
@@ -75,7 +76,7 @@ export default function AVGrowth({ athleteId }) {
     const sh = parseFloat(sittingHeight);
     if ((!w || w <= 0) && (!h || h <= 0) && (!sh || sh <= 0)) return;
     setSaving(true);
-    const today = new Date().toISOString().split("T")[0];
+    const today = toLocalDateStr(new Date());
     const entry = { date: today };
     if (w  > 0) entry.weight        = w;
     if (h  > 0) entry.height        = h;
