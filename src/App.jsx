@@ -10,9 +10,12 @@ const AthleteView = lazy(() => import("./athlete/AthleteView.jsx"));
 const MobileApp = lazy(() => import("./screens/MobileApp.jsx"));
 
 // New-UI feature flag: visit ?newui once to opt this device in, ?newui=0 to opt out.
-const params = new URLSearchParams(window.location.search);
-if (params.has("newui")) localStorage.setItem("newui", params.get("newui") === "0" ? "0" : "1");
-const NEW_UI = localStorage.getItem("newui") === "1";
+let NEW_UI = false;
+try {
+  const params = new URLSearchParams(window.location.search);
+  if (params.has("newui")) localStorage.setItem("newui", params.get("newui") === "0" ? "0" : "1");
+  NEW_UI = localStorage.getItem("newui") === "1";
+} catch { /* storage blocked — stay on the classic UI */ }
 
 const ALLOWED_USERS = {
   'jFXQ9SamJ6QnIpaam5dLedKcFkA2': { role: 'parent',  athleteId: 'kDybMQH9lefwHI0dRway' },

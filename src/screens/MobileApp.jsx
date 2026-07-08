@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { collection, getDocs, query, where, doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { M, mobileCss } from "../styles/mobileTheme.js";
@@ -9,24 +9,32 @@ import BottomNav from "../ui/BottomNav.jsx";
 import BottomSheet from "../ui/BottomSheet.jsx";
 import Toast from "../ui/Toast.jsx";
 import PlaceholderScreen from "./PlaceholderScreen.jsx";
+import HomeScreen from "./HomeScreen.jsx";
+import LogSheet from "./LogSheet.jsx";
+import CheckinSheet from "./CheckinSheet.jsx";
+import { mergeWellbeingByDate } from "../lib/load.js";
 
 const SCREENS = {
-  home:    { kicker: null,              label: "Home",    emoji: "🏠", note: "Your energy, level and day at a glance — coming in the next update." },
+  home:    { kicker: null,              label: "Home",    emoji: "🏠" },
   load:    { kicker: "Training load",   label: "Load",    emoji: "📊", note: "Weekly load, ACWR and where it comes from — coming soon." },
   matches: { kicker: "Season so far",   label: "Matches", emoji: "🎾", note: "Match history, win rate and season intelligence — coming soon." },
   plan:    { kicker: "Your plan",       label: "Plan",    emoji: "📋", note: "Your Sunday session, tuned to your week — coming soon." },
   me:      { kicker: "Profile & tools", label: "Profile", emoji: "⭐", note: "Profile, focus areas and coach tools — coming soon." },
 };
 
-// NOTE: the call site also passes { isParent, user, onSignOut } (contractual for later
-// slices); destructure them here only when a slice starts consuming them.
 export default function MobileApp({ athleteId }) {
-  const [screen, setScreen]   = useState("home");
-  const [name, setName]       = useState("");
-  const [streak, setStreak]   = useState(0);
-  const [sheetOpen, setSheet] = useState(false);
-  const [toast, setToast]     = useState(null);
+  const [screen, setScreen]     = useState("home");
+  const [name, setName]         = useState("");
+  const [weekLogs, setWeekLogs] = useState([]);
+  const [wellbeing, setWellbeing] = useState([]);
+  const [xp, setXp]             = useState(0);
+  const [streakInfo, setStreakInfo] = useState({ current: 0, activeThisWeek: 0 });
+  const [sheet, setSheet]       = useState(null); // null | "log" | "checkin"
+  const [toast, setToast]       = useState(null);
+  const [tick, setTick]         = useState(0);
   const toastTimer = useRef(null);
+
+  const refresh = useCallback(() => setTick(t => t + 1), []);
 
   const showToast = (msg) => {
     setToast(msg);
@@ -34,25 +42,40 @@ export default function MobileApp({ athleteId }) {
     toastTimer.current = setTimeout(() => setToast(null), 3000);
   };
 
-  useEffect(() => {
-    // Profile name for the header
-    getDoc(doc(db, "athletes", athleteId))
-      .then((snap) => { if (snap.exists()) setName(snap.data().name || ""); })
-      .catch((e) => console.error("MobileApp profile load:", e));
+  useEffect(() => () => clearTimeout(toastTimer.current), []);
 
-    // Streak: any entry (activity, strength, check-in) in the last 60 days
+  useEffect(() => {
+    let cancelled = false;
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - 60);
     const cutoff = toLocalDateStr(cutoffDate);
-    Promise.all(["weekLogs", "sessions", "wellbeing"].map((col) =>
-      getDocs(query(collection(db, "athletes", athleteId, col), where("date", ">=", cutoff)))
-    ))
-      .then((snaps) => {
-        const dates = snaps.flatMap((s) => s.docs.map((d) => d.data().date)).filter(Boolean);
-        setStreak(computeStreak(dates, toLocalDateStr(new Date())).current);
+
+    Promise.all([
+      getDoc(doc(db, "athletes", athleteId)),
+      getDocs(query(collection(db, "athletes", athleteId, "weekLogs"), where("date", ">=", cutoff))),
+      getDocs(query(collection(db, "athletes", athleteId, "wellbeing"), where("date", ">=", cutoff))),
+      getDocs(query(collection(db, "athletes", athleteId, "sessions"), where("date", ">=", cutoff))),
+      getDoc(doc(db, "athletes", athleteId, "gamification", "state")),
+    ])
+      .then(([profileSnap, logsSnap, wbSnap, sessSnap, xpSnap]) => {
+        if (cancelled) return;
+        if (profileSnap.exists()) setName(profileSnap.data().name || "");
+        const logs = logsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const wb   = wbSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        setWeekLogs(logs);
+        setWellbeing(wb);
+        setXp(xpSnap.exists() ? xpSnap.data().xp || 0 : 0);
+        const dates = [
+          ...logs.map(l => l.date),
+          ...wb.map(w => w.date),
+          ...sessSnap.docs.map(d => d.data().date),
+        ].filter(Boolean);
+        setStreakInfo(computeStreak(dates, toLocalDateStr(new Date())));
       })
-      .catch((e) => console.error("MobileApp streak load:", e));
-  }, [athleteId]);
+      .catch(e => console.error("MobileApp data load:", e));
+
+    return () => { cancelled = true; };
+  }, [athleteId, tick]);
 
   const firstName = (name || "Athlete").split(" ")[0];
   const weekday = new Date().toLocaleDateString("en-US", { weekday: "long" });
@@ -60,6 +83,9 @@ export default function MobileApp({ athleteId }) {
   const title = screen === "home" ? `Hi, ${firstName}!` : screen === "me" ? firstName
     : screen.charAt(0).toUpperCase() + screen.slice(1);
   const sc = SCREENS[screen];
+  const todayWb = mergeWellbeingByDate(wellbeing)[toLocalDateStr(new Date())];
+
+  const onSaved = (msg) => { showToast(msg); refresh(); };
 
   return (
     <div style={{ minHeight: "100vh", background: M.pageBg }}>
@@ -68,30 +94,33 @@ export default function MobileApp({ athleteId }) {
         <Header
           kicker={kicker}
           title={title}
-          streak={streak}
+          streak={streakInfo.current}
           initial={firstName.charAt(0).toUpperCase() || "A"}
           onAvatar={() => setScreen("me")}
         />
         <div key={screen} style={{ animation: "screenIn .25s ease" }}>
-          <PlaceholderScreen emoji={sc.emoji} title={`${sc.label} is on its way`} note={sc.note} />
+          {screen === "home" ? (
+            <HomeScreen
+              weekLogs={weekLogs}
+              wellbeing={wellbeing}
+              xp={xp}
+              activeThisWeek={streakInfo.activeThisWeek}
+              streak={streakInfo.current}
+              onOpenCheckin={() => setSheet("checkin")}
+            />
+          ) : (
+            <PlaceholderScreen emoji={sc.emoji} title={`${sc.label} is on its way`} note={sc.note} />
+          )}
         </div>
       </div>
 
-      <BottomNav active={screen} onNav={setScreen} onFab={() => setSheet(true)} />
+      <BottomNav active={screen} onNav={setScreen} onFab={() => setSheet("log")} />
 
-      <BottomSheet open={sheetOpen} onClose={() => setSheet(false)}>
-        <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 23, color: M.ink, marginBottom: 6 }}>Log a session 🎾</div>
-        <div style={{ fontSize: 13, color: M.sub, marginBottom: 18, lineHeight: 1.5 }}>
-          Session logging lands here in the next update. Until then, keep using the classic logger — every session still counts!
-        </div>
-        <div
-          onClick={() => { setSheet(false); showToast("Logging arrives soon ✨"); }}
-          style={{
-            cursor: "pointer", background: M.gradient, color: M.deepGreen, borderRadius: 16,
-            padding: 16, textAlign: "center", fontFamily: M.display, fontWeight: 700,
-            fontSize: 16, boxShadow: M.cta,
-          }}
-        >Got it ⚡</div>
+      <BottomSheet open={sheet === "log"} onClose={() => setSheet(null)}>
+        <LogSheet athleteId={athleteId} onSaved={onSaved} onClose={() => setSheet(null)} />
+      </BottomSheet>
+      <BottomSheet open={sheet === "checkin"} onClose={() => setSheet(null)}>
+        <CheckinSheet athleteId={athleteId} initial={todayWb} onSaved={onSaved} onClose={() => setSheet(null)} />
       </BottomSheet>
 
       <Toast message={toast} />
