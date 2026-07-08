@@ -1,10 +1,11 @@
 import { toLocalDateStr, getWeekBounds } from "./dates.js";
 
+// All session types count at full weight. (The former 0.6 discount for
+// "other" was retired when cross-training became a primary activity.)
 export function sessionSRPE(log) {
-  const rpe        = log.rpe ?? (log.intensity ? log.intensity * 2 : 5);
-  const duration   = log.duration || 60;
-  const multiplier = log.type === "other" ? 0.6 : 1.0;
-  return rpe * duration * multiplier;
+  const rpe      = log.rpe ?? (log.intensity ? log.intensity * 2 : 5);
+  const duration = log.duration || 60;
+  return rpe * duration;
 }
 
 // Shared acute:chronic load computation used by BOTH the dashboard and the AI

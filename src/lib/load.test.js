@@ -6,8 +6,8 @@ describe("sessionSRPE", () => {
   it("uses rpe × duration for tennis", () => {
     expect(sessionSRPE({ type: "tennis", rpe: 7, duration: 90 })).toBe(630);
   });
-  it("applies the 0.6 multiplier for type 'other'", () => {
-    expect(sessionSRPE({ type: "other", rpe: 5, duration: 60 })).toBe(180);
+  it("counts 'other' (cross-training) at full weight", () => {
+    expect(sessionSRPE({ type: "other", rpe: 5, duration: 60 })).toBe(300);
   });
   it("falls back to intensity × 2 when rpe is missing", () => {
     expect(sessionSRPE({ type: "tennis", intensity: 4, duration: 60 })).toBe(480);
