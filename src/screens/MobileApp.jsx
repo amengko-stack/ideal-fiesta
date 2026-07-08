@@ -13,12 +13,17 @@ import HomeScreen from "./HomeScreen.jsx";
 import LoadScreen from "./LoadScreen.jsx";
 import LogSheet from "./LogSheet.jsx";
 import CheckinSheet from "./CheckinSheet.jsx";
+import MatchesScreen from "./MatchesScreen.jsx";
+import MatchDetailSheet from "./MatchDetailSheet.jsx";
+import TournamentSheet from "./TournamentSheet.jsx";
+import ImportSheet from "./ImportSheet.jsx";
 import { mergeWellbeingByDate } from "../lib/load.js";
+import { generateSeasonReport } from "../lib/seasonReport.js";
 
 const SCREENS = {
   home:    { kicker: null,              label: "Home",    emoji: "🏠" },
   load:    { kicker: "Training load",   label: "Load",    emoji: "📊" },
-  matches: { kicker: "Season so far",   label: "Matches", emoji: "🎾", note: "Match history, win rate and season intelligence — coming soon." },
+  matches: { kicker: "Season so far",   label: "Matches", emoji: "🎾" },
   plan:    { kicker: "Your plan",       label: "Plan",    emoji: "📋", note: "Your Sunday session, tuned to your week — coming soon." },
   me:      { kicker: "Profile & tools", label: "Profile", emoji: "⭐", note: "Profile, focus areas and coach tools — coming soon." },
 };
@@ -30,10 +35,43 @@ export default function MobileApp({ athleteId }) {
   const [wellbeing, setWellbeing] = useState([]);
   const [xp, setXp]             = useState(0);
   const [streakInfo, setStreakInfo] = useState({ current: 0, activeThisWeek: 0 });
-  const [sheet, setSheet]       = useState(null); // null | "log" | "checkin"
+  const [matches, setMatches]   = useState([]);
+  const [tournaments, setTournaments] = useState([]);
+  const [seasonReport, setSeasonReport] = useState(null);
+  const [sheet, setSheet]       = useState(null); // null | "log" | "checkin" | "tournament" | "import"
   const [toast, setToast]       = useState(null);
   const [tick, setTick]         = useState(0);
   const toastTimer = useRef(null);
+
+  const [detailMatch, setDetailMatch] = useState(null);
+  const [analysis, setAnalysis] = useState(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [seasonLoading, setSeasonLoading] = useState(false);
+
+  const openMatch = (m) => {
+    setDetailMatch(m);
+    setAnalysis(null);
+    setAnalysisLoading(true);
+    getDoc(doc(db, "athletes", athleteId, "matchAnalyses", String(m.matchId || m.id)))
+      .then(snap => setAnalysis(snap.exists() ? snap.data() : null))
+      .catch(() => setAnalysis(null))
+      .finally(() => setAnalysisLoading(false));
+  };
+
+  const generateSeason = async () => {
+    if (seasonLoading) return;
+    setSeasonLoading(true);
+    try {
+      const report = await generateSeasonReport(athleteId, matches);
+      setSeasonReport(report);
+      showToast("Season analysis ready 🧠");
+    } catch (e) {
+      console.error("Season generation:", e);
+      showToast("Couldn't generate — try again later 🙈");
+    } finally {
+      setSeasonLoading(false);
+    }
+  };
 
   const refresh = useCallback(() => setTick(t => t + 1), []);
 
@@ -57,8 +95,11 @@ export default function MobileApp({ athleteId }) {
       getDocs(query(collection(db, "athletes", athleteId, "wellbeing"), where("date", ">=", cutoff))),
       getDocs(query(collection(db, "athletes", athleteId, "sessions"), where("date", ">=", cutoff))),
       getDoc(doc(db, "athletes", athleteId, "gamification", "state")),
+      getDocs(collection(db, "matches")),
+      getDocs(collection(db, "athletes", athleteId, "tournaments")),
+      getDoc(doc(db, "athletes", athleteId, "reports", "seasonLatest")),
     ])
-      .then(([profileSnap, logsSnap, wbSnap, sessSnap, xpSnap]) => {
+      .then(([profileSnap, logsSnap, wbSnap, sessSnap, xpSnap, matchesSnap, tournamentsSnap, seasonSnap]) => {
         if (cancelled) return;
         if (profileSnap.exists()) setName(profileSnap.data().name || "");
         const logs = logsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -66,6 +107,9 @@ export default function MobileApp({ athleteId }) {
         setWeekLogs(logs);
         setWellbeing(wb);
         setXp(xpSnap.exists() ? xpSnap.data().xp || 0 : 0);
+        setMatches(matchesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        setTournaments(tournamentsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        setSeasonReport(seasonSnap.exists() ? seasonSnap.data() : null);
         const dates = [
           ...logs.map(l => l.date),
           ...wb.map(w => w.date),
@@ -111,6 +155,17 @@ export default function MobileApp({ athleteId }) {
             />
           ) : screen === "load" ? (
             <LoadScreen weekLogs={weekLogs} />
+          ) : screen === "matches" ? (
+            <MatchesScreen
+              matches={matches}
+              tournaments={tournaments}
+              seasonReport={seasonReport}
+              seasonLoading={seasonLoading}
+              onOpenMatch={openMatch}
+              onOpenImport={() => setSheet("import")}
+              onAddTournament={() => setSheet("tournament")}
+              onGenerateSeason={generateSeason}
+            />
           ) : (
             <PlaceholderScreen emoji={sc.emoji} title={`${sc.label} is on its way`} note={sc.note} />
           )}
@@ -124,6 +179,15 @@ export default function MobileApp({ athleteId }) {
       </BottomSheet>
       <BottomSheet open={sheet === "checkin"} onClose={() => setSheet(null)}>
         <CheckinSheet athleteId={athleteId} initial={todayWb} onSaved={onSaved} onClose={() => setSheet(null)} />
+      </BottomSheet>
+      <BottomSheet open={detailMatch != null} onClose={() => setDetailMatch(null)}>
+        <MatchDetailSheet match={detailMatch} analysis={analysis} analysisLoading={analysisLoading} />
+      </BottomSheet>
+      <BottomSheet open={sheet === "tournament"} onClose={() => setSheet(null)}>
+        <TournamentSheet athleteId={athleteId} onSaved={onSaved} onClose={() => setSheet(null)} />
+      </BottomSheet>
+      <BottomSheet open={sheet === "import"} onClose={() => setSheet(null)}>
+        <ImportSheet onSaved={onSaved} onClose={() => setSheet(null)} />
       </BottomSheet>
 
       <Toast message={toast} />
