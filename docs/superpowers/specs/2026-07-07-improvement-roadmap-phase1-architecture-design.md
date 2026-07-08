@@ -1,7 +1,7 @@
 # athlete-os Improvement Roadmap — Phase 1: Architecture Cleanup (Design)
 
 **Date:** 2026-07-07
-**Status:** Approved by user (roadmap order + Phase 1 design)
+**Status:** Implemented (Phase 1) — see docs/superpowers/plans/2026-07-07-phase1-architecture-cleanup.md
 **Author:** Claude session with Allova
 
 ## Background
