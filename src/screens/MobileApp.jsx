@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { collection, getDocs, query, where, doc, getDoc } from "firebase/firestore";
+import { collection, getDocs, query, where, doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { M, mobileCss } from "../styles/mobileTheme.js";
 import { computeStreak } from "../lib/streak.js";
@@ -17,27 +17,34 @@ import MatchesScreen from "./MatchesScreen.jsx";
 import MatchDetailSheet from "./MatchDetailSheet.jsx";
 import TournamentSheet from "./TournamentSheet.jsx";
 import ImportSheet from "./ImportSheet.jsx";
+import PlanScreen from "./PlanScreen.jsx";
 import { mergeWellbeingByDate } from "../lib/load.js";
 import { generateSeasonReport } from "../lib/seasonReport.js";
+import { generateSundayPlan } from "../lib/planGen.js";
+import { awardXp } from "../lib/gamificationStore.js";
+import { XP } from "../lib/gamification.js";
 
 const SCREENS = {
   home:    { kicker: null,              label: "Home",    emoji: "🏠" },
   load:    { kicker: "Training load",   label: "Load",    emoji: "📊" },
   matches: { kicker: "Season so far",   label: "Matches", emoji: "🎾" },
-  plan:    { kicker: "Your plan",       label: "Plan",    emoji: "📋", note: "Your Sunday session, tuned to your week — coming soon." },
+  plan:    { kicker: "Your plan",       label: "Plan",    emoji: "📋" },
   me:      { kicker: "Profile & tools", label: "Profile", emoji: "⭐", note: "Profile, focus areas and coach tools — coming soon." },
 };
 
 export default function MobileApp({ athleteId }) {
   const [screen, setScreen]     = useState("home");
-  const [name, setName]         = useState("");
+  const [profile, setProfile]   = useState(null);
   const [weekLogs, setWeekLogs] = useState([]);
+  const [sessionHistory, setSessionHistory] = useState([]);
   const [wellbeing, setWellbeing] = useState([]);
   const [xp, setXp]             = useState(0);
   const [streakInfo, setStreakInfo] = useState({ current: 0, activeThisWeek: 0 });
   const [matches, setMatches]   = useState([]);
   const [tournaments, setTournaments] = useState([]);
   const [seasonReport, setSeasonReport] = useState(null);
+  const [planResult, setPlanResult] = useState(null);
+  const [planLoading, setPlanLoading] = useState(false);
   const [sheet, setSheet]       = useState(null); // null | "log" | "checkin" | "tournament" | "import"
   const [toast, setToast]       = useState(null);
   const [tick, setTick]         = useState(0);
@@ -73,6 +80,36 @@ export default function MobileApp({ athleteId }) {
     }
   };
 
+  const generatePlan = async (mode) => {
+    if (planLoading) return;
+    setPlanLoading(true);
+    try {
+      const { planData } = await generateSundayPlan(athleteId, {
+        profile, weekLogs, sessionHistory, wellbeing,
+        tournament: mode, sessionTime: "10:00",
+      });
+      setPlanResult(planData);
+      let msg = "Plan ready! 💪";
+      try { await awardXp(athleteId, XP.PLAN_GENERATE); msg = `Plan ready! +${XP.PLAN_GENERATE} XP 💪`; } catch { /* xp optional */ }
+      showToast(msg);
+    } catch (e) {
+      console.error("Plan generation:", e);
+      showToast("Couldn't build the plan — try again 🙈");
+    } finally {
+      setPlanLoading(false);
+    }
+  };
+
+  const toggleExercise = (exId) => {
+    setPlanResult(prev => {
+      if (!prev) return prev;
+      const doneMap = { ...(prev.doneMap || {}), [exId]: !prev.doneMap?.[exId] };
+      setDoc(doc(db, "athletes", athleteId, "plans", "current"), { doneMap }, { merge: true })
+        .catch(err => console.error("doneMap save:", err));
+      return { ...prev, doneMap };
+    });
+  };
+
   const refresh = useCallback(() => setTick(t => t + 1), []);
 
   const showToast = (msg) => {
@@ -98,22 +135,26 @@ export default function MobileApp({ athleteId }) {
       getDocs(collection(db, "matches")),
       getDocs(collection(db, "athletes", athleteId, "tournaments")),
       getDoc(doc(db, "athletes", athleteId, "reports", "seasonLatest")),
+      getDoc(doc(db, "athletes", athleteId, "plans", "current")),
     ])
-      .then(([profileSnap, logsSnap, wbSnap, sessSnap, xpSnap, matchesSnap, tournamentsSnap, seasonSnap]) => {
+      .then(([profileSnap, logsSnap, wbSnap, sessSnap, xpSnap, matchesSnap, tournamentsSnap, seasonSnap, planSnap]) => {
         if (cancelled) return;
-        if (profileSnap.exists()) setName(profileSnap.data().name || "");
+        if (profileSnap.exists()) setProfile({ id: profileSnap.id, ...profileSnap.data() });
         const logs = logsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
         const wb   = wbSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const sess = sessSnap.docs.map(d => ({ id: d.id, ...d.data() }));
         setWeekLogs(logs);
         setWellbeing(wb);
+        setSessionHistory(sess);
         setXp(xpSnap.exists() ? xpSnap.data().xp || 0 : 0);
         setMatches(matchesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
         setTournaments(tournamentsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
         setSeasonReport(seasonSnap.exists() ? seasonSnap.data() : null);
+        setPlanResult(planSnap.exists() ? planSnap.data() : null);
         const dates = [
           ...logs.map(l => l.date),
           ...wb.map(w => w.date),
-          ...sessSnap.docs.map(d => d.data().date),
+          ...sess.map(s => s.date),
         ].filter(Boolean);
         setStreakInfo(computeStreak(dates, toLocalDateStr(new Date())));
       })
@@ -122,7 +163,7 @@ export default function MobileApp({ athleteId }) {
     return () => { cancelled = true; };
   }, [athleteId, tick]);
 
-  const firstName = (name || "Athlete").split(" ")[0];
+  const firstName = (profile?.name || "Athlete").split(" ")[0];
   const weekday = new Date().toLocaleDateString("en-US", { weekday: "long" });
   const kicker = screen === "home" ? `${weekday} · let's play` : SCREENS[screen].kicker;
   const title = screen === "home" ? `Hi, ${firstName}!` : screen === "me" ? firstName
@@ -165,6 +206,16 @@ export default function MobileApp({ athleteId }) {
               onOpenImport={() => setSheet("import")}
               onAddTournament={() => setSheet("tournament")}
               onGenerateSeason={generateSeason}
+            />
+          ) : screen === "plan" ? (
+            <PlanScreen
+              plan={planResult}
+              tournaments={tournaments}
+              loading={planLoading}
+              doneMap={planResult?.doneMap}
+              onGenerate={generatePlan}
+              onToggleExercise={toggleExercise}
+              onRegenerate={() => { setPlanResult(null); }}
             />
           ) : (
             <PlaceholderScreen emoji={sc.emoji} title={`${sc.label} is on its way`} note={sc.note} />
