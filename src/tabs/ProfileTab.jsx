@@ -78,7 +78,7 @@ export default function ProfileTab({ profile, saveProfile }) {
             <input name="tennisSchedule" placeholder="e.g. Mon, Wed, Fri — 2hrs each" value={form.tennisSchedule} onChange={e => setForm(f => ({ ...f, tennisSchedule: e.target.value }))} />
           </div>
           <div>
-            <div className="label">Cheerleading Schedule</div>
+            <div className="label">Cross-Training Schedule</div>
             <input name="cheerSchedule" placeholder="e.g. Tue, Thu — 1.5hrs each" value={form.cheerSchedule} onChange={e => setForm(f => ({ ...f, cheerSchedule: e.target.value }))} />
           </div>
         </div>

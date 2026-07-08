@@ -97,7 +97,7 @@ ATHLETE PROFILE
 ═══════════════════════════════════════════
 - Name: ${profile?.name || "Athlete"}
 - Age: 12 · Female · Growth phase (growth plates NOT yet fused)
-- Primary sport: Tennis | Secondary sport: Cheerleading
+- Primary sport: Tennis | Secondary: cross-training in other sports (she recently stopped cheerleading — older logs may include cheer sessions; treat those as historical load only)
 - Training age: youth athlete, still developing fundamental movement patterns
 - Tennis areas to develop: ${gapLabels.join(", ") || "general athletic development"}
 
@@ -123,19 +123,17 @@ FEMALE ATHLETE MANDATORY INCLUSIONS:
 - EVERY session must include at least one landing-mechanics or single-leg stability exercise
 - Emphasise hip abductors and glute strength — weakness here is the #1 predictor of knee injury in female athletes
 - Watch for and cue against valgus collapse (knees caving in) on all landings and single-leg work
-- Shoulder health: monitor for impingement patterns given overhead cheerleading demands
+- Shoulder health: monitor for impingement patterns given repeated overhead serve demands
 
 MULTI-SPORT ATHLETE CONTEXT:
 - She trains more total hours than single-sport peers her age — cumulative fatigue is a real risk
-- Tennis + cheerleading together create high rotational, overhead, and lower-limb demands
+- Tennis + cross-training together create high rotational, overhead, and lower-limb demands
 - Overuse injury risk is elevated: do NOT add volume just because ACWR looks low; quality > quantity
 - Sunday strength session must complement the week, not compete with it
 
-CHEERLEADING-SPECIFIC DEMANDS (factor into exercise selection):
-- Stunting: requires full-body tension, core stability, wrist and shoulder strength (basing or flying)
-- Tumbling (back handsprings, round-offs): explosive hip extension, shoulder stability, wrist loading
-- Basing: high ground-reaction forces through wrists — include wrist mobility/prehab when cheer was heavy
-- Cheerleading overlaps with tennis on: rotational power, core anti-rotation, shoulder health, landing mechanics
+CROSS-TRAINING CONTEXT (factor into exercise selection):
+- Sessions logged as "other" are cross-training in varied sports — read their focus/sport notes for specifics
+- Use cross-training variety to develop general athleticism without adding tennis-specific overuse load
 
 ═══════════════════════════════════════════
 THIS WEEK'S ACTIVITY (Mon–Sat logged sessions)
@@ -237,7 +235,7 @@ If a technical assessment conflicts with load constraints, acknowledge it and de
 YOUR TASK
 ═══════════════════════════════════════════
 Design the best possible Sunday session using ALL context above:
-- Heavy tennis/cheer week → reduce strength volume to prevent overtraining
+- Heavy tennis/cross-training week → reduce strength volume to prevent overtraining
 - Light week → can handle more volume and harder progressions
 - Progress exercises from history: easy last time → increase; hard → hold or reduce
 - Prioritise exercises that address critical match findings and longest-deferred priorities

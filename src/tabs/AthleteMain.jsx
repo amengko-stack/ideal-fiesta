@@ -106,7 +106,7 @@ export default function AthleteMain({ athleteId, isParent, user, onBack, onSignO
               { label: profile?.name || "Athlete",   color: COLORS.accent,  bg: COLORS.accentMuted },
               { label: "Age 12",                     color: COLORS.muted,   bg: COLORS.surface },
               { label: "Tennis",                     color: COLORS.tennis,  bg: "rgba(200,245,100,0.1)" },
-              { label: "Cheer",                      color: COLORS.cheer,   bg: "rgba(245,100,200,0.1)" },
+              { label: "Cross-Training",             color: COLORS.yellow,  bg: "rgba(245,197,24,0.1)" },
               ...(isParent ? [{ label: "Parent View", color: COLORS.yellow, bg: "rgba(245,197,24,0.12)" }] : []),
             ].map(chip => (
               <span key={chip.label} style={{
