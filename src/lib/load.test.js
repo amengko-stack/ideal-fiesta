@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { sessionSRPE, computeLoad, computeLoadHistory, mergeWellbeingByDate, calculateMetrics } from "./load.js";
+import { sessionSRPE, computeLoad, computeLoadHistory, mergeWellbeingByDate, calculateMetrics, readinessScore, acwrStatus } from "./load.js";
 import { getWeekBounds, toLocalDateStr } from "./dates.js";
 
 describe("sessionSRPE", () => {
@@ -100,7 +100,7 @@ describe("computeLoadHistory", () => {
     ];
     const h = computeLoadHistory(logs, 4);
     const now = h[3], prev = h[2];
-    expect(now.srpeByType).toEqual({ tennis: 300, cheer: 0, other: 360 });
+    expect(now.srpeByType).toEqual({ tennis: 300, match: 0, strength: 0, cheer: 0, other: 360 });
     expect(now.totalSrpe).toBe(660);
     expect(prev.srpeByType.cheer).toBe(120);
     expect(prev.totalSrpe).toBe(120);
@@ -129,5 +129,42 @@ describe("computeLoadHistory", () => {
   it("folds unknown types into 'other'", () => {
     const h = computeLoadHistory([{ type: "swimming", rpe: 5, duration: 60, date: getWeekBounds(0).start }], 1);
     expect(h[0].srpeByType.other).toBe(300);
+  });
+  it("buckets match and strength types explicitly", () => {
+    const logs = [
+      { type: "match",    rpe: 8, duration: 60, date: getWeekBounds(0).start }, // 480
+      { type: "strength", rpe: 6, duration: 45, date: getWeekBounds(0).start }, // 270
+    ];
+    const h = computeLoadHistory(logs, 1);
+    expect(h[0].srpeByType.match).toBe(480);
+    expect(h[0].srpeByType.strength).toBe(270);
+    expect(h[0].totalSrpe).toBe(750);
+  });
+});
+
+describe("readinessScore", () => {
+  it("combines mood (60%) and inverse soreness (40%)", () => {
+    expect(readinessScore(5, 1)).toBe(92);   // 60 + 32
+    expect(readinessScore(3, 3)).toBe(52);   // 36 + 16
+    expect(readinessScore(1, 5)).toBe(12);   // 12 + 0
+  });
+  it("returns null when either input is missing", () => {
+    expect(readinessScore(null, 2)).toBeNull();
+    expect(readinessScore(4, undefined)).toBeNull();
+  });
+  it("clamps to 0..100", () => {
+    expect(readinessScore(5, 0)).toBe(100);  // 60 + 40 = 100
+  });
+});
+
+describe("acwrStatus", () => {
+  it("maps thresholds to labels/tones", () => {
+    expect(acwrStatus(1.6)).toEqual({ label: "Ease up", tone: "danger" });
+    expect(acwrStatus(1.4)).toEqual({ label: "Careful", tone: "warn" });
+    expect(acwrStatus(0.7)).toEqual({ label: "Push more", tone: "limeDim" });
+    expect(acwrStatus(1.0)).toEqual({ label: "Balanced", tone: "success" });
+  });
+  it("handles missing ACWR", () => {
+    expect(acwrStatus(null)).toEqual({ label: "No data", tone: "muted" });
   });
 });

@@ -107,7 +107,7 @@ export function computeLoadHistory(logs, weeks = 12) {
   const buckets = [];
   for (let weeksAgo = totalWeeks - 1; weeksAgo >= 0; weeksAgo--) {
     const { start, end } = getWeekBounds(weeksAgo);
-    const srpeByType = { tennis: 0, cheer: 0, other: 0 };
+    const srpeByType = { tennis: 0, match: 0, strength: 0, cheer: 0, other: 0 };
     let totalSrpe = 0;
     for (const l of logs || []) {
       if (l.date >= start && l.date < end) {
@@ -125,4 +125,20 @@ export function computeLoadHistory(logs, weeks = 12) {
     const acwr = avg > 0 ? Math.round((b.totalSrpe / avg) * 100) / 100 : null;
     return { ...b, acwr };
   });
+}
+
+// Readiness (0–100) from today's check-in: mood weighted 60%, inverse soreness 40%.
+export function readinessScore(mood, soreness) {
+  if (mood == null || soreness == null) return null;
+  const raw = (mood / 5) * 60 + ((5 - soreness) / 5) * 40;
+  return Math.round(Math.min(100, Math.max(0, raw)));
+}
+
+// UI status for an ACWR value (thresholds match getACWRContext guidance).
+export function acwrStatus(acwr) {
+  if (acwr == null) return { label: "No data", tone: "muted" };
+  if (acwr > 1.5)  return { label: "Ease up", tone: "danger" };
+  if (acwr > 1.3)  return { label: "Careful", tone: "warn" };
+  if (acwr < 0.8)  return { label: "Push more", tone: "limeDim" };
+  return { label: "Balanced", tone: "success" };
 }
