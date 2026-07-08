@@ -10,13 +10,14 @@ import BottomSheet from "../ui/BottomSheet.jsx";
 import Toast from "../ui/Toast.jsx";
 import PlaceholderScreen from "./PlaceholderScreen.jsx";
 import HomeScreen from "./HomeScreen.jsx";
+import LoadScreen from "./LoadScreen.jsx";
 import LogSheet from "./LogSheet.jsx";
 import CheckinSheet from "./CheckinSheet.jsx";
 import { mergeWellbeingByDate } from "../lib/load.js";
 
 const SCREENS = {
   home:    { kicker: null,              label: "Home",    emoji: "🏠" },
-  load:    { kicker: "Training load",   label: "Load",    emoji: "📊", note: "Weekly load, ACWR and where it comes from — coming soon." },
+  load:    { kicker: "Training load",   label: "Load",    emoji: "📊" },
   matches: { kicker: "Season so far",   label: "Matches", emoji: "🎾", note: "Match history, win rate and season intelligence — coming soon." },
   plan:    { kicker: "Your plan",       label: "Plan",    emoji: "📋", note: "Your Sunday session, tuned to your week — coming soon." },
   me:      { kicker: "Profile & tools", label: "Profile", emoji: "⭐", note: "Profile, focus areas and coach tools — coming soon." },
@@ -108,6 +109,8 @@ export default function MobileApp({ athleteId }) {
               streak={streakInfo.current}
               onOpenCheckin={() => setSheet("checkin")}
             />
+          ) : screen === "load" ? (
+            <LoadScreen weekLogs={weekLogs} />
           ) : (
             <PlaceholderScreen emoji={sc.emoji} title={`${sc.label} is on its way`} note={sc.note} />
           )}
