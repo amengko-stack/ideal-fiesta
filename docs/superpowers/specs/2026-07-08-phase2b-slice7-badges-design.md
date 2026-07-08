@@ -1,7 +1,7 @@
 # Phase 2b Slice 7: Badges & Trophy Case (Design)
 
 **Date:** 2026-07-08
-**Status:** Approved (standing mandate)
+**Status:** Implemented — see docs/superpowers/plans/2026-07-08-phase2b-slice7-badges.md
 
 ## Scope
 
