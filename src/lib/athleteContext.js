@@ -3,6 +3,7 @@ import {
   collection, getDocs, query, orderBy, limit, doc, getDoc,
 } from "firebase/firestore";
 import { sessionSRPE, computeLoad } from "./load.js";
+import { toLocalDateStr } from "./dates.js";
 
 // ─── ATHLETE CONTEXT BUILDER ─────────────────────────────────────────────────
 // Assembles a unified context object from Firestore before every AI analysis.
@@ -11,9 +12,9 @@ import { sessionSRPE, computeLoad } from "./load.js";
 export async function buildAthleteContext(athleteUid) {
   const now       = new Date();
   const msPerDay  = 24 * 60 * 60 * 1000;
-  const cutoff28  = new Date(now - 28 * msPerDay).toISOString().slice(0, 10);
-  const cutoff14  = new Date(now - 14 * msPerDay).toISOString().slice(0, 10);
-  const cutoff7   = new Date(now - 7  * msPerDay).toISOString().slice(0, 10);
+  const cutoff28  = toLocalDateStr(new Date(now - 28 * msPerDay));
+  const cutoff14  = toLocalDateStr(new Date(now - 14 * msPerDay));
+  const cutoff7   = toLocalDateStr(new Date(now - 7  * msPerDay));
 
   // ── 1. Session logs (weekLogs) — last 28 days ──────────────────────────────
   const logsSnap = await getDocs(
