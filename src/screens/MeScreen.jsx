@@ -24,6 +24,7 @@ const previousFor = (rows, key, latest) =>
 
 export default function MeScreen({ profile, xp, streak, sessionHistory, priorities, benchmarks, technical, isParent, parentMode, onToggleParentMode, onToggleGap, onResolvePriority, onSignOut }) {
   const firstName = (profile?.name || "Athlete").split(" ")[0];
+  const age = profile?.dob ? Math.floor((new Date() - new Date(`${profile.dob}T00:00:00`)) / (365.25 * 86400000)) : null;
   const lv = levelFromXp(xp);
   const gaps = profile?.gaps || [];
   const measurements = profile?.measurements || [];
@@ -49,7 +50,7 @@ export default function MeScreen({ profile, xp, streak, sessionHistory, prioriti
         }}>{firstName.charAt(0).toUpperCase() || "A"}</div>
         <div style={{ flex: 1 }}>
           <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 22, color: M.ink, lineHeight: 1 }}>{firstName}</div>
-          <div style={{ fontSize: 12.5, color: M.sub, marginTop: 4 }}>Age 12 · Tennis + Cross-Training</div>
+          <div style={{ fontSize: 12.5, color: M.sub, marginTop: 4 }}>{age != null ? `Age ${age} · ` : ""}Tennis + Cross-Training</div>
           <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
             <span style={{ fontFamily: M.display, fontWeight: 700, fontSize: 11, color: M.deepGreen, background: M.gradient, padding: "3px 10px", borderRadius: 10 }}>Lvl {lv.level}</span>
             <span style={{ fontSize: 11, fontWeight: 700, color: M.streakOrange, background: "#FFF1DD", padding: "3px 10px", borderRadius: 10 }}>🔥 {streak} days</span>

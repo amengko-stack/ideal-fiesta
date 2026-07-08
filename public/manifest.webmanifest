@@ -1,0 +1,13 @@
+{
+  "name": "Valissa's Tracker",
+  "short_name": "Tracker",
+  "description": "Training, matches and Sunday plans for a young tennis athlete.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#EDFBF3",
+  "theme_color": "#EDFBF3",
+  "icons": [
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/apple-touch-icon.png", "sizes": "180x180", "type": "image/png", "purpose": "any" }
+  ]
+}

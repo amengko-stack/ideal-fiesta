@@ -9,13 +9,15 @@ const AthleteMain = lazy(() => import("./tabs/AthleteMain.jsx"));
 const AthleteView = lazy(() => import("./athlete/AthleteView.jsx"));
 const MobileApp = lazy(() => import("./screens/MobileApp.jsx"));
 
-// New-UI feature flag: visit ?newui once to opt this device in, ?newui=0 to opt out.
-let NEW_UI = false;
+// The new mobile UI is the default since cutover (2026-07-08). Visit ?classic
+// (or ?newui=0) to use the classic UI on this device; ?newui switches back.
+let NEW_UI = true;
 try {
   const params = new URLSearchParams(window.location.search);
   if (params.has("newui")) localStorage.setItem("newui", params.get("newui") === "0" ? "0" : "1");
-  NEW_UI = localStorage.getItem("newui") === "1";
-} catch { /* storage blocked — stay on the classic UI */ }
+  if (params.has("classic")) localStorage.setItem("newui", "0");
+  NEW_UI = localStorage.getItem("newui") !== "0";
+} catch { /* storage blocked — default to the new UI */ }
 
 const ALLOWED_USERS = {
   'jFXQ9SamJ6QnIpaam5dLedKcFkA2': { role: 'parent',  athleteId: 'kDybMQH9lefwHI0dRway' },
