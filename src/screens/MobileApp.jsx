@@ -8,7 +8,6 @@ import Header from "../ui/Header.jsx";
 import BottomNav from "../ui/BottomNav.jsx";
 import BottomSheet from "../ui/BottomSheet.jsx";
 import Toast from "../ui/Toast.jsx";
-import PlaceholderScreen from "./PlaceholderScreen.jsx";
 import HomeScreen from "./HomeScreen.jsx";
 import LoadScreen from "./LoadScreen.jsx";
 import LogSheet from "./LogSheet.jsx";
@@ -18,21 +17,23 @@ import MatchDetailSheet from "./MatchDetailSheet.jsx";
 import TournamentSheet from "./TournamentSheet.jsx";
 import ImportSheet from "./ImportSheet.jsx";
 import PlanScreen from "./PlanScreen.jsx";
+import MeScreen from "./MeScreen.jsx";
 import { mergeWellbeingByDate } from "../lib/load.js";
 import { generateSeasonReport } from "../lib/seasonReport.js";
 import { generateSundayPlan } from "../lib/planGen.js";
 import { awardXp } from "../lib/gamificationStore.js";
 import { XP } from "../lib/gamification.js";
+import { resolveDeferred } from "../lib/deferredPriorities.js";
 
 const SCREENS = {
   home:    { kicker: null,              label: "Home",    emoji: "🏠" },
   load:    { kicker: "Training load",   label: "Load",    emoji: "📊" },
   matches: { kicker: "Season so far",   label: "Matches", emoji: "🎾" },
   plan:    { kicker: "Your plan",       label: "Plan",    emoji: "📋" },
-  me:      { kicker: "Profile & tools", label: "Profile", emoji: "⭐", note: "Profile, focus areas and coach tools — coming soon." },
+  me:      { kicker: "Profile & tools", label: "Profile", emoji: "⭐" },
 };
 
-export default function MobileApp({ athleteId }) {
+export default function MobileApp({ athleteId, isParent, onSignOut }) {
   const [screen, setScreen]     = useState("home");
   const [profile, setProfile]   = useState(null);
   const [weekLogs, setWeekLogs] = useState([]);
@@ -48,6 +49,12 @@ export default function MobileApp({ athleteId }) {
   const [sheet, setSheet]       = useState(null); // null | "log" | "checkin" | "tournament" | "import"
   const [toast, setToast]       = useState(null);
   const [tick, setTick]         = useState(0);
+  const [priorities, setPriorities] = useState([]);
+  const [benchmarks, setBenchmarks] = useState([]);
+  const [technical, setTechnical] = useState([]);
+  const [parentMode, setParentMode] = useState(() => {
+    try { return localStorage.getItem("parentMode") !== "0"; } catch { return true; }
+  });
   const toastTimer = useRef(null);
 
   const [detailMatch, setDetailMatch] = useState(null);
@@ -110,6 +117,36 @@ export default function MobileApp({ athleteId }) {
     });
   };
 
+  const toggleGap = (gapId) => {
+    setProfile(prev => {
+      if (!prev) return prev;
+      const cur = prev.gaps || [];
+      const gaps = cur.includes(gapId) ? cur.filter(g => g !== gapId) : [...cur, gapId];
+      setDoc(doc(db, "athletes", athleteId), { gaps }, { merge: true })
+        .catch(err => console.error("gaps save:", err));
+      return { ...prev, gaps };
+    });
+  };
+
+  const resolvePriority = async (priorityLabel) => {
+    try {
+      await resolveDeferred(athleteId, priorityLabel);
+      showToast("Nice — priority resolved! 🎉");
+      refresh();
+    } catch (e) {
+      console.error("resolve priority:", e);
+      showToast("Couldn't update — try again 🙈");
+    }
+  };
+
+  const toggleParentMode = () => {
+    setParentMode(p => {
+      const next = !p;
+      try { localStorage.setItem("parentMode", next ? "1" : "0"); } catch { /* ignore */ }
+      return next;
+    });
+  };
+
   const refresh = useCallback(() => setTick(t => t + 1), []);
 
   const showToast = (msg) => {
@@ -136,8 +173,11 @@ export default function MobileApp({ athleteId }) {
       getDocs(collection(db, "athletes", athleteId, "tournaments")),
       getDoc(doc(db, "athletes", athleteId, "reports", "seasonLatest")),
       getDoc(doc(db, "athletes", athleteId, "plans", "current")),
+      getDocs(collection(db, "athletes", athleteId, "deferredPriorities")),
+      getDocs(collection(db, "athletes", athleteId, "benchmarks")),
+      getDocs(collection(db, "athletes", athleteId, "technicalAssessments")),
     ])
-      .then(([profileSnap, logsSnap, wbSnap, sessSnap, xpSnap, matchesSnap, tournamentsSnap, seasonSnap, planSnap]) => {
+      .then(([profileSnap, logsSnap, wbSnap, sessSnap, xpSnap, matchesSnap, tournamentsSnap, seasonSnap, planSnap, prioritiesSnap, benchmarksSnap, technicalSnap]) => {
         if (cancelled) return;
         if (profileSnap.exists()) setProfile({ id: profileSnap.id, ...profileSnap.data() });
         const logs = logsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -151,6 +191,13 @@ export default function MobileApp({ athleteId }) {
         setTournaments(tournamentsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
         setSeasonReport(seasonSnap.exists() ? seasonSnap.data() : null);
         setPlanResult(planSnap.exists() ? planSnap.data() : null);
+        setPriorities(
+          prioritiesSnap.docs
+            .map(d => ({ id: d.id, ...d.data() }))
+            .filter(p => p.status === "active" || p.status === "escalated")
+        );
+        setBenchmarks(benchmarksSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        setTechnical(technicalSnap.docs.map(d => ({ id: d.id, ...d.data() })));
         const dates = [
           ...logs.map(l => l.date),
           ...wb.map(w => w.date),
@@ -168,7 +215,6 @@ export default function MobileApp({ athleteId }) {
   const kicker = screen === "home" ? `${weekday} · let's play` : SCREENS[screen].kicker;
   const title = screen === "home" ? `Hi, ${firstName}!` : screen === "me" ? firstName
     : screen.charAt(0).toUpperCase() + screen.slice(1);
-  const sc = SCREENS[screen];
   const todayWb = mergeWellbeingByDate(wellbeing)[toLocalDateStr(new Date())];
 
   const onSaved = (msg) => { showToast(msg); refresh(); };
@@ -217,9 +263,23 @@ export default function MobileApp({ athleteId }) {
               onToggleExercise={toggleExercise}
               onRegenerate={() => { setPlanResult(null); }}
             />
-          ) : (
-            <PlaceholderScreen emoji={sc.emoji} title={`${sc.label} is on its way`} note={sc.note} />
-          )}
+          ) : screen === "me" ? (
+            <MeScreen
+              profile={profile}
+              xp={xp}
+              streak={streakInfo.current}
+              sessionHistory={sessionHistory}
+              priorities={priorities}
+              benchmarks={benchmarks}
+              technical={technical}
+              isParent={isParent}
+              parentMode={parentMode}
+              onToggleParentMode={toggleParentMode}
+              onToggleGap={toggleGap}
+              onResolvePriority={resolvePriority}
+              onSignOut={onSignOut}
+            />
+          ) : null}
         </div>
       </div>
 
