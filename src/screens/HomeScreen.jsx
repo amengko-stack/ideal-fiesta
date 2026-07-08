@@ -3,6 +3,7 @@ import Card from "../ui/Card.jsx";
 import { computeLoad, readinessScore, acwrStatus, mergeWellbeingByDate } from "../lib/load.js";
 import { levelFromXp, XP_PER_LEVEL } from "../lib/gamification.js";
 import { toLocalDateStr } from "../lib/dates.js";
+import { BADGES } from "../lib/badges.js";
 
 const SPORT = {
   tennis:   { label: "Tennis",   color: M.tennisLight },
@@ -12,7 +13,7 @@ const SPORT = {
   other:    { label: "Other",    color: M.other },
 };
 
-export default function HomeScreen({ weekLogs, wellbeing, xp, activeThisWeek, streak, onOpenCheckin }) {
+export default function HomeScreen({ weekLogs, wellbeing, xp, activeThisWeek, streak, onOpenCheckin, earnedBadges, onOpenBadge }) {
   const today = toLocalDateStr(new Date());
   const todayWb = mergeWellbeingByDate(wellbeing || [])[today];
   const readiness = readinessScore(todayWb?.mood, todayWb?.soreness);
@@ -75,6 +76,34 @@ export default function HomeScreen({ weekLogs, wellbeing, xp, activeThisWeek, st
         </div>
         <div style={{ fontSize: 11, color: M.sub, fontWeight: 600, marginTop: 7 }}>{lv.intoLevel} / {XP_PER_LEVEL} XP</div>
       </Card>
+
+      {/* trophy case */}
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 11, padding: "0 2px" }}>
+          <span style={{ fontFamily: M.display, fontWeight: 700, fontSize: 15, color: M.ink }}>Trophy case 🏆</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: M.sub }}>
+            {Object.keys(earnedBadges || {}).length}/{BADGES.length} earned
+          </span>
+        </div>
+        <div style={{ display: "flex", gap: 12, overflowX: "auto", paddingBottom: 4 }}>
+          {BADGES.map(b => {
+            const earned = !!earnedBadges?.[b.id];
+            return (
+              <div key={b.id} onClick={() => onOpenBadge(b)} style={{ flexShrink: 0, width: 60, display: "flex", flexDirection: "column", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                <div style={{
+                  width: 58, height: 58, borderRadius: 19, display: "flex", alignItems: "center",
+                  justifyContent: "center", fontSize: 25,
+                  background: earned ? M.fill : M.fillDim,
+                  boxShadow: earned ? "0 3px 0 rgba(18,49,42,0.07)" : "none",
+                  border: earned ? `1px solid ${M.dividerAlt}` : "1px dashed #CBD8CF",
+                  filter: earned ? "none" : "grayscale(1)", opacity: earned ? 1 : 0.55,
+                }}>{b.emoji}</div>
+                <span style={{ fontSize: 10.5, fontWeight: 700, color: earned ? "#5f7168" : M.muted, textAlign: "center", lineHeight: 1.1 }}>{b.name}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
 
       {/* tiles */}
       <div style={{ display: "flex", gap: 11, marginBottom: 14 }}>
