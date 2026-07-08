@@ -1,7 +1,7 @@
 # Phase 2b Slice 4: Matches Screen (Design)
 
 **Date:** 2026-07-08
-**Status:** Approved (user delegated; standing mandate: finish slices 4–8 + QA + deploy)
+**Status:** Implemented — see docs/superpowers/plans/2026-07-08-phase2b-slice4-matches.md
 
 ## Scope
 
