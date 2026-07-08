@@ -1,7 +1,7 @@
 # Phase 2b Slice 5: Plan Screen (Design)
 
 **Date:** 2026-07-08
-**Status:** Approved (standing mandate)
+**Status:** Implemented — see docs/superpowers/plans/2026-07-08-phase2b-slice5-plan.md
 
 ## Scope
 
