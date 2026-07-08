@@ -1,7 +1,7 @@
 # Phase 2b Slice 1: Foundation Shell (Design)
 
 **Date:** 2026-07-08
-**Status:** Approved (user delegated design decisions; approach A confirmed)
+**Status:** Implemented — see docs/superpowers/plans/2026-07-08-phase2b-slice1-shell.md (includes addendum: writer-side UTC date-stamp fix, 16 sites)
 **Author:** Claude session with Allova
 
 ## Background
