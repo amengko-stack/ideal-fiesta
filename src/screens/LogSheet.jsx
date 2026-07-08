@@ -44,9 +44,15 @@ export default function LogSheet({ athleteId, onSaved, onClose }) {
         ...(type === "match" ? { result: win ? "W" : "L" } : {}),
       };
       await addDoc(collection(db, "athletes", athleteId, "weekLogs"), entry);
-      const xp = xpForSession(sessionSRPE(entry));
-      await awardXp(athleteId, xp);
-      onSaved(`+${xp} XP · awesome! 🎾`);
+      let msg;
+      try {
+        const xp = xpForSession(sessionSRPE(entry));
+        await awardXp(athleteId, xp);
+        msg = `+${xp} XP · awesome! 🎾`;
+      } catch {
+        msg = "Saved! (XP syncs later) ✨";
+      }
+      onSaved(msg);
       onClose();
     } catch (e) {
       console.error("LogSheet save:", e);

@@ -1,7 +1,7 @@
 import { M } from "../styles/mobileTheme.js";
 import Card from "../ui/Card.jsx";
 import { computeLoad, readinessScore, acwrStatus, mergeWellbeingByDate } from "../lib/load.js";
-import { levelFromXp } from "../lib/gamification.js";
+import { levelFromXp, XP_PER_LEVEL } from "../lib/gamification.js";
 import { toLocalDateStr } from "../lib/dates.js";
 
 const SPORT = {
@@ -34,7 +34,6 @@ export default function HomeScreen({ weekLogs, wellbeing, xp, activeThisWeek, st
 
   const tileNum = (color) => ({ fontFamily: M.display, fontWeight: 700, fontSize: 24, color, lineHeight: 0.9 });
   const tileLabel = { fontSize: 10.5, color: M.sub, fontWeight: 600, marginTop: 4 };
-  const toneColor = { success: M.success, warn: M.warn, danger: M.danger, limeDim: M.limeDim, muted: M.muted };
 
   return (
     <>
@@ -72,9 +71,9 @@ export default function HomeScreen({ weekLogs, wellbeing, xp, activeThisWeek, st
           <span style={{ fontSize: 11, color: M.sub, fontWeight: 600 }}>{lv.toNext} to Lvl {lv.level + 1}</span>
         </div>
         <div style={{ height: 13, borderRadius: 99, background: M.dividerAlt, overflow: "hidden" }}>
-          <div style={{ width: `${Math.round((lv.intoLevel / 1000) * 100)}%`, height: "100%", borderRadius: 99, background: `linear-gradient(90deg,${M.ringGradFrom},${M.ringGradTo})` }} />
+          <div style={{ width: `${Math.round((lv.intoLevel / XP_PER_LEVEL) * 100)}%`, height: "100%", borderRadius: 99, background: `linear-gradient(90deg,${M.ringGradFrom},${M.ringGradTo})` }} />
         </div>
-        <div style={{ fontSize: 11, color: M.sub, fontWeight: 600, marginTop: 7 }}>{lv.intoLevel} / 1000 XP</div>
+        <div style={{ fontSize: 11, color: M.sub, fontWeight: 600, marginTop: 7 }}>{lv.intoLevel} / {XP_PER_LEVEL} XP</div>
       </Card>
 
       {/* tiles */}
@@ -84,8 +83,8 @@ export default function HomeScreen({ weekLogs, wellbeing, xp, activeThisWeek, st
           <div style={tileLabel}>load / wk</div>
         </Card>
         <Card style={{ flex: 1, borderRadius: 18, padding: "14px 12px", marginBottom: 0, boxShadow: M.dropSm }}>
-          <div style={tileNum(toneColor[status.tone])}>{acwr == null ? "—" : acwr.toFixed(2)}</div>
-          <div style={{ ...tileLabel, color: toneColor[status.tone], fontWeight: 700 }}>{status.label}</div>
+          <div style={tileNum(M.tone[status.tone])}>{acwr == null ? "—" : acwr.toFixed(2)}</div>
+          <div style={{ ...tileLabel, color: M.tone[status.tone], fontWeight: 700 }}>{status.label}</div>
         </Card>
         <Card style={{ flex: 1, borderRadius: 18, padding: "14px 12px", marginBottom: 0, boxShadow: M.dropSm }}>
           <div style={tileNum(M.success)}>{activeThisWeek}</div>

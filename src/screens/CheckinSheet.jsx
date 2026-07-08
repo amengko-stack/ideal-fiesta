@@ -38,8 +38,16 @@ export default function CheckinSheet({ athleteId, initial, onSaved, onClose }) {
         type: "checkin", mood, sleep, soreness,
         date: toLocalDateStr(now), time: now.toTimeString().slice(0, 5),
       });
-      if (firstToday) await awardXp(athleteId, XP.CHECKIN);
-      onSaved(firstToday ? `Check-in saved · +${XP.CHECKIN} XP ✨` : "Check-in updated ✨");
+      let msg = "Check-in updated ✨";
+      if (firstToday) {
+        try {
+          await awardXp(athleteId, XP.CHECKIN);
+          msg = `Check-in saved · +${XP.CHECKIN} XP ✨`;
+        } catch {
+          msg = "Check-in saved! (XP syncs later) ✨";
+        }
+      }
+      onSaved(msg);
       onClose();
     } catch (e) {
       console.error("CheckinSheet save:", e);
