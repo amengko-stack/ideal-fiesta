@@ -32,3 +32,6 @@ serviceAccountKey*.json
 *.njsproj
 *.sln
 *.sw?
+
+# Browser-automation artifacts
+.playwright-mcp/
