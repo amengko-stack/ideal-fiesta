@@ -14,7 +14,8 @@ const TYPES = [
   { id: "match",    label: "Match",    accent: M.match },
   { id: "other",    label: "Other",    accent: M.other },
 ];
-const DURS = [30, 45, 60, 90];
+const DURS = [30, 45, 60, 90, 120, 150];
+const durLabel = (m) => (m >= 120 ? `${m / 60}h${m % 60 ? ` ${m % 60}m` : ""}` : `${m}m`);
 // Focus options mirror the classic LogTab (the AI plan prompts read `focus`).
 const TENNIS_FOCUS = ["Baseline rallying", "Serve practice", "Footwork / movement", "Match play", "Volley / net", "Conditioning", "Full practice"];
 const OTHER_FOCUS  = ["Practice / Training", "Competition", "Conditioning", "Full session"];
@@ -112,9 +113,9 @@ export default function LogSheet({ athleteId, onSaved, onMotivate, onClose }) {
       )}
 
       <div style={label}>Duration</div>
-      <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 18 }}>
         {DURS.map(d => (
-          <div key={d} onClick={() => setDur(d)} style={chip(dur === d, M.strength)}>{d}m</div>
+          <div key={d} onClick={() => setDur(d)} style={{ ...chip(dur === d, M.strength), flex: "1 1 28%" }}>{durLabel(d)}</div>
         ))}
       </div>
 
