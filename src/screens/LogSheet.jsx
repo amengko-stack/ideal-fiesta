@@ -36,10 +36,14 @@ export default function LogSheet({ athleteId, onSaved, onMotivate, onClose }) {
   const [feel, setFeel]           = useState(4);
   const [win, setWin]             = useState(true);
   const [date, setDate]           = useState(toLocalDateStr(new Date()));
-  const [focus, setFocus]         = useState("");
+  const [focusList, setFocusList] = useState([]);
   const [saving, setSaving]       = useState(false);
 
   const focusOptions = type === "tennis" ? TENNIS_FOCUS : type === "other" ? OTHER_FOCUS : null;
+  // Stored as a comma-joined string so every downstream reader (AI prompts,
+  // history lists) keeps treating `focus` as text, same as historical logs.
+  const focus = focusList.join(", ");
+  const toggleFocus = (f) => setFocusList(prev => prev.includes(f) ? prev.filter(x => x !== f) : [...prev, f]);
 
   const save = () => {
     if (saving) return;
@@ -80,7 +84,7 @@ export default function LogSheet({ athleteId, onSaved, onMotivate, onClose }) {
       <div style={label}>Type</div>
       <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
         {TYPES.map(t => (
-          <div key={t.id} onClick={() => { setType(t.id); setFocus(""); }} style={chip(type === t.id, t.accent)}>{t.label}</div>
+          <div key={t.id} onClick={() => { setType(t.id); setFocusList([]); }} style={chip(type === t.id, t.accent)}>{t.label}</div>
         ))}
       </div>
 
@@ -121,12 +125,12 @@ export default function LogSheet({ athleteId, onSaved, onMotivate, onClose }) {
 
       {focusOptions && (
         <>
-          <div style={label}>Focus (optional)</div>
+          <div style={label}>Focus (optional · pick any)</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 18 }}>
             {focusOptions.map(f => {
-              const sel = focus === f;
+              const sel = focusList.includes(f);
               return (
-                <div key={f} onClick={() => setFocus(sel ? "" : f)} style={{
+                <div key={f} onClick={() => toggleFocus(f)} style={{
                   cursor: "pointer", padding: "8px 13px", borderRadius: 20, fontFamily: M.display,
                   fontWeight: 700, fontSize: 12,
                   border: sel ? "1.5px solid transparent" : "1.5px solid #D6E2DB",
