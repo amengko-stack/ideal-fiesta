@@ -13,7 +13,9 @@ const SPORT = {
   other:    { label: "Other",    color: M.other },
 };
 
-export default function HomeScreen({ weekLogs, wellbeing, xp, activeThisWeek, streak, onOpenCheckin, earnedBadges, onOpenBadge }) {
+const ALERT_TONE = (tone) => tone === "danger" ? M.danger : tone === "warn" ? M.warn : M.parentBlue;
+
+export default function HomeScreen({ weekLogs, wellbeing, xp, activeThisWeek, streak, onOpenCheckin, earnedBadges, onOpenBadge, alerts, onDismissAlert }) {
   const today = toLocalDateStr(new Date());
   const todayWb = mergeWellbeingByDate(wellbeing || [])[today];
   const readiness = readinessScore(todayWb?.mood, todayWb?.soreness);
@@ -38,6 +40,23 @@ export default function HomeScreen({ weekLogs, wellbeing, xp, activeThisWeek, st
 
   return (
     <>
+      {/* alerts */}
+      {(alerts || []).map(a => {
+        const tone = ALERT_TONE(a.tone);
+        return (
+          <div key={a.id} style={{
+            background: `${tone}14`, borderLeft: `3px solid ${tone}`, borderRadius: "0 12px 12px 0",
+            padding: "11px 13px", marginBottom: 10, display: "flex", gap: 10, alignItems: "flex-start",
+          }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 13.5, color: tone }}>{a.title}</div>
+              <div style={{ fontSize: 12, color: "#4a5a52", marginTop: 2, lineHeight: 1.4 }}>{a.body}</div>
+            </div>
+            <div onClick={() => onDismissAlert(a.id)} style={{ cursor: "pointer", color: M.muted, fontSize: 16, lineHeight: 1, flexShrink: 0, padding: "0 2px" }}>×</div>
+          </div>
+        );
+      })}
+
       {/* energy hero */}
       <Card style={{ borderRadius: 26, padding: 20, display: "flex", alignItems: "center", gap: 16, boxShadow: M.dropLg }}>
         <div style={{ position: "relative", width: 118, height: 118, flexShrink: 0 }}>

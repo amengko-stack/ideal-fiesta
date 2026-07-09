@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { collection, getDocs, query, where, doc, getDoc, setDoc } from "firebase/firestore";
+import { collection, getDocs, query, where, doc, getDoc, setDoc, addDoc, deleteDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { M, mobileCss } from "../styles/mobileTheme.js";
 import { computeStreak } from "../lib/streak.js";
@@ -25,6 +25,9 @@ import StrokeSheet from "./StrokeSheet.jsx";
 import ProfileSheet from "./ProfileSheet.jsx";
 import { mergeWellbeingByDate } from "../lib/load.js";
 import { generateSeasonReport } from "../lib/seasonReport.js";
+import { generateMatchAnalysis } from "../lib/matchAnalysis.js";
+import { acwrStatus, computeLoad } from "../lib/load.js";
+import { daysUntil, nearestUpcoming } from "../lib/tournaments.js";
 import { generateSundayPlan } from "../lib/planGen.js";
 import { awardXp } from "../lib/gamificationStore.js";
 import { XP, levelFromXp } from "../lib/gamification.js";
@@ -78,6 +81,50 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
       .then(snap => setAnalysis(snap.exists() ? snap.data() : null))
       .catch(() => setAnalysis(null))
       .finally(() => setAnalysisLoading(false));
+  };
+
+  const [analysisGenerating, setAnalysisGenerating] = useState(false);
+  const generateAnalysis = async () => {
+    if (analysisGenerating || !detailMatch) return;
+    setAnalysisGenerating(true);
+    try {
+      const { analysis: report } = await generateMatchAnalysis(athleteId, detailMatch);
+      setAnalysis(report);
+      showToast("Coaching report ready 🧠");
+      refresh();
+    } catch (e) {
+      console.error("Match analysis:", e);
+      showToast("Couldn't analyse — try again later 🙈");
+    } finally {
+      setAnalysisGenerating(false);
+    }
+  };
+
+  const deleteMatch = () => {
+    if (!detailMatch) return;
+    deleteDoc(doc(db, "matches", String(detailMatch.id || detailMatch.matchId)))
+      .catch(e => console.error("Match delete:", e));
+    setDetailMatch(null);
+    onSaved("Match deleted 🗑️");
+  };
+
+  const finishSession = (difficulty) => {
+    if (!planResult) return;
+    const now = new Date();
+    const exercises = (planResult.plan || []).map(ex => ({
+      id: ex.id, name: ex.name,
+      sets: ex.sets ?? null, reps: ex.reps ?? null, weight: "",
+      difficulty, completed: !!planResult.doneMap?.[ex.id], notes: "",
+    }));
+    // Same shape the classic StrengthLogTab writes — the plan generator's
+    // exercise-progression memory reads this collection.
+    addDoc(collection(db, "athletes", athleteId, "sessions"), {
+      date: toLocalDateStr(now), time: now.toTimeString().slice(0, 5), exercises,
+    }).catch(e => console.error("finishSession save:", e));
+    setDoc(doc(db, "athletes", athleteId, "plans", "current"), { sessionLogged: true }, { merge: true })
+      .catch(e => console.error("sessionLogged flag:", e));
+    setPlanResult(prev => (prev ? { ...prev, sessionLogged: true } : prev));
+    onSaved("Session logged — the AI will build on it next week 💪");
   };
 
   const generateSeason = async () => {
@@ -263,6 +310,49 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
 
   const onSaved = (msg) => { showToast(msg); refresh(); };
 
+  // Lean alert derivation from already-loaded data; dismissals stick per device.
+  const [dismissedAlerts, setDismissedAlerts] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("dismissedAlerts") || "[]"); } catch { return []; }
+  });
+  const dismissAlert = (id) => setDismissedAlerts(prev => {
+    const next = [...prev, id];
+    try { localStorage.setItem("dismissedAlerts", JSON.stringify(next.slice(-50))); } catch { /* ignore */ }
+    return next;
+  });
+  const todayStr = toLocalDateStr(new Date());
+  const alerts = [];
+  {
+    const { acwr } = computeLoad(weekLogs);
+    const st = acwrStatus(acwr);
+    if (st.tone === "danger" || st.tone === "warn") {
+      alerts.push({
+        id: `load-${st.tone}-${todayStr}`, tone: st.tone, title: "Training load is high",
+        body: st.tone === "danger" ? "ACWR is in the danger zone — make today a recovery day." : "Ease off intensity for a day or two.",
+      });
+    }
+    const nearestT = nearestUpcoming(tournaments, todayStr);
+    if (nearestT) {
+      const d = daysUntil(nearestT.date, todayStr);
+      if (d <= 14) alerts.push({
+        id: `tourney-${nearestT.id}-${d <= 7 ? "wk" : "2wk"}`, tone: "info",
+        title: d === 0 ? "Tournament today! 🏟️" : `Tournament in ${d} day${d === 1 ? "" : "s"}`,
+        body: `${nearestT.name} — Sunday plans taper automatically.`,
+      });
+    }
+    priorities.filter(p => p.status === "escalated").forEach(p => alerts.push({
+      id: `esc-${p.id}`, tone: "danger", title: "Priority needs attention",
+      body: `"${p.priority}" has been waiting ${p.weeksDeferredCount ?? "several"} weeks.`,
+    }));
+    technical
+      .filter(t => t.reviewDueDate && t.reviewDueDate <= todayStr && t.status === "active")
+      .slice(0, 2)
+      .forEach(t => alerts.push({
+        id: `rev-${t.id}`, tone: "info", title: `🎥 Review due: ${t.strokeArea}`,
+        body: `Scheduled stroke review reached (${t.reviewDueDate}).`,
+      }));
+  }
+  const activeAlerts = alerts.filter(a => !dismissedAlerts.includes(a.id));
+
   return (
     <div style={{ minHeight: "100vh", background: M.pageBg }}>
       <style>{mobileCss}</style>
@@ -285,6 +375,8 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
               onOpenCheckin={() => setSheet("checkin")}
               earnedBadges={earnedBadges}
               onOpenBadge={(b) => setBadgeSheet(b)}
+              alerts={activeAlerts}
+              onDismissAlert={dismissAlert}
             />
           ) : screen === "load" ? (
             <LoadScreen weekLogs={weekLogs} />
@@ -307,6 +399,7 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
               doneMap={planResult?.doneMap}
               onGenerate={generatePlan}
               onToggleExercise={toggleExercise}
+              onFinishSession={finishSession}
               onRegenerate={() => { setPlanResult(null); }}
             />
           ) : screen === "me" ? (
@@ -336,13 +429,20 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
       <BottomNav active={screen} onNav={setScreen} onFab={() => setSheet("log")} />
 
       <BottomSheet open={sheet === "log"} onClose={() => setSheet(null)}>
-        <LogSheet athleteId={athleteId} onSaved={onSaved} onClose={() => setSheet(null)} />
+        <LogSheet athleteId={athleteId} onSaved={onSaved} onMotivate={showToast} onClose={() => setSheet(null)} />
       </BottomSheet>
       <BottomSheet open={sheet === "checkin"} onClose={() => setSheet(null)}>
         <CheckinSheet athleteId={athleteId} initial={todayWb} onSaved={onSaved} onClose={() => setSheet(null)} />
       </BottomSheet>
       <BottomSheet open={detailMatch != null} onClose={() => setDetailMatch(null)}>
-        <MatchDetailSheet match={detailMatch} analysis={analysis} analysisLoading={analysisLoading} />
+        <MatchDetailSheet
+          match={detailMatch}
+          analysis={analysis}
+          analysisLoading={analysisLoading}
+          generating={analysisGenerating}
+          onGenerate={generateAnalysis}
+          onDelete={isParent ? deleteMatch : null}
+        />
       </BottomSheet>
       <BottomSheet open={sheet === "tournament"} onClose={() => setSheet(null)}>
         <TournamentSheet athleteId={athleteId} onSaved={onSaved} onClose={() => setSheet(null)} />

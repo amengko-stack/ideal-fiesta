@@ -1,9 +1,10 @@
+import { useState } from "react";
 import { M } from "../styles/mobileTheme.js";
 import { fmtMatchDate, fmtScore } from "./MatchesScreen.jsx";
 
 const PRIORITY_COLOR = { critical: M.danger, important: M.warn, monitor: M.parentBlue };
 
-export default function MatchDetailSheet({ match, analysis, analysisLoading }) {
+export default function MatchDetailSheet({ match, analysis, analysisLoading, generating, onGenerate, onDelete }) {
   if (!match) return null;
   const won = match.whoWonMatch === 1;
   const v = match.valissa || {};
@@ -85,10 +86,38 @@ export default function MatchDetailSheet({ match, analysis, analysisLoading }) {
       )}
 
       {!analysisLoading && !analysis && (
-        <div style={{ textAlign: "center", color: M.sub, fontSize: 12.5, padding: "10px 0", lineHeight: 1.5 }}>
-          No coaching report yet for this match.<br />Generate one from the classic app for now — it'll show up here.
-        </div>
+        generating ? (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "18px 0" }}>
+            <div style={{ width: 32, height: 32, borderRadius: "50%", border: `3px solid ${M.dividerAlt}`, borderTopColor: M.strength, animation: "spin .7s linear infinite" }} />
+            <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 14, color: M.ink }}>Analysing the match…</div>
+          </div>
+        ) : (
+          <div onClick={onGenerate} style={{
+            cursor: "pointer", background: M.gradient, color: M.deepGreen, borderRadius: 13,
+            padding: 13, textAlign: "center", fontFamily: M.display, fontWeight: 700, fontSize: 14.5,
+            boxShadow: M.cta, marginTop: 4,
+          }}>✨ Generate coaching report</div>
+        )
       )}
+
+      <DeleteRow onDelete={onDelete} />
     </>
+  );
+}
+
+// Two-tap delete: first tap arms, second confirms.
+function DeleteRow({ onDelete }) {
+  const [armed, setArmed] = useState(false);
+  if (!onDelete) return null;
+  return (
+    <div
+      onClick={() => (armed ? onDelete() : setArmed(true))}
+      style={{
+        cursor: "pointer", textAlign: "center", marginTop: 18, padding: 10,
+        fontFamily: M.display, fontWeight: 700, fontSize: 12.5,
+        color: armed ? "#fff" : M.danger, background: armed ? M.danger : "transparent",
+        borderRadius: 12, transition: "all .15s",
+      }}
+    >{armed ? "Tap again to delete this match permanently" : "Delete match"}</div>
   );
 }

@@ -17,8 +17,10 @@ const AUTO_MODE = { normal: "none", pre: "pre", week_of: "week_of" };
 
 const label = { fontSize: 11, color: M.sub, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", margin: "16px 0 9px" };
 
-export default function PlanScreen({ plan, tournaments, loading, doneMap, onGenerate, onToggleExercise, onRegenerate }) {
+export default function PlanScreen({ plan, tournaments, loading, doneMap, onGenerate, onToggleExercise, onFinishSession, onRegenerate }) {
   const [override, setOverride] = useState(null);
+  const [finishing, setFinishing] = useState(false);
+  const [difficulty, setDifficulty] = useState(3);
 
   const today = toLocalDateStr(new Date());
   const nearest = nearestUpcoming(tournaments, today);
@@ -166,6 +168,40 @@ export default function PlanScreen({ plan, tournaments, loading, doneMap, onGene
           );
         })}
       </Card>
+
+      {/* finish & log — writes the structured session the AI's progression memory reads */}
+      {doneCount > 0 && !plan.sessionLogged && (
+        !finishing ? (
+          <div onClick={() => setFinishing(true)} style={{
+            cursor: "pointer", background: M.gradient, color: M.deepGreen, borderRadius: 16,
+            padding: 16, textAlign: "center", fontFamily: M.display, fontWeight: 700,
+            fontSize: 16, boxShadow: M.cta, marginBottom: 12,
+          }}>Finish & log this session 💪</div>
+        ) : (
+          <Card>
+            <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 15, color: M.ink, marginBottom: 4 }}>How hard was it overall?</div>
+            <div style={{ fontSize: 11.5, color: M.sub, marginBottom: 12 }}>This tunes next week's progression</div>
+            <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+              {[1, 2, 3, 4, 5].map(n => (
+                <div key={n} onClick={() => setDifficulty(n)} style={{
+                  cursor: "pointer", fontSize: 30, lineHeight: 1, transition: "transform .1s",
+                  color: n <= difficulty ? M.streakOrange : "#D6E2DB", transform: n <= difficulty ? "scale(1.1)" : "none",
+                }}>★</div>
+              ))}
+            </div>
+            <div onClick={() => { onFinishSession(difficulty); setFinishing(false); }} style={{
+              cursor: "pointer", background: M.gradient, color: M.deepGreen, borderRadius: 14,
+              padding: 13, textAlign: "center", fontFamily: M.display, fontWeight: 700,
+              fontSize: 14.5, boxShadow: M.cta,
+            }}>Log session ✓</div>
+          </Card>
+        )
+      )}
+      {plan.sessionLogged && (
+        <div style={{ textAlign: "center", fontSize: 12.5, color: M.success, fontWeight: 700, marginBottom: 12 }}>
+          ✓ Session logged — nice work!
+        </div>
+      )}
 
       <div onClick={loading ? undefined : onRegenerate} style={{
         cursor: loading ? "default" : "pointer", textAlign: "center", padding: 10,
