@@ -73,7 +73,12 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [seasonLoading, setSeasonLoading] = useState(false);
 
+  // Tracks which match the detail sheet currently shows, so a slow analysis
+  // generation can't render its report under a different match (or a closed sheet).
+  const detailMatchIdRef = useRef(null);
+
   const openMatch = (m) => {
+    detailMatchIdRef.current = String(m.matchId || m.id);
     setDetailMatch(m);
     setAnalysis(null);
     setAnalysisLoading(true);
@@ -83,18 +88,26 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
       .finally(() => setAnalysisLoading(false));
   };
 
+  const closeMatch = () => {
+    detailMatchIdRef.current = null;
+    setDetailMatch(null);
+  };
+
   const [analysisGenerating, setAnalysisGenerating] = useState(false);
   const generateAnalysis = async () => {
     if (analysisGenerating || !detailMatch) return;
+    const forId = String(detailMatch.matchId || detailMatch.id);
     setAnalysisGenerating(true);
     try {
       const { analysis: report } = await generateMatchAnalysis(athleteId, detailMatch);
-      setAnalysis(report);
-      showToast("Coaching report ready 🧠");
+      if (detailMatchIdRef.current === forId) {
+        setAnalysis(report);
+        showToast("Coaching report ready 🧠");
+      }
       refresh();
     } catch (e) {
       console.error("Match analysis:", e);
-      showToast("Couldn't analyse — try again later 🙈");
+      if (detailMatchIdRef.current === forId) showToast("Couldn't analyse — try again later 🙈");
     } finally {
       setAnalysisGenerating(false);
     }
@@ -104,7 +117,7 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
     if (!detailMatch) return;
     deleteDoc(doc(db, "matches", String(detailMatch.id || detailMatch.matchId)))
       .catch(e => console.error("Match delete:", e));
-    setDetailMatch(null);
+    closeMatch();
     onSaved("Match deleted 🗑️");
   };
 
@@ -434,7 +447,7 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
       <BottomSheet open={sheet === "checkin"} onClose={() => setSheet(null)}>
         <CheckinSheet athleteId={athleteId} initial={todayWb} onSaved={onSaved} onClose={() => setSheet(null)} />
       </BottomSheet>
-      <BottomSheet open={detailMatch != null} onClose={() => setDetailMatch(null)}>
+      <BottomSheet open={detailMatch != null} onClose={closeMatch}>
         <MatchDetailSheet
           match={detailMatch}
           analysis={analysis}
