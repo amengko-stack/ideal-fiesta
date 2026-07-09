@@ -323,10 +323,10 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
               onToggleParentMode={toggleParentMode}
               onToggleGap={toggleGap}
               onResolvePriority={resolvePriority}
-              onLogGrowth={() => setSheet("growth")}
+              onLogGrowth={() => profile ? setSheet("growth") : showToast("Still loading — try again in a moment ⏳")}
               onLogBenchmark={() => setSheet("benchmark")}
               onLogStroke={() => setSheet("stroke")}
-              onEditProfile={() => setSheet("profile")}
+              onEditProfile={() => profile ? setSheet("profile") : showToast("Still loading — try again in a moment ⏳")}
               onSignOut={onSignOut}
             />
           ) : null}
@@ -351,7 +351,7 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
         <ImportSheet athleteId={athleteId} onSaved={onSaved} onClose={() => setSheet(null)} />
       </BottomSheet>
       <BottomSheet open={sheet === "growth"} onClose={() => setSheet(null)}>
-        <GrowthSheet athleteId={athleteId} measurements={profile?.measurements} onSaved={onSaved} onClose={() => setSheet(null)} />
+        <GrowthSheet athleteId={athleteId} measurements={profile?.measurements || []} onSaved={onSaved} onClose={() => setSheet(null)} />
       </BottomSheet>
       <BottomSheet open={sheet === "benchmark"} onClose={() => setSheet(null)}>
         <BenchmarkSheet athleteId={athleteId} onSaved={onSaved} onClose={() => setSheet(null)} />

@@ -22,7 +22,7 @@ export default function StrokeSheet({ athleteId, onSaved, onClose }) {
   const [review, setReview]       = useState(true);
   const [reviewDate, setReviewDate] = useState(() => {
     const d = new Date();
-    d.setDate(d.getDate() + 28);
+    d.setDate(d.getDate() + 42); // 6 weeks — same default as the classic TechnicalTab
     return toLocalDateStr(d);
   });
   const [saving, setSaving]       = useState(false);
