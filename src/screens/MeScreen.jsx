@@ -22,7 +22,7 @@ const previousFor = (rows, key, latest) =>
   (rows || []).filter(r => r[key] === latest[key] && r.id !== latest.id && (r.date || "") <= (latest.date || ""))
     .sort((a, b) => (b.date || "").localeCompare(a.date || ""))[0] || null;
 
-export default function MeScreen({ profile, xp, streak, sessionHistory, priorities, benchmarks, technical, isParent, parentMode, onToggleParentMode, onToggleGap, onResolvePriority, onSignOut }) {
+export default function MeScreen({ profile, xp, streak, sessionHistory, priorities, benchmarks, technical, isParent, parentMode, onToggleParentMode, onToggleGap, onResolvePriority, onLogGrowth, onLogBenchmark, onLogStroke, onEditProfile, onSignOut }) {
   const firstName = (profile?.name || "Athlete").split(" ")[0];
   const age = profile?.dob ? Math.floor((new Date() - new Date(`${profile.dob}T00:00:00`)) / (365.25 * 86400000)) : null;
   const lv = levelFromXp(xp);
@@ -124,9 +124,10 @@ export default function MeScreen({ profile, xp, streak, sessionHistory, prioriti
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
               <span style={{ fontFamily: M.display, fontWeight: 700, fontSize: 15, color: M.ink }}>Fitness benchmarks</span>
               {PARENT_BADGE}
+              <span onClick={onLogBenchmark} style={{ marginLeft: "auto", cursor: "pointer", fontFamily: M.display, fontWeight: 700, fontSize: 12.5, color: "#5c7a0a" }}>＋ Log</span>
             </div>
             {Object.keys(latestBench).length === 0 && (
-              <div style={{ fontSize: 12.5, color: M.sub, textAlign: "center", padding: "8px 0" }}>No benchmarks logged yet — use the classic app to record fitness tests.</div>
+              <div onClick={onLogBenchmark} style={{ cursor: "pointer", fontSize: 12.5, color: M.sub, textAlign: "center", padding: "8px 0" }}>No benchmarks yet — tap ＋ Log to record the first fitness test →</div>
             )}
             {FITNESS_TESTS.filter(t => latestBench[t.name]).map(t => {
               const latest = latestBench[t.name];
@@ -153,9 +154,10 @@ export default function MeScreen({ profile, xp, streak, sessionHistory, prioriti
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
               <span style={{ fontFamily: M.display, fontWeight: 700, fontSize: 15, color: M.ink }}>Technical · strokes</span>
               {PARENT_BADGE}
+              <span onClick={onLogStroke} style={{ marginLeft: "auto", cursor: "pointer", fontFamily: M.display, fontWeight: 700, fontSize: 12.5, color: "#5c7a0a" }}>＋ Add</span>
             </div>
             {latestTech.length === 0 && (
-              <div style={{ fontSize: 12.5, color: M.sub, textAlign: "center", padding: "8px 0" }}>No stroke assessments yet — log them in the classic app.</div>
+              <div onClick={onLogStroke} style={{ cursor: "pointer", fontSize: 12.5, color: M.sub, textAlign: "center", padding: "8px 0" }}>No stroke assessments yet — tap ＋ Add to write the first one →</div>
             )}
             {latestTech.map(a => (
               <div key={a.id} style={{ padding: "10px 0", borderTop: `1px solid ${M.divider}` }}>
@@ -171,48 +173,59 @@ export default function MeScreen({ profile, xp, streak, sessionHistory, prioriti
             ))}
           </Card>
 
-          <Card>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-              <span style={{ fontFamily: M.display, fontWeight: 700, fontSize: 15, color: M.ink }}>Growth</span>
-              {PARENT_BADGE}
-            </div>
-            <div style={{ fontSize: 11.5, color: M.sub, marginBottom: 14 }}>Height over time — used to tune training load during growth spurts</div>
-            {heights.length === 0 ? (
-              <div style={{ fontSize: 12.5, color: M.sub, textAlign: "center", padding: "8px 0" }}>No measurements yet — Valissa can log them in her Growth tab (classic app).</div>
-            ) : (
-              <>
-                <div style={{ display: "flex", alignItems: "flex-end", gap: 9, height: 74 }}>
-                  {heights.map((h, i) => (
-                    <div key={h.date} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6, height: "100%", justifyContent: "flex-end" }}>
-                      <span style={{ fontFamily: M.display, fontWeight: 700, fontSize: 10, color: "#5f7168" }}>{h.height}</span>
-                      <div style={{
-                        width: "100%", height: `${Math.max(14, Math.round(((h.height - minH) / Math.max(maxH - minH, 1)) * 100))}%`,
-                        borderRadius: "7px 7px 3px 3px",
-                        background: i === heights.length - 1 ? `linear-gradient(180deg,${M.match},${M.streakOrange})` : "#DCEAE0",
-                      }} />
-                      <span style={{ fontSize: 9, fontWeight: 700, color: M.muted }}>{h.date.slice(2, 7)}</span>
-                    </div>
-                  ))}
-                </div>
-                {velocity != null && (
-                  <div style={{ fontSize: 11.5, color: M.sub, fontWeight: 600, marginTop: 10, textAlign: "center" }}>
-                    Growing ~<span style={{ color: M.streakOrange, fontWeight: 700 }}>{velocity} cm/year</span>
-                    {velocity >= 5.5 ? " — growth-spurt window: plans keep loads moderate 🌱" : ""}
-                  </div>
-                )}
-              </>
-            )}
-          </Card>
         </>
       )}
+
+      {/* growth — visible to everyone; Valissa logs her own measurements */}
+      <Card>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+          <span style={{ fontFamily: M.display, fontWeight: 700, fontSize: 15, color: M.ink }}>Growth 🌱</span>
+          <span onClick={onLogGrowth} style={{ marginLeft: "auto", cursor: "pointer", fontFamily: M.display, fontWeight: 700, fontSize: 12.5, color: "#5c7a0a" }}>＋ Log</span>
+        </div>
+        <div style={{ fontSize: 11.5, color: M.sub, marginBottom: 14 }}>Height over time — used to tune training load during growth spurts</div>
+        {heights.length === 0 ? (
+          <div onClick={onLogGrowth} style={{ cursor: "pointer", fontSize: 12.5, color: M.sub, textAlign: "center", padding: "8px 0" }}>No measurements yet — tap ＋ Log to add height, weight & sitting height →</div>
+        ) : (
+          <>
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 9, height: 74 }}>
+              {heights.map((h, i) => (
+                <div key={h.date} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6, height: "100%", justifyContent: "flex-end" }}>
+                  <span style={{ fontFamily: M.display, fontWeight: 700, fontSize: 10, color: "#5f7168" }}>{h.height}</span>
+                  <div style={{
+                    width: "100%", height: `${Math.max(14, Math.round(((h.height - minH) / Math.max(maxH - minH, 1)) * 100))}%`,
+                    borderRadius: "7px 7px 3px 3px",
+                    background: i === heights.length - 1 ? `linear-gradient(180deg,${M.match},${M.streakOrange})` : "#DCEAE0",
+                  }} />
+                  <span style={{ fontSize: 9, fontWeight: 700, color: M.muted }}>{h.date.slice(2, 7)}</span>
+                </div>
+              ))}
+            </div>
+            {velocity != null && (
+              <div style={{ fontSize: 11.5, color: M.sub, fontWeight: 600, marginTop: 10, textAlign: "center" }}>
+                Growing ~<span style={{ color: M.streakOrange, fontWeight: 700 }}>{velocity} cm/year</span>
+                {velocity >= 5.5 ? " — growth-spurt window: plans keep loads moderate 🌱" : ""}
+              </div>
+            )}
+          </>
+        )}
+      </Card>
 
       {/* settings */}
       <Card style={{ padding: "8px 16px" }}>
         {isParent && (
+          <div onClick={onEditProfile} style={{ cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 0", borderBottom: `1px solid ${M.divider}` }}>
+            <div>
+              <span style={{ fontSize: 13.5, color: M.ink, fontWeight: 600 }}>Edit profile</span>
+              <div style={{ fontSize: 11, color: M.muted, marginTop: 1 }}>Name, birthday, schedules, coach notes</div>
+            </div>
+            <span style={{ fontSize: 12, color: M.muted }}>›</span>
+          </div>
+        )}
+        {isParent && (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 0", borderBottom: `1px solid ${M.divider}` }}>
             <div>
               <span style={{ fontSize: 13.5, color: M.ink, fontWeight: 600 }}>Parent mode</span>
-              <div style={{ fontSize: 11, color: M.muted, marginTop: 1 }}>Shows coach data (benchmarks, strokes, growth)</div>
+              <div style={{ fontSize: 11, color: M.muted, marginTop: 1 }}>Shows coach data (benchmarks, strokes)</div>
             </div>
             <div onClick={onToggleParentMode} style={{
               cursor: "pointer", width: 42, height: 24, borderRadius: 99, position: "relative",
@@ -223,7 +236,7 @@ export default function MeScreen({ profile, xp, streak, sessionHistory, prioriti
           </div>
         )}
         <div style={{ fontSize: 11, color: M.muted, padding: "13px 0", borderBottom: `1px solid ${M.divider}` }}>
-          Coach tools (logging benchmarks & stroke notes) live in the classic app — add <b>?newui=0</b> to the address to open it.
+          The classic app is still available — add <b>?classic</b> to the address to open it.
         </div>
         <div onClick={onSignOut} style={{ cursor: "pointer", textAlign: "center", padding: "13px 0", fontFamily: M.display, fontWeight: 700, fontSize: 13.5, color: M.danger }}>
           Sign out

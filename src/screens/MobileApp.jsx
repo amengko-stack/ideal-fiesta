@@ -19,6 +19,10 @@ import ImportSheet from "./ImportSheet.jsx";
 import PlanScreen from "./PlanScreen.jsx";
 import MeScreen from "./MeScreen.jsx";
 import BadgeSheet from "./BadgeSheet.jsx";
+import GrowthSheet from "./GrowthSheet.jsx";
+import BenchmarkSheet from "./BenchmarkSheet.jsx";
+import StrokeSheet from "./StrokeSheet.jsx";
+import ProfileSheet from "./ProfileSheet.jsx";
 import { mergeWellbeingByDate } from "../lib/load.js";
 import { generateSeasonReport } from "../lib/seasonReport.js";
 import { generateSundayPlan } from "../lib/planGen.js";
@@ -319,6 +323,10 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
               onToggleParentMode={toggleParentMode}
               onToggleGap={toggleGap}
               onResolvePriority={resolvePriority}
+              onLogGrowth={() => setSheet("growth")}
+              onLogBenchmark={() => setSheet("benchmark")}
+              onLogStroke={() => setSheet("stroke")}
+              onEditProfile={() => setSheet("profile")}
               onSignOut={onSignOut}
             />
           ) : null}
@@ -341,6 +349,18 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
       </BottomSheet>
       <BottomSheet open={sheet === "import"} onClose={() => setSheet(null)}>
         <ImportSheet athleteId={athleteId} onSaved={onSaved} onClose={() => setSheet(null)} />
+      </BottomSheet>
+      <BottomSheet open={sheet === "growth"} onClose={() => setSheet(null)}>
+        <GrowthSheet athleteId={athleteId} measurements={profile?.measurements} onSaved={onSaved} onClose={() => setSheet(null)} />
+      </BottomSheet>
+      <BottomSheet open={sheet === "benchmark"} onClose={() => setSheet(null)}>
+        <BenchmarkSheet athleteId={athleteId} onSaved={onSaved} onClose={() => setSheet(null)} />
+      </BottomSheet>
+      <BottomSheet open={sheet === "stroke"} onClose={() => setSheet(null)}>
+        <StrokeSheet athleteId={athleteId} onSaved={onSaved} onClose={() => setSheet(null)} />
+      </BottomSheet>
+      <BottomSheet open={sheet === "profile"} onClose={() => setSheet(null)}>
+        <ProfileSheet athleteId={athleteId} profile={profile} onSaved={onSaved} onClose={() => setSheet(null)} />
       </BottomSheet>
       <BottomSheet open={badgeSheet != null} onClose={() => setBadgeSheet(null)}>
         <BadgeSheet badge={badgeSheet} earnedDate={badgeSheet ? earnedBadges[badgeSheet.id] : null} />

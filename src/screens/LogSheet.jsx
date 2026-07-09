@@ -14,6 +14,9 @@ const TYPES = [
   { id: "other",    label: "Other",    accent: M.other },
 ];
 const DURS = [30, 45, 60, 90];
+// Focus options mirror the classic LogTab (the AI plan prompts read `focus`).
+const TENNIS_FOCUS = ["Baseline rallying", "Serve practice", "Footwork / movement", "Match play", "Volley / net", "Conditioning", "Full practice"];
+const OTHER_FOCUS  = ["Practice / Training", "Competition", "Conditioning", "Full session"];
 
 const label = { fontSize: 11, color: M.sub, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", marginBottom: 9 };
 const chip = (sel, accent) => ({
@@ -30,7 +33,11 @@ export default function LogSheet({ athleteId, onSaved, onClose }) {
   const [rpe, setRpe]             = useState(6);
   const [feel, setFeel]           = useState(4);
   const [win, setWin]             = useState(true);
+  const [date, setDate]           = useState(toLocalDateStr(new Date()));
+  const [focus, setFocus]         = useState("");
   const [saving, setSaving]       = useState(false);
+
+  const focusOptions = type === "tennis" ? TENNIS_FOCUS : type === "other" ? OTHER_FOCUS : null;
 
   const save = () => {
     if (saving) return;
@@ -38,7 +45,8 @@ export default function LogSheet({ athleteId, onSaved, onClose }) {
     const now = new Date();
     const entry = {
       type, duration: dur, rpe, feel,
-      date: toLocalDateStr(now), time: now.toTimeString().slice(0, 5),
+      date: date || toLocalDateStr(now), time: now.toTimeString().slice(0, 5),
+      ...(focus && focusOptions ? { focus } : {}),
       ...(type === "other" ? { sportName: sportName.trim() || "Other sport" } : {}),
       ...(type === "match" ? { result: win ? "W" : "L" } : {}),
     };
@@ -59,9 +67,21 @@ export default function LogSheet({ athleteId, onSaved, onClose }) {
       <div style={label}>Type</div>
       <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
         {TYPES.map(t => (
-          <div key={t.id} onClick={() => setType(t.id)} style={chip(type === t.id, t.accent)}>{t.label}</div>
+          <div key={t.id} onClick={() => { setType(t.id); setFocus(""); }} style={chip(type === t.id, t.accent)}>{t.label}</div>
         ))}
       </div>
+
+      <div style={label}>When?</div>
+      <input
+        type="date" value={date} max={toLocalDateStr(new Date())}
+        onChange={e => setDate(e.target.value)}
+        style={{
+          width: "100%", boxSizing: "border-box", padding: "12px 14px",
+          border: "1.5px solid #D6E2DB", borderRadius: 12, background: M.card,
+          fontFamily: M.display, fontWeight: 600, fontSize: 14, color: M.ink,
+          outline: "none", marginBottom: 18,
+        }}
+      />
 
       {type === "other" && (
         <>
@@ -85,6 +105,25 @@ export default function LogSheet({ athleteId, onSaved, onClose }) {
           <div key={d} onClick={() => setDur(d)} style={chip(dur === d, M.strength)}>{d}m</div>
         ))}
       </div>
+
+      {focusOptions && (
+        <>
+          <div style={label}>Focus (optional)</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 18 }}>
+            {focusOptions.map(f => {
+              const sel = focus === f;
+              return (
+                <div key={f} onClick={() => setFocus(sel ? "" : f)} style={{
+                  cursor: "pointer", padding: "8px 13px", borderRadius: 20, fontFamily: M.display,
+                  fontWeight: 700, fontSize: 12,
+                  border: sel ? "1.5px solid transparent" : "1.5px solid #D6E2DB",
+                  background: sel ? M.gradient : M.card, color: sel ? M.deepGreen : M.muted,
+                }}>{f}</div>
+              );
+            })}
+          </div>
+        </>
+      )}
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 9 }}>
         <span style={{ ...label, marginBottom: 0 }}>Effort</span>

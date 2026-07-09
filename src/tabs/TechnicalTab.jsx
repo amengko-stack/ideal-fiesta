@@ -6,15 +6,7 @@ import {
 import { db } from "../firebase";
 import { toLocalDateStr } from "../lib/dates.js";
 import { COLORS } from "../styles/theme.js";
-
-const STROKE_AREAS = {
-  Groundstrokes: ["Forehand Drive", "Forehand Kinetic Chain", "Backhand Drive", "Backhand Kinetic Chain", "Forehand Slice", "Backhand Slice"],
-  Serve:         ["First Serve", "Second Serve", "Serve Toss & Rhythm"],
-  Return:        ["Forehand Return", "Backhand Return"],
-  "Net Play":    ["Forehand Volley", "Backhand Volley", "Overhead", "Approach Shot"],
-  Movement:      ["Split Step Timing", "Lateral Movement & Recovery", "First-Step Explosiveness", "Deceleration & Balance"],
-  Specialty:     ["Drop Shot", "Lob", "Passing Shots"],
-};
+import { STROKE_AREAS } from "../lib/strokes.js";
 
 // ─── TECHNICAL TAB ────────────────────────────────────────────────────────────
 export default function TechnicalTab({ athleteId }) {
