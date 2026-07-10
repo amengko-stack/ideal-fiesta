@@ -1,0 +1,25 @@
+{
+  "name": "ig-automation",
+  "version": "1.0.0",
+  "description": "IG content automation: Drive polling, image/video processing, AI captions",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "@ffprobe-installer/ffprobe": "^2.1.2",
+    "axios": "^1.7.0",
+    "dotenv": "^17.4.2",
+    "fluent-ffmpeg": "^2.1.3",
+    "googleapis": "^144.0.0",
+    "p-limit": "^4.0.0",
+    "sharp": "^0.34.0",
+    "uuid": "^11.0.0",
+    "winston": "^3.14.0"
+  }
+}
