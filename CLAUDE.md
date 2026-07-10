@@ -4,106 +4,93 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Performance Tracker** is a React + Vite web application for tracking athlete performance, primarily for tennis players and cheerleaders. It supports parent oversight and athlete self-logging with AI-powered training plan generation via the Anthropic Claude API.
+**Performance Tracker** is a React + Vite PWA for tracking a tennis athlete's training (tennis + cross-training), with parent oversight, athlete self-logging, gamification (XP/levels/badges), and AI-powered plan generation and match analysis via the Anthropic Claude API.
 
 ## Commands
 
 ```bash
-# Development (runs Express server + Vite concurrently)
-npm run dev
-
-# Build for production
-npm run build
-
-# Lint
-npm run lint
-
-# Preview production build
-npm run preview
-
-# Express server only (no Vite)
-npm run server
+npm run dev        # Express AI proxy (port 3001) + Vite dev server, concurrently
+npm run build      # Production build to dist/
+npm test           # Vitest, single run
+npx vitest run src/lib/load.test.js   # Single test file
+npx vitest run -t "name"              # Single test by name
+npm run lint       # ESLint
+npm run preview    # Preview production build
+npm run server     # Express server only
 ```
 
-There is no test suite configured.
+Tests are Vitest files colocated with their modules in `src/lib/*.test.js`. Only pure logic in `src/lib/` is tested — there are no component tests.
 
 ## Architecture
 
-### Frontend/Backend Split
+### Two UIs, one auth router
 
-- **Frontend**: React (Vite) SPA — all UI lives in `src/App.jsx` (single monolithic ~5,600-line file with all components inlined)
-- **Local backend**: `server.js` — Express server on port 3001; proxies `/api/chat` to the Anthropic API
-- **Production backend**: `functions/index.js` — Firebase Cloud Function that does the same proxying
-- Vite dev server proxies `/api` → `http://localhost:3001` (see `vite.config.js`)
+`src/App.jsx` is a slim auth router that lazy-loads one of two UIs:
 
-### Auth & Access Control
+- **New mobile UI** (default since the 2026-07-08 cutover): `src/screens/` (screens + bottom-sheet editors, `MobileApp.jsx` is the data shell that loads all Firestore data and passes it down), `src/ui/` (Card/Header/BottomNav/BottomSheet/Toast primitives), `src/styles/mobileTheme.js` (light theme, token object `M`, Fredoka + DM Sans)
+- **Classic UI** (opt-out via `?classic` URL param, persisted in localStorage; `?newui` switches back): `src/tabs/` (parent view, `AthleteMain.jsx` hosts the tabs), `src/athlete/` (athlete self-view `AthleteView.jsx` + AV* tabs), `src/styles/theme.js` (dark theme, accent `#00e5a0`, bg `#0a0e14`, Bebas Neue + DM Sans)
 
-Firebase Google Auth is used for login. Authorized users are hard-coded in the `ALLOWED_USERS` constant inside `App.jsx`. Each entry maps a Google email to a role (`parent` or `athlete`) and a list of athlete IDs they can access. **Adding new users requires editing this constant.**
+`src/components/` holds shared pieces (LoginScreen, ParentDashboard, AlertsBanner). All styling is inline style objects from the theme modules — no CSS modules or Tailwind.
 
-Roles determine which top-level view renders:
-- `parent` → `ParentDashboard` → `AthleteMain` (full training management view)
-- `athlete` → `AthleteView` (self-logging and plan view)
+### Shared logic in `src/lib/`
 
-### Firestore Data Model
+Pure logic lives in `src/lib/` with no React imports; Firestore writers are separate modules (e.g. `gamification.js` is pure math, `gamificationStore.js` writes XP). Key modules:
 
-All athlete data lives under `athletes/{athleteId}/`:
+- `ai.js` — the ONLY place that calls `/api/chat`; use `callClaudeJSON`/`callClaudeText` for any new AI feature
+- `athleteContext.js` — assembles the unified Firestore context object fed to every AI prompt
+- `planGen.js`, `matchAnalysis.js`, `seasonReport.js` — AI generators shared by both UIs
+- `load.js` — sRPE/ACWR math, shared by dashboard and AI context so numbers always agree; all session types count at full weight
+- `dates.js` — **date convention**: dates are local-calendar-day strings via `toLocalDateStr()`. Never use `toISOString().slice(0,10)` (causes UTC day-shift bugs for UTC+7/+8 users)
+- `deferredPriorities.js` — deferred training priorities with client-side escalation logic
+- `exerciseDb.js` — exercise database (40+ exercises) and 13 tennis performance gaps with progression chains
+- `gamification.js`/`badges.js`/`streak.js` — XP model (`XP_PER_LEVEL = 1000`), badge evaluation, daily streaks
 
-| Subcollection | Purpose |
+### Frontend/Backend split
+
+The frontend never calls Anthropic directly. `/api/chat` is proxied by:
+- **Dev**: `server.js` (Express, port 3001; Vite proxies `/api` to it)
+- **Prod**: `functions/index.js` (Firebase Cloud Function, wired via `firebase.json` rewrite)
+
+Both read `ANTHROPIC_API_KEY` and optional `ANTHROPIC_MODEL` (default `claude-haiku-4-5-20251001`).
+
+### Auth & access control
+
+Firebase Google Auth. Authorized users are hard-coded **by Firebase UID** in the `ALLOWED_USERS` constant in `src/App.jsx` (role `parent` or `athlete` + `athleteId`). The same three UIDs are hard-coded in `firestore.rules` — **update both together**.
+
+### Firestore data model
+
+Top-level `matches/{matchId}` collection holds match records (imported from a plist export or logged in-app). Everything else lives under `athletes/{athleteId}/`:
+
+| Path | Purpose |
 |---|---|
-| (root doc) | Athlete profile and biometrics |
-| `weekLogs` | Weekly training/tournament summaries |
-| `sessionHistory` | Individual session records |
-| `wellbeing` | Mood/sleep/soreness entries |
+| (root doc) | Profile, biometrics, gaps, focus areas |
+| `weekLogs` | Session logs (per-session docs, despite the name) |
+| `sessionHistory` | Generated-plan session records |
+| `wellbeing` | Daily mood/sleep/soreness check-ins |
 | `deferredPriorities` | Training issues with escalation tracking |
 | `dismissedAlerts` | Per-user alert dismissal state |
+| `gamification/state` | XP total |
+| `config/tournamentStatus` | Tournament context for AI prompts |
 
-`deferredPriorities` requires a composite Firestore index on `(status ASC, weeksDeferredCount ASC)`.
+Security rules are in `firestore.rules`, composite indexes in `firestore.indexes.json` (`deferredPriorities` needs `(status ASC, weeksDeferredCount ASC)`). Both deploy with `firebase deploy`.
 
-### AI Integration
+### Offline / PWA
 
-`PlanTab` generates training plans by calling `/api/chat` with a system prompt that encodes the athlete's profile, training history, and sport-specific context. The model is configurable via `ANTHROPIC_MODEL` env var (defaults to `claude-haiku-4-5-20251001`).
+Firestore uses persistent local cache (`src/firebase.js`) so reads serve from cache and writes queue offline (courtside logging). `public/sw.js` is a minimal network-first service worker registered in production only (`src/main.jsx`); `public/manifest.webmanifest` makes it installable. Saves in the mobile UI are fire-and-forget so the UI stays responsive offline.
 
-### Exercise & Gap Domain Model
+## Design docs
 
-The app has an embedded exercise database (40+ exercises) and 13 tennis performance gaps (e.g., `lateral_agility`, `serve_power`, `core_stability`). Each exercise has metadata: category, movement type, which gaps it addresses, progression chains, and default sets/reps. These are defined as constants inside `App.jsx`.
-
-### Deferred Priorities Logic
-
-`src/deferredPriorities.js` contains all Firestore operations for the deferred priorities feature: `saveDeferredPriorities`, `resolveDeferred`, `checkEscalations`. Escalation logic (auto-surfacing items deferred too many weeks) runs client-side on load.
-
-### Styling
-
-All styles are inline CSS objects inside `App.jsx`. The design system uses:
-- **Accent**: `#00e5a0` (green)
-- **Background**: `#0a0e14` (dark)
-- **Fonts**: Bebas Neue (headings), DM Sans (body) — loaded via Google Fonts in `index.html`
-- No CSS modules, Tailwind, or styled-components
+`docs/superpowers/specs/` and `docs/superpowers/plans/` contain the design specs and implementation plans for each phase/slice of work, marked as implemented when done. Read the relevant spec before extending a feature; add a spec + plan for substantial new work following the same convention.
 
 ## Environment Variables
 
-Copy `.env.example` to `.env` and populate:
-
-```
-ANTHROPIC_API_KEY=          # Required for AI plan generation
-ANTHROPIC_MODEL=            # Optional, defaults to claude-haiku-4-5-20251001
-PORT=3001                   # Express server port
-VITE_FIREBASE_API_KEY=
-VITE_FIREBASE_AUTH_DOMAIN=
-VITE_FIREBASE_PROJECT_ID=
-VITE_FIREBASE_STORAGE_BUCKET=
-VITE_FIREBASE_MESSAGING_SENDER_ID=
-VITE_FIREBASE_APP_ID=
-```
-
-Firebase project: `athlete-os-15c3b` (see `.firebaserc`)
+Copy `.env.example` to `.env`: `ANTHROPIC_API_KEY` (required for AI features), `ANTHROPIC_MODEL` (optional), `PORT` (default 3001), and the six `VITE_FIREBASE_*` values. Firebase project: `athlete-os-15c3b` (see `.firebaserc`).
 
 ## Deployment
-
-Production deploys to Firebase Hosting via:
 
 ```bash
 npm run build
 firebase deploy
 ```
 
-`firebase.json` routes `/api/chat` to the Cloud Function and serves everything else from `dist/`. Cloud Functions source is in `/functions/`.
+Deploys hosting (from `dist/`), the Cloud Function (`functions/`), Firestore rules, and indexes. `firebase.json` rewrites `/api/chat` to the function and everything else to `index.html`.
