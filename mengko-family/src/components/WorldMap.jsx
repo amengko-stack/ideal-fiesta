@@ -9,11 +9,11 @@ import {
 const GEO_URL = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json';
 
 function markerColor(count) {
-  if (count >= 11) return '#0284C7';
-  if (count >= 7)  return '#0EA5E9';
-  if (count >= 4)  return '#38BDF8';
-  if (count >= 2)  return '#7DD3FC';
-  return '#BAE6FD';
+  if (count >= 11) return '#c9a84c';
+  if (count >= 7)  return '#b34a5c';
+  if (count >= 4)  return '#8a2c3d';
+  if (count >= 2)  return '#6b1f2e';
+  return '#4a1520';
 }
 
 function markerRadius(count) {
@@ -58,7 +58,7 @@ export default function WorldMap() {
     <div className="relative">
       {loading && (
         <div className="absolute inset-0 flex items-center justify-center z-10">
-          <div className="w-6 h-6 border-2 border-sky-400 border-t-transparent rounded-full animate-spin" />
+          <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: '#c9a84c', borderTopColor: 'transparent' }} />
         </div>
       )}
 
@@ -74,12 +74,12 @@ export default function WorldMap() {
                 <Geography
                   key={geo.rsmKey}
                   geography={geo}
-                  fill="#1e293b"
-                  stroke="#334155"
+                  fill="#141d2e"
+                  stroke="#283754"
                   strokeWidth={0.4}
                   style={{
                     default: { outline: 'none' },
-                    hover:   { fill: '#1d3d5e', outline: 'none' },
+                    hover:   { fill: '#1c2740', outline: 'none' },
                     pressed: { outline: 'none' },
                   }}
                 />
@@ -110,30 +110,33 @@ export default function WorldMap() {
 
       {/* Tooltip */}
       {tooltip && (
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-sm text-white text-sm px-4 py-2 rounded-xl border border-sky-500/40 pointer-events-none shadow-xl">
-          <p className="font-semibold text-sky-300">{tooltip.city}</p>
-          <p className="text-slate-300 text-xs mt-0.5">
+        <div
+          className="absolute bottom-4 left-1/2 -translate-x-1/2 backdrop-blur-sm text-sm px-4 py-2 pointer-events-none shadow-xl border"
+          style={{ background: 'rgba(13,20,32,0.95)', borderColor: 'rgba(201,168,76,0.35)' }}
+        >
+          <p className="font-display font-semibold" style={{ color: '#c9a84c' }}>{tooltip.city}</p>
+          <p className="text-xs mt-0.5" style={{ color: '#ece4d3' }}>
             {tooltip.count} family member{tooltip.count > 1 ? 's' : ''} here
             {' · '}
-            <span className="text-sky-400">Contact allova@mengko.com</span>
+            <span style={{ color: '#b34a5c' }}>Contact allova@mengko.com</span>
           </p>
         </div>
       )}
 
       {/* Legend */}
       {cities.length > 0 && (
-        <div className="absolute top-3 right-3 bg-slate-900/80 backdrop-blur-sm rounded-xl px-3 py-2 border border-slate-700">
-          <p className="text-slate-400 text-xs mb-1.5 font-medium">Members per city</p>
+        <div className="absolute top-3 right-3 backdrop-blur-sm px-3 py-2 border" style={{ background: 'rgba(13,20,32,0.85)', borderColor: '#283754' }}>
+          <p className="text-xs mb-1.5 font-medium" style={{ color: '#ece4d3', opacity: 0.6 }}>Members per city</p>
           {[
-            { label: '1',    color: '#BAE6FD' },
-            { label: '2-3',  color: '#7DD3FC' },
-            { label: '4-6',  color: '#38BDF8' },
-            { label: '7-10', color: '#0EA5E9' },
-            { label: '11+',  color: '#0284C7' },
+            { label: '1',    color: '#4a1520' },
+            { label: '2-3',  color: '#6b1f2e' },
+            { label: '4-6',  color: '#8a2c3d' },
+            { label: '7-10', color: '#b34a5c' },
+            { label: '11+',  color: '#c9a84c' },
           ].map(({ label, color }) => (
             <div key={label} className="flex items-center gap-1.5 mb-1">
-              <div className="w-3 h-3 rounded-full border border-white/30" style={{ background: color }} />
-              <span className="text-slate-300 text-xs">{label}</span>
+              <div className="w-3 h-3 rounded-full border border-white/20" style={{ background: color }} />
+              <span className="text-xs" style={{ color: '#ece4d3', opacity: 0.75 }}>{label}</span>
             </div>
           ))}
         </div>
@@ -141,7 +144,7 @@ export default function WorldMap() {
 
       {cities.length === 0 && !loading && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <p className="text-slate-500 text-sm">No approved members yet</p>
+          <p className="text-sm" style={{ color: '#ece4d3', opacity: 0.4 }}>No approved members yet</p>
         </div>
       )}
     </div>

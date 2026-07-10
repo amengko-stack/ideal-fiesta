@@ -58,48 +58,48 @@ export default function VerifyEmail({ user }) {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-violet-50 flex items-center justify-center px-6">
-
-      {/* Blobs */}
-      <div className="fixed -top-32 -left-32 w-80 h-80 bg-sky-200/40 rounded-full blur-3xl blob pointer-events-none" />
-      <div className="fixed -bottom-32 -right-32 w-80 h-80 bg-violet-200/40 rounded-full blur-3xl blob pointer-events-none" style={{ animationDelay: '4s' }} />
-
+    <div className="min-h-screen grain-overlay flex items-center justify-center px-6" style={{ background: 'var(--navy-950)' }}>
       <div className="relative z-10 w-full max-w-md">
         {/* Back */}
         <button
           onClick={() => navigate('/')}
-          className="flex items-center gap-1 text-slate-400 hover:text-sky-600 text-sm mb-8 transition-colors"
+          className="text-xs tracking-widest uppercase mb-8 transition-opacity hover:opacity-100"
+          style={{ color: 'var(--parchment)', opacity: 0.6 }}
         >
-          ← Back to home
+          ← Back to Home
         </button>
 
-        <div className="glass rounded-3xl p-8 shadow-xl border border-sky-100">
+        <div className="p-10 border" style={{ background: 'var(--navy-900)', borderColor: 'var(--navy-700)' }}>
 
           {/* Completing sign-in spinner */}
           {step === 'completing' && (
             <div className="text-center py-8">
-              <div className="w-10 h-10 border-3 border-sky-400 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-              <p className="text-slate-600 font-medium">Verifying your email…</p>
+              <div className="w-10 h-10 border-2 rounded-full animate-spin mx-auto mb-5" style={{ borderColor: 'var(--gold)', borderTopColor: 'transparent' }} />
+              <p className="text-sm tracking-wide" style={{ color: 'var(--parchment)' }}>Verifying your email…</p>
             </div>
           )}
 
           {/* Input step */}
           {step === 'input' && (
             <>
-              <div className="text-center mb-8">
-                <div className="text-5xl mb-3 float inline-block">✉️</div>
-                <h1 className="font-display text-2xl font-black text-slate-800 mb-2">
+              <div className="text-center mb-10">
+                <p className="text-xs tracking-[0.35em] uppercase mb-4" style={{ color: 'var(--gold)' }}>
+                  Membership Verification
+                </p>
+                <h1 className="font-display text-3xl font-semibold mb-4" style={{ color: 'var(--ivory)' }}>
                   Join the Mengko Family
                 </h1>
-                <p className="text-slate-500 text-sm leading-relaxed">
-                  Enter your email and we'll send you a magic link — no password needed.
+                <div className="crest-divider mb-4" />
+                <p className="text-sm leading-relaxed" style={{ color: 'var(--parchment)', opacity: 0.7 }}>
+                  Enter your email and we will send you a private confirmation link.
+                  No password is required.
                 </p>
               </div>
 
-              <form onSubmit={handleSend} className="space-y-4">
+              <form onSubmit={handleSend} className="space-y-5">
                 <div>
-                  <label className="block text-sm font-semibold text-slate-600 mb-1.5">
-                    Email address
+                  <label className="block text-xs font-medium tracking-widest uppercase mb-2" style={{ color: 'var(--parchment)', opacity: 0.8 }}>
+                    Email Address
                   </label>
                   <input
                     type="email"
@@ -107,21 +107,31 @@ export default function VerifyEmail({ user }) {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@example.com"
-                    className="w-full px-4 py-3 rounded-2xl border border-sky-200 bg-white/80 text-slate-700 placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-sky-300 focus:border-transparent transition-all"
+                    className="w-full px-4 py-3 border focus:outline-none transition-colors"
+                    style={{
+                      background: 'var(--navy-800)',
+                      borderColor: 'var(--navy-600)',
+                      color: 'var(--ivory)',
+                    }}
+                    onFocus={(e) => e.currentTarget.style.borderColor = 'var(--gold)'}
+                    onBlur={(e) => e.currentTarget.style.borderColor = 'var(--navy-600)'}
                   />
                 </div>
 
                 {error && (
-                  <div className="bg-red-50 border border-red-200 rounded-2xl px-4 py-3 text-red-600 text-sm">
+                  <div className="px-4 py-3 text-sm border" style={{ background: 'rgba(107,31,46,0.15)', borderColor: 'var(--burgundy-600)', color: 'var(--burgundy-400)' }}>
                     {error}
                   </div>
                 )}
 
                 <button
                   type="submit"
-                  className="w-full bg-gradient-to-r from-sky-400 to-blue-500 text-white font-bold py-3.5 rounded-2xl hover:shadow-lg hover:shadow-sky-200 transition-all duration-200 active:scale-95"
+                  className="w-full py-4 text-sm font-semibold tracking-widest uppercase transition-colors duration-300"
+                  style={{ background: 'var(--burgundy-700)', color: 'var(--ivory)' }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = 'var(--burgundy-600)'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'var(--burgundy-700)'}
                 >
-                  Send Magic Link ✦
+                  Send Confirmation Link
                 </button>
               </form>
             </>
@@ -130,28 +140,33 @@ export default function VerifyEmail({ user }) {
           {/* Sent confirmation */}
           {step === 'sent' && (
             <div className="text-center py-4">
-              <div className="text-6xl mb-4 float inline-block">📬</div>
-              <h2 className="font-display text-2xl font-black text-slate-800 mb-3">
-                Check your inbox!
-              </h2>
-              <p className="text-slate-500 text-sm leading-relaxed mb-6">
-                We sent a magic link to <strong className="text-sky-600">{email}</strong>.
-                Click the link in that email to continue filling the family form.
+              <p className="text-xs tracking-[0.35em] uppercase mb-4" style={{ color: 'var(--gold)' }}>
+                Link Sent
               </p>
-              <p className="text-xs text-slate-400 mb-6">
-                Didn't get it? Check spam, or{' '}
+              <h2 className="font-display text-3xl font-semibold mb-4" style={{ color: 'var(--ivory)' }}>
+                Check Your Inbox
+              </h2>
+              <div className="crest-divider mb-5" />
+              <p className="text-sm leading-relaxed mb-6" style={{ color: 'var(--parchment)', opacity: 0.75 }}>
+                We sent a confirmation link to{' '}
+                <strong style={{ color: 'var(--gold)' }}>{email}</strong>.
+                Open that email and click the link to continue your registration.
+              </p>
+              <p className="text-xs mb-8" style={{ color: 'var(--parchment)', opacity: 0.5 }}>
+                Didn't receive it? Check your spam folder, or{' '}
                 <button
                   onClick={() => setStep('input')}
-                  className="text-sky-500 hover:underline"
+                  className="underline hover:opacity-100"
+                  style={{ color: 'var(--gold)' }}
                 >
                   try again
                 </button>.
               </p>
-              <div className="bg-sky-50 rounded-2xl px-4 py-3 border border-sky-100 text-left">
-                <p className="text-xs text-sky-700 font-medium mb-1">✦ What happens next?</p>
-                <p className="text-xs text-slate-500">
-                  After clicking the link, you'll be taken back here to fill in your family details.
-                  Your submission will be reviewed by our admin.
+              <div className="text-left px-5 py-4" style={{ background: 'var(--navy-800)', borderLeft: '2px solid var(--gold)' }}>
+                <p className="text-xs font-medium tracking-widest uppercase mb-1.5" style={{ color: 'var(--gold)' }}>What Happens Next</p>
+                <p className="text-xs leading-relaxed" style={{ color: 'var(--parchment)', opacity: 0.7 }}>
+                  After confirming, you will be asked for your family details.
+                  Your submission is then reviewed by the family administrator.
                 </p>
               </div>
             </div>
@@ -160,18 +175,18 @@ export default function VerifyEmail({ user }) {
           {/* Error fallback */}
           {step === 'error' && (
             <div className="text-center py-4">
-              <div className="text-5xl mb-4">⚠️</div>
-              <h2 className="font-display text-xl font-black text-slate-800 mb-3">
-                Something went wrong
+              <h2 className="font-display text-2xl font-semibold mb-4" style={{ color: 'var(--ivory)' }}>
+                Something Went Wrong
               </h2>
-              <div className="bg-red-50 border border-red-200 rounded-2xl px-4 py-3 text-red-600 text-sm mb-6">
+              <div className="px-4 py-3 text-sm border mb-6" style={{ background: 'rgba(107,31,46,0.15)', borderColor: 'var(--burgundy-600)', color: 'var(--burgundy-400)' }}>
                 {error}
               </div>
               <button
                 onClick={() => { setStep('input'); setError(''); }}
-                className="text-sky-500 hover:underline text-sm"
+                className="text-xs tracking-widest uppercase underline"
+                style={{ color: 'var(--gold)' }}
               >
-                Try again
+                Try Again
               </button>
             </div>
           )}
