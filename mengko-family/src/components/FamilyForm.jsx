@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { collection, addDoc, query, where, getDocs, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { isSignInWithEmailLink, signInWithEmailLink } from 'firebase/auth';
 import { db, auth } from '../firebase';
 
@@ -60,16 +60,9 @@ export default function FamilyForm({ user }) {
     setError('');
 
     try {
-      // Rate-limit: one pending/approved submission per email
-      const existing = await getDocs(
-        query(collection(db, 'family_members'), where('email', '==', user.email))
-      );
-      if (!existing.empty) {
-        setStatus('duplicate');
-        return;
-      }
-
-      await addDoc(collection(db, 'family_members'), {
+      // Doc ID = uid: security rules only allow `create`, so a second
+      // submission is an update and gets rejected — one entry per person.
+      await setDoc(doc(db, 'family_members', user.uid), {
         ...form,
         email:       user.email,
         uid:         user.uid,
@@ -79,6 +72,10 @@ export default function FamilyForm({ user }) {
 
       setStatus('success');
     } catch (err) {
+      if (err.code === 'permission-denied') {
+        setStatus('duplicate');
+        return;
+      }
       setError(err.message);
       setStatus('error');
     }
