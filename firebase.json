@@ -8,6 +8,7 @@
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
     "rewrites": [
       { "source": "/api/chat", "function": "api" },
+      { "source": "/running/**", "destination": "/running/index.html" },
       { "source": "**", "destination": "/index.html" }
     ],
     "headers": [
