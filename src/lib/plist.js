@@ -49,6 +49,41 @@ export function parsePlist(xmlString) {
   return parsePlistNode(root);
 }
 
+// MatchTrack's dedicated shot-breakdown buckets. Variants it has no bucket for
+// (fhIO inside-out, fhLOB/bhLOB lobs, fhPS/bhPS passing shots, …) roll into the
+// base forehand/backhand count — the same way MatchTrack's own stats do.
+const SHOT_FIELD_MAP = {
+  fh: 'fh', fhS: 'fhSlice', fhV: 'fhVolley', fhR: 'fhReturn', fhOH: 'overhead', fhA: 'approach', fhDS: 'dropShot',
+  bh: 'bh', bhS: 'bhSlice', bhV: 'bhVolley', bhR: 'bhReturn', bhA: 'approach', bhDS: 'dropShot',
+};
+export function resolveShotField(code) {
+  if (!code) return null;
+  if (SHOT_FIELD_MAP[code]) return SHOT_FIELD_MAP[code];
+  if (code.startsWith('fh')) return 'fh';
+  if (code.startsWith('bh')) return 'bh';
+  return null;
+}
+
+// MatchTrack shotLocation codes are dash-prefixed: a direction the ball was
+// aimed (cc crosscourt, dtl down-the-line, m middle) and, for errors/faults,
+// where it missed (n net, w wide, l long). Winners carry direction only;
+// errors carry direction+miss (e.g. -ccn) or a bare miss (e.g. -n); serves use
+// -b body / -w wide. Returns { direction, miss } with nulls for absent parts.
+export function parseShotLocation(code) {
+  if (!code || typeof code !== "string") return { direction: null, miss: null };
+  const c = code.replace(/^-/, "");
+  const DIRECTION = { cc: "crosscourt", dtl: "downLine", m: "middle" };
+  const MISS = { n: "net", w: "wide", l: "long", b: "body" };
+  let direction = null;
+  let rest = c;
+  if (rest.startsWith("dtl")) { direction = "downLine"; rest = rest.slice(3); }
+  else if (rest.startsWith("cc")) { direction = "crosscourt"; rest = rest.slice(2); }
+  else if (rest.startsWith("m") && rest.length > 1) { direction = "middle"; rest = rest.slice(1); }
+  else if (DIRECTION[rest]) { direction = DIRECTION[rest]; rest = ""; }
+  const miss = rest && MISS[rest] ? MISS[rest] : null;
+  return { direction, miss };
+}
+
 export function extractMatchData(plistObj) {
   const players  = plistObj.players ?? [];
   const { id, matchStartTime, season, whoWonMatch, matchLog = [] } = plistObj;
@@ -89,6 +124,7 @@ export function extractMatchData(plistObj) {
     "fhVolleyWinner", "fhVolleyError", "bhVolleyWinner", "bhVolleyError",
     "approachWinner", "approachError", "fhSliceWinner", "fhSliceError",
     "bhSliceWinner", "bhSliceError", "overheadWinner", "overheadError",
+    "dropShotWinner", "dropShotError",
     "setOneScore", "setTwoScore", "setsWon",
   ];
 
@@ -144,11 +180,6 @@ export function extractMatchData(plistObj) {
   // Runs for all matches. For absent-stats matches, provides all values.
   // For normal matches, fills in missing shot breakdown only.
 
-  const SHOT_FIELD_MAP = {
-    'fh': 'fh', 'fhS': 'fhSlice', 'fhV': 'fhVolley', 'fhR': 'fhReturn',
-    'fhIO': 'fhIO', 'fhOH': 'overhead', 'fhA': 'approach',
-    'bh': 'bh', 'bhS': 'bhSlice', 'bhV': 'bhVolley', 'bhR': 'bhReturn', 'bhA': 'approach',
-  };
   const SVC_WINNER_SHOTS = new Set(['svcW', 'svcW-t', 'svcW-w']);
 
   // Initialize reconstruction accumulators
@@ -160,7 +191,7 @@ export function extractMatchData(plistObj) {
       winners:0, unforcedErrors:0, forcedErrors:0,
       fhWinner:0, fhError:0, bhWinner:0, bhError:0,
       fhSliceWinner:0, fhSliceError:0, fhVolleyWinner:0, fhVolleyError:0,
-      fhReturnWinner:0, fhReturnError:0, fhIOWinner:0, fhIOError:0,
+      fhReturnWinner:0, fhReturnError:0, dropShotWinner:0, dropShotError:0,
       overheadWinner:0, overheadError:0, approachWinner:0, approachError:0,
       bhSliceWinner:0, bhSliceError:0, bhVolleyWinner:0, bhVolleyError:0,
       bhReturnWinner:0, bhReturnError:0,
@@ -172,7 +203,7 @@ export function extractMatchData(plistObj) {
       winners:0, unforcedErrors:0, forcedErrors:0,
       fhWinner:0, fhError:0, bhWinner:0, bhError:0,
       fhSliceWinner:0, fhSliceError:0, fhVolleyWinner:0, fhVolleyError:0,
-      fhReturnWinner:0, fhReturnError:0, fhIOWinner:0, fhIOError:0,
+      fhReturnWinner:0, fhReturnError:0, dropShotWinner:0, dropShotError:0,
       overheadWinner:0, overheadError:0, approachWinner:0, approachError:0,
       bhSliceWinner:0, bhSliceError:0, bhVolleyWinner:0, bhVolleyError:0,
       bhReturnWinner:0, bhReturnError:0,
@@ -194,7 +225,7 @@ export function extractMatchData(plistObj) {
     const returner    = isP1Serving ? rec.p2 : rec.p1;
     // eslint-disable-next-line eqeqeq
     const hitter      = whoHit == 1 ? rec.p1 : rec.p2;
-    const field       = SHOT_FIELD_MAP[shot];
+    const field       = resolveShotField(shot);
     // eslint-disable-next-line eqeqeq
     const isBreak     = pt.breakPoint == 1;
 
@@ -259,7 +290,7 @@ export function extractMatchData(plistObj) {
     if (!statsHasShotData) {
       const shotOnlyFields = ['fhWinner','fhError','bhWinner','bhError',
         'fhSliceWinner','fhSliceError','fhVolleyWinner','fhVolleyError',
-        'fhReturnWinner','fhReturnError','fhIOWinner','fhIOError',
+        'fhReturnWinner','fhReturnError','dropShotWinner','dropShotError',
         'overheadWinner','overheadError','approachWinner','approachError',
         'bhSliceWinner','bhSliceError','bhVolleyWinner','bhVolleyError',
         'bhReturnWinner','bhReturnError','winners','unforcedErrors','forcedErrors'];
@@ -309,6 +340,32 @@ export function extractMatchData(plistObj) {
     };
   }
 
+  // Shot placement — folds shotLocation per point into per-player breakdowns.
+  // Attribution matches the winner/error loop above (whoHitShot owns the shot).
+  const mkPlace = () => ({
+    winnersByDirection: { crosscourt: 0, downLine: 0, middle: 0 },
+    errorsByMiss:       { net: 0, wide: 0, long: 0 },
+    errorsByDirection:  { crosscourt: 0, downLine: 0, middle: 0 },
+    serve:              { body: 0, wide: 0, net: 0, long: 0 },
+  });
+  const placement = { p1: mkPlace(), p2: mkPlace() };
+  for (const pt of points) {
+    if (!pt.shotLocation) continue;
+    const { direction, miss } = parseShotLocation(pt.shotLocation);
+    const hw = Number(pt.whoHitShot);
+    const hitter = hw === 1 ? placement.p1 : hw === 2 ? placement.p2 : null;
+    if (!hitter) continue;
+    const t = pt.pointWonType;
+    if (t === "w") {
+      if (direction) hitter.winnersByDirection[direction] += 1;
+    } else if (t === "ufE" || t === "fE") {
+      if (miss && miss !== "body") hitter.errorsByMiss[miss] += 1;
+      if (direction) hitter.errorsByDirection[direction] += 1;
+    } else if (t === "svcW" || t === "df") {
+      if (miss && hitter.serve[miss] != null) hitter.serve[miss] += 1;
+    }
+  }
+
   // Set scores — read from stats when available, reconstruct from matchLog when absent
   let setScores;
   if (statsCompletelyAbsent) {
@@ -350,6 +407,7 @@ export function extractMatchData(plistObj) {
       firstServePointsWonPct,
       secondServePointsWonPct,
       rallyDistribution,
+      placement,
     },
   };
 }
