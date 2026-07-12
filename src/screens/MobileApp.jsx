@@ -16,6 +16,7 @@ import MatchesScreen from "./MatchesScreen.jsx";
 import MatchDetailSheet from "./MatchDetailSheet.jsx";
 import TournamentSheet from "./TournamentSheet.jsx";
 import ImportSheet from "./ImportSheet.jsx";
+import LiveMatchScreen from "./LiveMatchScreen.jsx";
 import PlanScreen from "./PlanScreen.jsx";
 import MeScreen from "./MeScreen.jsx";
 import BadgeSheet from "./BadgeSheet.jsx";
@@ -30,7 +31,9 @@ import { acwrStatus, computeLoad } from "../lib/load.js";
 import { daysUntil, nearestUpcoming } from "../lib/tournaments.js";
 import { generateSundayPlan } from "../lib/planGen.js";
 import { awardXp } from "../lib/gamificationStore.js";
-import { XP, levelFromXp } from "../lib/gamification.js";
+import { XP, levelFromXp, xpForSession } from "../lib/gamification.js";
+import { sessionSRPE } from "../lib/load.js";
+import { finalizeMatch } from "../lib/liveScoring.js";
 import { BADGES, evaluateBadges } from "../lib/badges.js";
 import { resolveDeferred } from "../lib/deferredPriorities.js";
 
@@ -67,6 +70,10 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
     try { return localStorage.getItem("parentMode") !== "0"; } catch { return true; }
   });
   const toastTimer = useRef(null);
+
+  const [liveOpen, setLiveOpen] = useState(false);   // live scoring overlay
+  const [liveResume, setLiveResume] = useState(null); // engine state to resume, or null for a fresh match
+  const [liveDraft, setLiveDraft] = useState(null);   // persisted in-progress match, if any
 
   const [detailMatch, setDetailMatch] = useState(null);
   const [analysis, setAnalysis] = useState(null);
@@ -111,6 +118,46 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
     } finally {
       setAnalysisGenerating(false);
     }
+  };
+
+  const startLive = () => { setLiveResume(null); setLiveOpen(true); };
+  const resumeLive = () => {
+    if (!liveDraft) return;
+    setLiveResume({ config: liveDraft.config, log: liveDraft.log || [] });
+    setLiveOpen(true);
+  };
+  const discardLive = () => {
+    deleteDoc(doc(db, "athletes", athleteId, "liveMatches", "current"))
+      .catch(e => console.error("live draft delete:", e));
+    setLiveDraft(null);
+    setLiveOpen(false);
+    showToast("Live match discarded 🗑️");
+  };
+
+  const finishLive = (state, { durationMin, rpe }) => {
+    const matchData = finalizeMatch(state, { durationMin });
+    setDoc(doc(db, "matches", matchData.matchId), {
+      ...matchData, athleteId, importedAt: new Date().toISOString(),
+    }).catch(e => console.error("live match save:", e));
+
+    // Feed the training-load tracker — same entry shape LogSheet writes.
+    const started = new Date(state.config.startedAt);
+    const entry = {
+      type: "match", duration: durationMin, rpe,
+      date: toLocalDateStr(started), time: started.toTimeString().slice(0, 5),
+      result: matchData.whoWonMatch === 1 ? "W" : "L",
+    };
+    addDoc(collection(db, "athletes", athleteId, "weekLogs"), entry)
+      .catch(e => console.error("live match weekLog:", e));
+    awardXp(athleteId, xpForSession(sessionSRPE(entry)))
+      .catch(e => console.error("live match xp:", e));
+
+    deleteDoc(doc(db, "athletes", athleteId, "liveMatches", "current"))
+      .catch(e => console.error("live draft delete:", e));
+    setLiveDraft(null);
+    setLiveOpen(false);
+    onSaved(`Match vs ${matchData.opponentName} saved! 🎾`);
+    openMatch({ id: matchData.matchId, ...matchData, athleteId });
   };
 
   const deleteMatch = () => {
@@ -246,13 +293,14 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
       getDocs(collection(db, "athletes", athleteId, "deferredPriorities")),
       getDocs(collection(db, "athletes", athleteId, "benchmarks")),
       getDocs(collection(db, "athletes", athleteId, "technicalAssessments")),
+      getDoc(doc(db, "athletes", athleteId, "liveMatches", "current")),
     ])
       .then((results) => {
         if (cancelled) return;
         const val = (i) => (results[i].status === "fulfilled" ? results[i].value : null);
         const failed = results.filter(r => r.status === "rejected");
-        if (failed.length) console.error(`MobileApp data load: ${failed.length}/12 reads failed`, failed[0].reason);
-        const [profileSnap, logsSnap, wbSnap, sessSnap, xpSnap, matchesSnap, tournamentsSnap, seasonSnap, planSnap, prioritiesSnap, benchmarksSnap, technicalSnap] =
+        if (failed.length) console.error(`MobileApp data load: ${failed.length}/13 reads failed`, failed[0].reason);
+        const [profileSnap, logsSnap, wbSnap, sessSnap, xpSnap, matchesSnap, tournamentsSnap, seasonSnap, planSnap, prioritiesSnap, benchmarksSnap, technicalSnap, liveSnap] =
           results.map((_, i) => val(i));
         if (profileSnap?.exists()) setProfile({ id: profileSnap.id, ...profileSnap.data() });
         const logs = logsSnap ? logsSnap.docs.map(d => ({ id: d.id, ...d.data() })) : [];
@@ -273,6 +321,7 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
         );
         if (benchmarksSnap) setBenchmarks(benchmarksSnap.docs.map(d => ({ id: d.id, ...d.data() })));
         if (technicalSnap) setTechnical(technicalSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        if (liveSnap) setLiveDraft(liveSnap.exists() ? liveSnap.data() : null);
         const dates = [
           ...logs.map(l => l.date),
           ...wb.map(w => w.date),
@@ -399,6 +448,10 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
               tournaments={tournaments}
               seasonReport={seasonReport}
               seasonLoading={seasonLoading}
+              liveDraft={liveDraft}
+              onStartLive={startLive}
+              onResumeLive={resumeLive}
+              onDiscardLive={discardLive}
               onOpenMatch={openMatch}
               onOpenImport={() => setSheet("import")}
               onAddTournament={() => setSheet("tournament")}
@@ -440,6 +493,17 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
       </div>
 
       <BottomNav active={screen} onNav={setScreen} onFab={() => setSheet("log")} />
+
+      {liveOpen && (
+        <LiveMatchScreen
+          athleteId={athleteId}
+          athleteName={firstName}
+          resume={liveResume}
+          onFinish={finishLive}
+          onDiscard={discardLive}
+          onClose={() => { setLiveOpen(false); refresh(); }}
+        />
+      )}
 
       <BottomSheet open={sheet === "log"} onClose={() => setSheet(null)}>
         <LogSheet athleteId={athleteId} onSaved={onSaved} onMotivate={showToast} onClose={() => setSheet(null)} />

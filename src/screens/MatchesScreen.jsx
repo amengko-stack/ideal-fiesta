@@ -22,7 +22,7 @@ const sortedByRecency = (matches) => [...(matches || [])].sort((a, b) => {
   return b.matchStartTime.localeCompare(a.matchStartTime);
 });
 
-export default function MatchesScreen({ matches, tournaments, seasonReport, seasonLoading, onOpenMatch, onOpenImport, onAddTournament, onGenerateSeason }) {
+export default function MatchesScreen({ matches, tournaments, seasonReport, seasonLoading, liveDraft, onStartLive, onResumeLive, onDiscardLive, onOpenMatch, onOpenImport, onAddTournament, onGenerateSeason }) {
   const list = sortedByRecency(matches);
   const wins = list.filter(m => m.whoWonMatch === 1).length;
   const total = list.length;
@@ -37,6 +37,25 @@ export default function MatchesScreen({ matches, tournaments, seasonReport, seas
 
   return (
     <>
+      {/* in-progress live match */}
+      {liveDraft && (
+        <Card style={{ background: M.darkCard, padding: 16 }}>
+          <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 15, color: M.lime, marginBottom: 4 }}>
+            Match in progress 🎾
+          </div>
+          <div style={{ fontSize: 12.5, color: "#aebfb6", marginBottom: 12 }}>
+            vs {liveDraft.config?.opponentName || "Opponent"} · {liveDraft.log?.length || 0} points scored
+          </div>
+          <div onClick={onResumeLive} style={{
+            cursor: "pointer", background: M.gradient, color: M.deepGreen, borderRadius: 13,
+            padding: 12, textAlign: "center", fontFamily: M.display, fontWeight: 700, fontSize: 14,
+          }}>Resume scoring ▶</div>
+          <div onClick={onDiscardLive} style={{ cursor: "pointer", textAlign: "center", fontSize: 11.5, fontWeight: 700, fontFamily: M.display, color: "#688577", marginTop: 10 }}>
+            discard this match
+          </div>
+        </Card>
+      )}
+
       {/* win-rate hero */}
       <Card style={{ borderRadius: 24, padding: 20, display: "flex", alignItems: "center", gap: 18, boxShadow: M.dropLg }}>
         <div style={{ position: "relative", width: 110, height: 110, flexShrink: 0 }}>
@@ -149,6 +168,15 @@ export default function MatchesScreen({ matches, tournaments, seasonReport, seas
           </>
         )}
       </Card>
+
+      {/* score live */}
+      {!liveDraft && (
+        <div onClick={onStartLive} style={{
+          cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+          background: M.gradient, borderRadius: 16, padding: 15, marginBottom: 10,
+          fontFamily: M.display, fontWeight: 700, fontSize: 15, color: M.deepGreen, boxShadow: M.cta,
+        }}>🎾 Score a live match</div>
+      )}
 
       {/* import */}
       <div onClick={onOpenImport} style={{
