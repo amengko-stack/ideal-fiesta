@@ -15,19 +15,50 @@ export const FORMATS = {
   "pro8":    { label: "8-game pro set",          setsToWin: 1, gamesPerSet: 8, tbAt: 8, tbTarget: 7, finalSetSuperTb: false, forcedNoAd: false },
 };
 
-// Shot codes match plist.js SHOT_FIELD_MAP so reconstruction buckets them.
+// Shot codes match MatchTrack; plist.js resolveShotField buckets them (drop
+// shots to their own field, lob/inside-out/passing shot onto the base wing).
 export const SHOT_TYPES = [
-  { code: "fh",   label: "FH drive"  },
-  { code: "bh",   label: "BH drive"  },
-  { code: "fhS",  label: "FH slice"  },
-  { code: "bhS",  label: "BH slice"  },
-  { code: "fhV",  label: "FH volley" },
-  { code: "bhV",  label: "BH volley" },
-  { code: "fhR",  label: "FH return" },
-  { code: "bhR",  label: "BH return" },
-  { code: "fhOH", label: "Overhead"  },
-  { code: "fhA",  label: "Approach"  },
+  { code: "fh",    label: "FH drive"  },
+  { code: "bh",    label: "BH drive"  },
+  { code: "fhS",   label: "FH slice"  },
+  { code: "bhS",   label: "BH slice"  },
+  { code: "fhV",   label: "FH volley" },
+  { code: "bhV",   label: "BH volley" },
+  { code: "fhR",   label: "FH return" },
+  { code: "bhR",   label: "BH return" },
+  { code: "fhOH",  label: "Overhead"  },
+  { code: "fhA",   label: "Approach"  },
+  { code: "fhDS",  label: "FH drop"   },
+  { code: "bhDS",  label: "BH drop"   },
+  { code: "fhIO",  label: "FH in-out" },
+  { code: "fhPS",  label: "FH pass"   },
+  { code: "bhPS",  label: "BH pass"   },
+  { code: "fhLOB", label: "FH lob"    },
+  { code: "bhLOB", label: "BH lob"    },
 ];
+
+// Placement options shared with the capture UI. Keys are semantic; codes are
+// MatchTrack's shotLocation tokens (direction cc/dtl/m, miss n/w/l).
+export const DIRECTIONS = [
+  { key: "crosscourt", code: "cc",  label: "Crosscourt" },
+  { key: "downLine",   code: "dtl", label: "Down the line" },
+  { key: "middle",     code: "m",   label: "Middle" },
+];
+export const MISSES = [
+  { key: "net",  code: "n", label: "Net" },
+  { key: "wide", code: "w", label: "Wide" },
+  { key: "long", code: "l", label: "Long" },
+];
+
+// Builds a MatchTrack shotLocation code from a { direction, miss } selection.
+function buildLocationCode(location) {
+  if (!location) return null;
+  const dir = DIRECTIONS.find(d => d.key === location.direction)?.code ?? "";
+  const miss = MISSES.find(m => m.key === location.miss)?.code
+    ?? (location.miss === "body" ? "b" : "");
+  const body = dir + miss;
+  return body ? `-${body}` : null;
+}
 
 const other = (p) => (p === 1 ? 2 : 1);
 
@@ -200,7 +231,8 @@ function pointsDisplay(pts, tiebreak, noAd) {
 export const scoreboard = (state) => deriveScore(state.config, state.log);
 
 // input: { winner: 1|2, serve: 1|2, outcome: "ace"|"svcW"|"df"|"w"|"ufE"|"fE"|null,
-//          shot: SHOT_TYPES code|null, rallyLength: number|null }
+//          shot: SHOT_TYPES code|null, rallyLength: number|null,
+//          location: { direction?: DIRECTIONS.key, miss?: MISSES.key|"body" }|null }
 export function recordPoint(state, input) {
   const before = deriveScore(state.config, state.log);
   if (before.matchOver) throw new Error("match-over");
@@ -238,7 +270,7 @@ export function recordPoint(state, input) {
     pointShotType,
     pointWonType,
     errorType: null,
-    shotLocation: null,
+    shotLocation: buildLocationCode(input.location),
     serveType: outcome === "df" ? 2 : (input.serve === 2 ? 2 : 1),
     breakPoint: before.breakPoint ? 1 : 0,
     pointTime: new Date().toISOString(),

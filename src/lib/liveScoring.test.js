@@ -317,6 +317,53 @@ describe("finalizeMatch", () => {
   });
 });
 
+// ─── placement, drop shots & exact rally ──────────────────────────────────────
+
+describe("placement capture", () => {
+  it("emits MatchTrack shotLocation codes from a direction/miss selection", () => {
+    let s = createMatch({ mode: "detailed" });
+    s = recordPoint(s, { winner: 1, serve: 1, outcome: "w", shot: "fh", location: { direction: "crosscourt" } });
+    expect(s.log[0].shotLocation).toBe("-cc");
+    s = recordPoint(s, { winner: 2, serve: 1, outcome: "ufE", shot: "bh", location: { direction: "downLine", miss: "wide" } });
+    expect(s.log[1].shotLocation).toBe("-dtlw");
+    s = recordPoint(s, { winner: 1, serve: 1, outcome: "ufE", shot: "fh", location: { miss: "net" } });
+    expect(s.log[2].shotLocation).toBe("-n");
+    s = recordPoint(s, { serve: 2, outcome: "df", location: { miss: "long" } });
+    expect(s.log[3].shotLocation).toBe("-l");
+    s = recordPoint(s, { winner: 1, serve: 1, outcome: "w", shot: "fh" }); // no location
+    expect(s.log[4].shotLocation).toBeNull();
+  });
+
+  it("flows placement through finalize into calculated.placement", () => {
+    let s = createMatch({ format: "set1", mode: "detailed" });
+    s = recordPoint(s, { winner: 1, serve: 1, outcome: "w",   shot: "fh", location: { direction: "crosscourt" } });
+    s = recordPoint(s, { winner: 1, serve: 1, outcome: "w",   shot: "bh", location: { direction: "downLine" } });
+    s = recordPoint(s, { winner: 2, serve: 1, outcome: "ufE", shot: "bh", location: { direction: "crosscourt", miss: "long" } });
+    const doc = finalizeMatch(s, {});
+    expect(doc.calculated.placement.p1.winnersByDirection).toEqual({ crosscourt: 1, downLine: 1, middle: 0 });
+    expect(doc.calculated.placement.p1.errorsByMiss).toEqual({ net: 0, wide: 0, long: 1 });
+    expect(doc.calculated.placement.p1.errorsByDirection.crosscourt).toBe(1);
+  });
+});
+
+describe("drop shots and exact rally", () => {
+  it("credits a drop-shot winner to the dropShot bucket via finalize", () => {
+    let s = createMatch({ format: "set1", mode: "detailed" });
+    s = recordPoint(s, { winner: 1, serve: 1, outcome: "w", shot: "fhDS", rallyLength: 8 });
+    const doc = finalizeMatch(s, {});
+    expect(doc.valissa.dropShotWinner).toBe(1);
+    expect(doc.valissa.winners).toBe(1);
+  });
+
+  it("keeps the exact rally length the UI passes (not a bucket value)", () => {
+    let s = createMatch({ mode: "detailed" });
+    s = recordPoint(s, { winner: 1, serve: 1, outcome: "w", shot: "fh", rallyLength: 17 });
+    expect(s.log[0].rallyLength).toBe(17);
+    const doc = finalizeMatch(s, {});
+    expect(doc.calculated.rallyDistribution["9+"].total).toBe(1);
+  });
+});
+
 // ─── formats table sanity ─────────────────────────────────────────────────────
 
 describe("FORMATS", () => {
