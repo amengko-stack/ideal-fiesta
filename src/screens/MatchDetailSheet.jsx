@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { M } from "../styles/mobileTheme.js";
 import { fmtMatchDate, fmtScore } from "./MatchesScreen.jsx";
+import { shareCoachReport } from "../lib/coachReport.js";
 
 const PRIORITY_COLOR = { critical: M.danger, important: M.warn, monitor: M.parentBlue };
 
@@ -100,8 +101,31 @@ export default function MatchDetailSheet({ match, analysis, analysisLoading, gen
         )
       )}
 
+      <ShareRow match={match} analysis={analysis} />
       <DeleteRow onDelete={onDelete} />
     </>
+  );
+}
+
+// Text summary for the coach — native share sheet or clipboard fallback.
+function ShareRow({ match, analysis }) {
+  const [status, setStatus] = useState(null); // null | "copied" | "failed"
+  const share = async () => {
+    const result = await shareCoachReport(match, analysis);
+    if (result === "shared") return;
+    setStatus(result);
+    setTimeout(() => setStatus(null), 2500);
+  };
+  return (
+    <div onClick={share} style={{
+      cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+      background: M.card, border: "1.5px solid #D6E2DB", borderRadius: 13, padding: 12, marginTop: 14,
+      fontFamily: M.display, fontWeight: 700, fontSize: 13.5, color: M.ink, boxShadow: M.dropSm,
+    }}>
+      {status === "copied" ? "Copied — paste it to the coach ✅"
+        : status === "failed" ? "Couldn't share 🙈"
+        : "📤 Share coach report"}
+    </div>
   );
 }
 
