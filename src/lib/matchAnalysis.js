@@ -31,6 +31,25 @@ export async function generateMatchAnalysis(athleteId, match) {
   const safePct = (won, total) =>
     won != null && total > 0 ? Math.round(won / total * 100) + "%" : "—";
 
+  // Shot placement — only included when the match was tagged with locations,
+  // so the AI can spot patterns like "loses the down-the-line backhand wide".
+  const buildPlacementLines = () => {
+    const pl = calc.placement?.p1;
+    if (!pl) return "";
+    const share = (n, d) => `${Math.round((n / d) * 100)}%`;
+    const wd = pl.winnersByDirection, em = pl.errorsByMiss, ed = pl.errorsByDirection;
+    const wdT = wd.crosscourt + wd.downLine + wd.middle;
+    const emT = em.net + em.wide + em.long;
+    const edT = ed.crosscourt + ed.downLine + ed.middle;
+    if (wdT + emT === 0) return "";
+    const out = ["SHOT PLACEMENT — Valissa:"];
+    if (wdT > 0) out.push(`- Winners land: ${share(wd.crosscourt, wdT)} crosscourt, ${share(wd.downLine, wdT)} down-line, ${share(wd.middle, wdT)} middle`);
+    if (emT > 0) out.push(`- Errors miss: ${share(em.net, emT)} net, ${share(em.wide, emT)} wide, ${share(em.long, emT)} long`);
+    if (edT > 0) out.push(`- Errors aimed: ${share(ed.crosscourt, edT)} crosscourt, ${share(ed.downLine, edT)} down-line, ${share(ed.middle, edT)} middle`);
+    return out.join("\n");
+  };
+  const placementLines = buildPlacementLines();
+
   const systemPrompt =
     "You are an expert youth tennis coach analyzing a competitive match for a developing athlete. " +
     "Your role is to provide developmental coaching insights — find patterns, highlight strengths, " +
@@ -66,6 +85,8 @@ SHOT BREAKDOWN — Valissa (winners / errors):
 - Backhand: ${v.bhWinner ?? 0}W / ${v.bhError ?? 0}E
 - Return (combined): ${(v.fhReturnWinner ?? 0) + (v.bhReturnWinner ?? 0)}W / ${(v.fhReturnError ?? 0) + (v.bhReturnError ?? 0)}E
 - Approach: ${v.approachWinner ?? 0}W / ${v.approachError ?? 0}E
+- Drop shot: ${v.dropShotWinner ?? 0}W / ${v.dropShotError ?? 0}E
+${placementLines}
 
 ATHLETE CONTEXT:
 - Training load this week (sRPE): ${context.sessionLogs.thisWeekSrpe}

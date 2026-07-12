@@ -62,6 +62,25 @@ export function buildCoachReport(match, analysis = null) {
     const wingE = num(v.fhError) + num(v.bhError) > 0 ? ` (FH ${num(v.fhError)} · BH ${num(v.bhError)})` : "";
     lines.push(`Winners ${num(v.winners)}${wingW} · Unforced ${num(v.unforcedErrors)}${wingE} · Forced ${num(v.forcedErrors)}`);
     if (match.calculated?.wueRatio != null) lines.push(`Winner:unforced ratio ${match.calculated.wueRatio}`);
+    if (num(v.dropShotWinner) + num(v.dropShotError) > 0) {
+      lines.push(`Drop shots: ${num(v.dropShotWinner)} winners · ${num(v.dropShotError)} errors`);
+    }
+  }
+
+  // Placement — where winners land and errors miss (shotLocation, when tagged)
+  const share = (n, d) => `${Math.round((n / d) * 100)}%`;
+  const pl = match.calculated?.placement?.p1;
+  if (pl) {
+    const wd = pl.winnersByDirection, em = pl.errorsByMiss, ed = pl.errorsByDirection;
+    const wdT = wd.crosscourt + wd.downLine + wd.middle;
+    const emT = em.net + em.wide + em.long;
+    const edT = ed.crosscourt + ed.downLine + ed.middle;
+    if (wdT + emT > 0) {
+      lines.push("", "PLACEMENT");
+      if (wdT > 0) lines.push(`Winners: ${share(wd.crosscourt, wdT)} crosscourt · ${share(wd.downLine, wdT)} down-line · ${share(wd.middle, wdT)} middle`);
+      if (emT > 0) lines.push(`Errors missed: ${share(em.net, emT)} net · ${share(em.wide, emT)} wide · ${share(em.long, emT)} long`);
+      if (edT > 0) lines.push(`Errors aimed: ${share(ed.crosscourt, edT)} crosscourt · ${share(ed.downLine, edT)} down-line · ${share(ed.middle, edT)} middle`);
+    }
   }
 
   // Rally length

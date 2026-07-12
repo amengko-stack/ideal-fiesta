@@ -3,7 +3,7 @@ import { doc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { M } from "../styles/mobileTheme.js";
 import {
-  createMatch, recordPoint, undo, scoreboard, liveStats, FORMATS, SHOT_TYPES,
+  createMatch, recordPoint, undo, scoreboard, liveStats, FORMATS, SHOT_TYPES, DIRECTIONS, MISSES,
 } from "../lib/liveScoring.js";
 
 const label = { fontSize: 11, color: M.sub, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", marginBottom: 9 };
@@ -109,6 +109,7 @@ export default function LiveMatchScreen({ athleteId, athleteName, resume, onFini
   const [pending, setPending] = useState(null);
   const [endEarly, setEndEarly] = useState(false);
   const [rpe, setRpe] = useState(6);
+  const [exactRally, setExactRally] = useState(6); // stepper value for exact rally length
   const [now, setNow] = useState(() => Date.now()); // match clock, refreshed on an interval
 
   // setup fields
@@ -140,8 +141,18 @@ export default function LiveMatchScreen({ athleteId, athleteName, resume, onFini
     persist(next);
     setMatch(next);
     setPending(null);
+    setExactRally(6);
     if (scoreboard(next).matchOver) setPhase("finish");
   };
+
+  // Placement helpers (Detailed mode). Winners commit a direction and advance;
+  // errors build up a { miss, direction } draft, then commit together.
+  const commitLocation = (location) => setPending(p => ({ ...p, location: location ?? null }));
+  const toggleDraft = (key, val) => setPending(p => {
+    const d = { ...(p.locDraft || {}) };
+    d[key] = d[key] === val ? undefined : val;
+    return { ...p, locDraft: d };
+  });
 
   const onUndo = () => {
     setPending(null);
@@ -281,7 +292,9 @@ export default function LiveMatchScreen({ athleteId, athleteName, resume, onFini
                 </div>
                 <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
                   <div onClick={() => setPending({ serve: 1, pickAceServe: true })} style={bigBtn(M.gradient)}>Ace 💥</div>
-                  <div onClick={() => applyPoint({ serve: 2, outcome: "df" })} style={bigBtn("#f0736e", "#fff")}>Double fault</div>
+                  <div onClick={() => match.config.mode === "detailed"
+                    ? setPending({ serve: 2, outcome: "df" })
+                    : applyPoint({ serve: 2, outcome: "df" })} style={bigBtn("#f0736e", "#fff")}>Double fault</div>
                 </div>
               </>
             )}
@@ -296,7 +309,7 @@ export default function LiveMatchScreen({ athleteId, athleteName, resume, onFini
               </>
             )}
 
-            {pending && !pending.pickAceServe && pending.winner == null && (
+            {pending && !pending.pickAceServe && pending.winner == null && pending.outcome == null && (
               <>
                 <div style={label}>Who won the point?</div>
                 <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
@@ -330,7 +343,7 @@ export default function LiveMatchScreen({ athleteId, athleteName, resume, onFini
               </>
             )}
 
-            {pending?.outcome != null && pending.shot === undefined && (
+            {pending?.outcome != null && pending.outcome !== "df" && pending.shot === undefined && (
               <>
                 <div style={label}>
                   {pending.outcome === "w"
@@ -350,14 +363,74 @@ export default function LiveMatchScreen({ athleteId, athleteName, resume, onFini
               </>
             )}
 
-            {pending?.outcome != null && pending.shot !== undefined && (
+            {/* placement (Detailed mode) — winner direction, or error miss + aim */}
+            {pending?.outcome != null && pending.outcome !== "df" && pending.shot !== undefined && pending.location === undefined && (
+              pending.outcome === "w" ? (
+                <>
+                  <div style={label}>Where did the winner land?</div>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                    {DIRECTIONS.map(d => (
+                      <div key={d.key} onClick={() => commitLocation({ direction: d.key })} style={bigBtn(M.card, M.ink)}>{d.label}</div>
+                    ))}
+                  </div>
+                  <div onClick={() => commitLocation(null)} style={{ cursor: "pointer", textAlign: "center", fontSize: 12.5, fontWeight: 700, fontFamily: M.display, color: M.muted, marginBottom: 12 }}>
+                    skip placement ›
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={label}>Where did the error miss?</div>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                    {MISSES.map(m => (
+                      <div key={m.key} onClick={() => toggleDraft("miss", m.key)} style={chip(pending.locDraft?.miss === m.key, "#f0736e")}>{m.label}</div>
+                    ))}
+                  </div>
+                  <div style={label}>Aimed (optional)</div>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                    {DIRECTIONS.map(d => (
+                      <div key={d.key} onClick={() => toggleDraft("direction", d.key)} style={chip(pending.locDraft?.direction === d.key)}>{d.label}</div>
+                    ))}
+                  </div>
+                  <div onClick={() => commitLocation(pending.locDraft || null)} style={bigBtn(M.gradient)}>Next →</div>
+                  <div onClick={() => commitLocation(null)} style={{ cursor: "pointer", textAlign: "center", fontSize: 12.5, fontWeight: 700, fontFamily: M.display, color: M.muted, margin: "10px 0 12px" }}>
+                    skip placement ›
+                  </div>
+                </>
+              )
+            )}
+
+            {/* double-fault placement (Detailed mode) */}
+            {pending?.outcome === "df" && pending.location === undefined && (
+              <>
+                <div style={label}>Double fault — where did it miss?</div>
+                <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                  {MISSES.map(m => (
+                    <div key={m.key} onClick={() => applyPoint({ ...pending, location: { miss: m.key } })} style={bigBtn(M.card, M.ink)}>{m.label}</div>
+                  ))}
+                </div>
+                <div onClick={() => applyPoint({ ...pending })} style={{ cursor: "pointer", textAlign: "center", fontSize: 12.5, fontWeight: 700, fontFamily: M.display, color: M.muted, marginBottom: 12 }}>
+                  skip ›
+                </div>
+              </>
+            )}
+
+            {pending?.outcome != null && pending.outcome !== "df" && pending.shot !== undefined && pending.location !== undefined && (
               <>
                 <div style={label}>Rally length</div>
-                <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
                   <div onClick={() => applyPoint({ ...pending, rallyLength: 3 })} style={bigBtn(M.card, M.ink)}>Short (1–4)</div>
                   <div onClick={() => applyPoint({ ...pending, rallyLength: 6 })} style={bigBtn(M.card, M.ink)}>Medium (5–8)</div>
                   <div onClick={() => applyPoint({ ...pending, rallyLength: 10 })} style={bigBtn(M.card, M.ink)}>Long (9+)</div>
                 </div>
+                {/* exact count for the moments it matters */}
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                  <div onClick={() => setExactRally(n => Math.max(0, n - 1))} style={{ ...bigBtn(M.fillAlt, M.ink), padding: "12px 0", flex: "0 0 52px" }}>–</div>
+                  <div style={{ flex: 1, textAlign: "center", fontFamily: M.display, fontWeight: 700, fontSize: 15, color: M.ink }}>
+                    exact: {exactRally} shot{exactRally === 1 ? "" : "s"}
+                  </div>
+                  <div onClick={() => setExactRally(n => n + 1)} style={{ ...bigBtn(M.fillAlt, M.ink), padding: "12px 0", flex: "0 0 52px" }}>+</div>
+                </div>
+                <div onClick={() => applyPoint({ ...pending, rallyLength: exactRally })} style={{ ...bigBtn(M.gradient), marginBottom: 10 }}>Log {exactRally}-shot rally →</div>
                 <div onClick={() => applyPoint({ ...pending, rallyLength: null })} style={{ cursor: "pointer", textAlign: "center", fontSize: 12.5, fontWeight: 700, fontFamily: M.display, color: M.muted, marginBottom: 12 }}>
                   skip ›
                 </div>

@@ -26,6 +26,15 @@ const fullMatch = {
       "5-8": { total: 25, valissaWins: 12, valissaWinPct: 48 },
       "9+":  { total: 11, valissaWins: 6, valissaWinPct: 54.5 },
     },
+    placement: {
+      p1: {
+        winnersByDirection: { crosscourt: 5, downLine: 5, middle: 0 },
+        errorsByMiss:       { net: 8, wide: 4, long: 8 },
+        errorsByDirection:  { crosscourt: 12, downLine: 4, middle: 4 },
+        serve:              { body: 1, wide: 2, net: 1, long: 4 },
+      },
+      p2: { winnersByDirection: { crosscourt: 0, downLine: 0, middle: 0 }, errorsByMiss: { net: 0, wide: 0, long: 0 }, errorsByDirection: { crosscourt: 0, downLine: 0, middle: 0 }, serve: { body: 0, wide: 0, net: 0, long: 0 } },
+    },
   },
 };
 
@@ -43,6 +52,20 @@ describe("buildCoachReport", () => {
     expect(text).toContain("Winners 18 (FH 9 · BH 4)");
     expect(text).toContain("Winner:unforced ratio 1.5");
     expect(text).toContain("0-4: 65% of 40 pts");
+  });
+
+  it("renders the placement section from calculated.placement", () => {
+    const text = buildCoachReport(fullMatch);
+    expect(text).toContain("PLACEMENT");
+    expect(text).toContain("Winners: 50% crosscourt · 50% down-line · 0% middle");
+    expect(text).toContain("Errors missed: 40% net · 20% wide · 40% long");
+    expect(text).toContain("Errors aimed: 60% crosscourt · 20% down-line · 20% middle");
+  });
+
+  it("adds a drop-shot line only when drop shots occurred", () => {
+    expect(buildCoachReport({ ...fullMatch, valissa: { ...fullMatch.valissa, dropShotWinner: 3, dropShotError: 1 } }))
+      .toContain("Drop shots: 3 winners · 1 errors");
+    expect(buildCoachReport(fullMatch)).not.toContain("Drop shots");
   });
 
   it("appends AI notes when an analysis is provided", () => {

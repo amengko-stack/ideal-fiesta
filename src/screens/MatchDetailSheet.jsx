@@ -34,6 +34,8 @@ export default function MatchDetailSheet({ match, analysis, analysisLoading, gen
         ))}
       </div>
 
+      <PlacementBreakdown match={match} />
+
       {analysisLoading && (
         <div style={{ display: "flex", justifyContent: "center", padding: "14px 0" }}>
           <div style={{ width: 28, height: 28, borderRadius: "50%", border: `3px solid ${M.dividerAlt}`, borderTopColor: M.strength, animation: "spin .7s linear infinite" }} />
@@ -125,6 +127,43 @@ function ShareRow({ match, analysis }) {
       {status === "copied" ? "Copied — paste it to the coach ✅"
         : status === "failed" ? "Couldn't share 🙈"
         : "📤 Share coach report"}
+    </div>
+  );
+}
+
+function PlacementBars({ title, parts, total, color }) {
+  return (
+    <div style={{ flex: 1 }}>
+      <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".04em", color: M.sub, textTransform: "uppercase", marginBottom: 6 }}>{title}</div>
+      {parts.map(([lbl, n]) => (
+        <div key={lbl} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+          <span style={{ width: 58, fontSize: 10.5, color: M.muted }}>{lbl}</span>
+          <div style={{ flex: 1, height: 7, borderRadius: 4, background: M.dividerAlt, overflow: "hidden" }}>
+            <div style={{ width: total ? `${Math.round((n / total) * 100)}%` : 0, height: "100%", background: color }} />
+          </div>
+          <span style={{ width: 16, textAlign: "right", fontSize: 10.5, fontWeight: 700, color: M.ink }}>{n}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Shot placement — winner direction split + error miss split. Shown only when
+// the match carries shotLocation data (live Detailed mode or a tagged import).
+function PlacementBreakdown({ match }) {
+  const pl = match.calculated?.placement?.p1;
+  if (!pl) return null;
+  const wd = pl.winnersByDirection, em = pl.errorsByMiss;
+  const wdT = wd.crosscourt + wd.downLine + wd.middle;
+  const emT = em.net + em.wide + em.long;
+  if (wdT + emT === 0) return null;
+
+  return (
+    <div style={{ display: "flex", gap: 14, background: M.fill, borderRadius: 13, padding: "12px 13px", marginBottom: 16 }}>
+      {wdT > 0 && <PlacementBars title="Winners land" total={wdT} color={M.success}
+        parts={[["Crosscourt", wd.crosscourt], ["Down-line", wd.downLine], ["Middle", wd.middle]]} />}
+      {emT > 0 && <PlacementBars title="Errors miss" total={emT} color="#f0736e"
+        parts={[["Net", em.net], ["Wide", em.wide], ["Long", em.long]]} />}
     </div>
   );
 }
