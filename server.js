@@ -170,16 +170,18 @@ app.post("/api/strava/token", async (req, res) => {
   if (!stravaConfigured) return res.status(500).json({ error: "Strava not configured on server" });
   const { grant_type, code, refresh_token } = req.body;
   try {
-    const upstream = await fetch("https://www.strava.com/oauth/token", {
+    // Strava's token endpoint documents form-encoded bodies only.
+    const params = new URLSearchParams({
+      client_id: process.env.STRAVA_CLIENT_ID,
+      client_secret: process.env.STRAVA_CLIENT_SECRET,
+      grant_type: grant_type || "authorization_code",
+      ...(code ? { code } : {}),
+      ...(refresh_token ? { refresh_token } : {}),
+    });
+    const upstream = await fetch("https://www.strava.com/api/v3/oauth/token", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        client_id: process.env.STRAVA_CLIENT_ID,
-        client_secret: process.env.STRAVA_CLIENT_SECRET,
-        grant_type: grant_type || "authorization_code",
-        ...(code ? { code } : {}),
-        ...(refresh_token ? { refresh_token } : {}),
-      }),
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
     });
     const data = await upstream.json();
     res.status(upstream.status).json(data);
@@ -214,6 +216,8 @@ app.get("/api/strava/activities", async (req, res) => {
   const { access_token, after } = req.query;
   if (!access_token) return res.status(400).json({ error: "access_token required" });
   try {
+    // Single page by design: the 30-day sync at per_page=100 covers any
+    // realistic training volume, so the page loop is intentionally omitted.
     const upstream = await fetch(
       `https://www.strava.com/api/v3/athlete/activities?per_page=100${after ? `&after=${after}` : ""}`,
       { headers: { Authorization: `Bearer ${access_token}` } },
