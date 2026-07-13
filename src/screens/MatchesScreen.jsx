@@ -22,7 +22,7 @@ const sortedByRecency = (matches) => [...(matches || [])].sort((a, b) => {
   return b.matchStartTime.localeCompare(a.matchStartTime);
 });
 
-export default function MatchesScreen({ matches, tournaments, seasonReport, seasonLoading, liveDraft, onStartLive, onResumeLive, onDiscardLive, onOpenMatch, onOpenImport, onAddTournament, onGenerateSeason }) {
+export default function MatchesScreen({ matches, tournaments, seasonReport, seasonLoading, showParentNotes, liveDraft, onStartLive, onResumeLive, onDiscardLive, onOpenMatch, onOpenImport, onAddTournament, onGenerateSeason }) {
   const list = sortedByRecency(matches);
   const wins = list.filter(m => m.whoWonMatch === 1).length;
   const total = list.length;
@@ -147,7 +147,7 @@ export default function MatchesScreen({ matches, tournaments, seasonReport, seas
             <div style={{ fontSize: 13, color: "#eaf3ee", lineHeight: 1.55, marginBottom: 14 }}>
               {seasonReport.seasonOverview || seasonReport.overview || seasonReport.developmentalStageAssessment || "Season analysis ready."}
             </div>
-            {seasonReport.parentNote && (
+            {showParentNotes && seasonReport.parentNote && (
               <div style={{ padding: "12px 13px", background: "rgba(47,127,217,0.14)", borderRadius: 12, marginBottom: 12 }}>
                 <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", color: "#7fb6f0", marginBottom: 4 }}>FOR PARENTS</div>
                 <div style={{ fontSize: 12.5, color: "#dfeee6", lineHeight: 1.5 }}>{seasonReport.parentNote}</div>

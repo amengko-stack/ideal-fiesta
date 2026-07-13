@@ -448,6 +448,7 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
               tournaments={tournaments}
               seasonReport={seasonReport}
               seasonLoading={seasonLoading}
+              showParentNotes={isParent && parentMode}
               liveDraft={liveDraft}
               onStartLive={startLive}
               onResumeLive={resumeLive}
@@ -515,6 +516,7 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
         <MatchDetailSheet
           match={detailMatch}
           analysis={analysis}
+          showParentNotes={isParent && parentMode}
           analysisLoading={analysisLoading}
           generating={analysisGenerating}
           onGenerate={generateAnalysis}

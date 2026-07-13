@@ -225,7 +225,7 @@ export default function MeScreen({ profile, xp, streak, sessionHistory, prioriti
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 0", borderBottom: `1px solid ${M.divider}` }}>
             <div>
               <span style={{ fontSize: 13.5, color: M.ink, fontWeight: 600 }}>Parent mode</span>
-              <div style={{ fontSize: 11, color: M.muted, marginTop: 1 }}>Shows coach data (benchmarks, strokes)</div>
+              <div style={{ fontSize: 11, color: M.muted, marginTop: 1 }}>Shows coach data (benchmarks, strokes, parent notes)</div>
             </div>
             <div onClick={onToggleParentMode} style={{
               cursor: "pointer", width: 42, height: 24, borderRadius: 99, position: "relative",

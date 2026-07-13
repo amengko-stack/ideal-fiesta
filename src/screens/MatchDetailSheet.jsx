@@ -5,7 +5,7 @@ import { shareCoachReport } from "../lib/coachReport.js";
 
 const PRIORITY_COLOR = { critical: M.danger, important: M.warn, monitor: M.parentBlue };
 
-export default function MatchDetailSheet({ match, analysis, analysisLoading, generating, onGenerate, onDelete }) {
+export default function MatchDetailSheet({ match, analysis, showParentNotes, analysisLoading, generating, onGenerate, onDelete }) {
   if (!match) return null;
   const won = match.whoWonMatch === 1;
   const v = match.valissa || {};
@@ -79,7 +79,7 @@ export default function MatchDetailSheet({ match, analysis, analysisLoading, gen
               <div style={{ fontSize: 13, color: M.ink, fontStyle: "italic", lineHeight: 1.5 }}>"{analysis.athleteNote}"</div>
             </div>
           )}
-          {analysis.parentNote && (
+          {showParentNotes && analysis.parentNote && (
             <div style={{ marginTop: 10, padding: 13, background: "rgba(47,127,217,0.1)", borderRadius: 14 }}>
               <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", color: M.parentBlue, marginBottom: 4 }}>FOR PARENTS</div>
               <div style={{ fontSize: 12.5, color: "#4a5a52", lineHeight: 1.5 }}>{analysis.parentNote}</div>
