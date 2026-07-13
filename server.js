@@ -306,6 +306,8 @@ app.get("/api/whoop/recovery", async (req, res) => {
   const { access_token, start } = req.query;
   if (!access_token) return res.status(400).json({ error: "access_token required" });
   try {
+    // A 7-day sync yields <=7 recovery records, well under WHOOP's 25/page limit,
+    // so next_token pagination is intentionally not followed here.
     const upstream = await fetch(`${WHOOP_API}/recovery?limit=25${start ? `&start=${encodeURIComponent(start)}` : ""}`,
       { headers: { Authorization: `Bearer ${access_token}` } });
     const data = await upstream.json();

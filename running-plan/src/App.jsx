@@ -473,10 +473,14 @@ function RunnerApp({ uid, user, onSignOut }) {
     if (!code || !["strava", "whoop"].includes(state)) return;
     (async () => {
       try {
+        // WHOOP (RFC 6749 §4.1.3) requires the token exchange to echo the exact
+        // redirect_uri used in the authorize request; Strava ignores it. This
+        // must match the value built in ProfileTab.connect().
+        const redirectUri = window.location.origin + window.location.pathname;
         const res = await fetch(`${API_URL}/${state}/token`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ grant_type: "authorization_code", code }),
+          body: JSON.stringify({ grant_type: "authorization_code", code, redirect_uri: redirectUri }),
         });
         const tokens = await res.json();
         if (tokens.access_token) {
