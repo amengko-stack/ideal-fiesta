@@ -1,10 +1,10 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// Served at /running/ on the shared Firebase Hosting site.
+// Standalone app: served at the root of its own Firebase Hosting site.
 export default defineConfig({
   plugins: [react()],
-  base: '/running/',
+  base: '/',
   server: {
     port: 3002,
     proxy: {
@@ -15,7 +15,7 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: "../dist/running",
+    outDir: "dist",
     emptyOutDir: true,
   },
 })

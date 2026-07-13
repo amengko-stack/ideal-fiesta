@@ -13,6 +13,9 @@ dist-ssr
 *.local
 .env
 functions/.env
+running-plan/.env
+running-plan/functions/.env
+running-plan/dist/
 
 # Secrets — never commit
 serviceAccountKey.json

@@ -17,11 +17,13 @@ import {
 // In production (Firebase Hosting) /api/* is rewritten to the Cloud Function.
 const API_URL = "/api";
 
-const ALLOWED_USERS = new Set([
-  "jFXQ9SamJ6QnIpaam5dLedKcFkA2",
-  "2Hxj2FUJP4YQSvnsR2fkStu0uoC2",
-  "qmj32jhoYnQ9OJCQCXM1soIhHPx2",
+// Allowlist by email — emails are stable across Firebase projects, so this
+// survives a fresh project (UIDs would not). Add the runner's Google address here.
+const ALLOWED_EMAILS = new Set([
+  "a.mengko@gmail.com",
+  // "valissa@example.com",  // ← add Valissa's Google email
 ]);
+const isAllowed = (email) => !!email && ALLOWED_EMAILS.has(email.toLowerCase());
 
 const GOALS = ["5K", "10K", "Half Marathon", "Marathon"];
 const FITNESS_LEVELS = ["Beginner", "Intermediate", "Advanced"];
@@ -391,7 +393,7 @@ export default function App() {
     }
     return onAuthStateChanged(auth, async (u) => {
       if (!u) { setAuthState("unauthenticated"); return; }
-      if (!ALLOWED_USERS.has(u.uid)) {
+      if (!isAllowed(u.email)) {
         await signOut(auth);
         setAuthState("unauthorized");
         return;
