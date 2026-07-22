@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createMatch, recordPoint, undo, scoreboard, liveStats, finalizeMatch, FORMATS } from "./liveScoring.js";
+import { createMatch, recordPoint, undo, scoreboard, liveStats, finalizeMatch, FORMATS, stepBackPending } from "./liveScoring.js";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -361,6 +361,50 @@ describe("drop shots and exact rally", () => {
     expect(s.log[0].rallyLength).toBe(17);
     const doc = finalizeMatch(s, {});
     expect(doc.calculated.rallyDistribution["9+"].total).toBe(1);
+  });
+});
+
+// ─── stepBackPending (one-tap Back) ───────────────────────────────────────────
+
+describe("stepBackPending", () => {
+  it("walks back one decision at a time through the reordered flow", () => {
+    const full = { serve: 1, winner: 1, outcome: "w", rallyLength: 6, shot: "fh", locDraft: { miss: "net" } };
+    const afterPlacement = stepBackPending(full);           // placement → shot
+    expect(afterPlacement).toEqual({ serve: 1, winner: 1, outcome: "w", rallyLength: 6 });
+    const afterShot = stepBackPending(afterPlacement);      // shot → rally
+    expect(afterShot).toEqual({ serve: 1, winner: 1, outcome: "w" });
+    const afterRally = stepBackPending(afterShot);          // rally → outcome
+    expect(afterRally).toEqual({ serve: 1, winner: 1 });
+    const afterOutcome = stepBackPending(afterRally);       // outcome → who won
+    expect(afterOutcome).toEqual({ serve: 1 });
+    expect(stepBackPending(afterOutcome)).toBeNull();       // who won → serve
+  });
+
+  it("treats skipped values (null) as answered and pops them", () => {
+    expect(stepBackPending({ serve: 1, winner: 1, outcome: "ufE", rallyLength: null, shot: null }))
+      .toEqual({ serve: 1, winner: 1, outcome: "ufE", rallyLength: null });
+    expect(stepBackPending({ serve: 1, winner: 1, outcome: "ufE", rallyLength: null }))
+      .toEqual({ serve: 1, winner: 1, outcome: "ufE" });
+  });
+
+  it("drops the placement draft when leaving the placement step", () => {
+    const back = stepBackPending({ serve: 1, winner: 2, outcome: "fE", rallyLength: 3, shot: "bh", locDraft: { miss: "wide", direction: "downLine" } });
+    expect(back.locDraft).toBeUndefined();
+    expect("shot" in back).toBe(false);
+  });
+
+  it("returns null for one-tap sub-steps and empty pending", () => {
+    expect(stepBackPending({ serve: 1, pickAceServe: true })).toBeNull();
+    expect(stepBackPending({ serve: 2, outcome: "df" })).toBeNull();
+    expect(stepBackPending({ serve: 1 })).toBeNull(); // quick-mode / just after serve
+    expect(stepBackPending(null)).toBeNull();
+  });
+
+  it("does not mutate its input", () => {
+    const p = { serve: 1, winner: 1, outcome: "w", rallyLength: 6, shot: "fh" };
+    const copy = JSON.parse(JSON.stringify(p));
+    stepBackPending(p);
+    expect(p).toEqual(copy);
   });
 });
 

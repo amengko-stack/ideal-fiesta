@@ -296,6 +296,21 @@ export function recordPoint(state, input) {
 
 export const undo = (state) => ({ ...state, log: state.log.slice(0, -1) });
 
+// Pops exactly one decision off the capture UI's in-progress `pending` object,
+// so a wrong winner/error is a one-tap fix without throwing the whole point
+// away. Reverse of the Detailed step order placement→shot→rally→outcome→winner
+// →serve. One-tap sub-steps (ace picker, double fault) fall back to the serve
+// step. Returns the previous pending (or null for "back to the serve buttons").
+export function stepBackPending(pending) {
+  if (!pending || pending.pickAceServe || pending.outcome === "df") return null;
+  const p = { ...pending };
+  if ("shot" in p) { delete p.shot; delete p.locDraft; return p; }   // placement → shot
+  if ("rallyLength" in p) { delete p.rallyLength; return p; }        // shot → rally
+  if ("outcome" in p) { delete p.outcome; return p; }                // rally → outcome
+  if (p.winner != null) { delete p.winner; return p; }               // outcome → who won
+  return null;                                                        // who won → serve
+}
+
 // Running stats for the live UI. Pass setNumber to get a single set's slice.
 export function liveStats(state, { setNumber = null } = {}) {
   const points = setNumber == null ? state.log : state.log.filter(p => p.setNumber === setNumber);

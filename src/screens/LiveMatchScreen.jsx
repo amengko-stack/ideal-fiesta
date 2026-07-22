@@ -3,7 +3,7 @@ import { doc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { M } from "../styles/mobileTheme.js";
 import {
-  createMatch, recordPoint, undo, scoreboard, liveStats, FORMATS, SHOT_TYPES, DIRECTIONS, MISSES,
+  createMatch, recordPoint, undo, scoreboard, liveStats, FORMATS, SHOT_TYPES, DIRECTIONS, MISSES, stepBackPending,
 } from "../lib/liveScoring.js";
 
 const label = { fontSize: 11, color: M.sub, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", marginBottom: 9 };
@@ -438,9 +438,12 @@ export default function LiveMatchScreen({ athleteId, athleteName, resume, onFini
             )}
 
             {pending && (
-              <div onClick={() => setPending(null)} style={{ cursor: "pointer", textAlign: "center", fontSize: 12, fontWeight: 700, fontFamily: M.display, color: M.sub, marginBottom: 16 }}>
-                ✕ restart this point
-              </div>
+              <>
+                <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                  <div onClick={() => setPending(p => stepBackPending(p))} style={{ ...bigBtn(M.fillAlt, M.ink), padding: "13px 10px", fontSize: 14 }}>← Back</div>
+                  <div onClick={() => setPending(null)} style={{ ...bigBtn(M.card, M.sub), padding: "13px 10px", fontSize: 13, flex: "0 0 42%" }}>✕ Restart</div>
+                </div>
+              </>
             )}
 
             {/* end early */}
