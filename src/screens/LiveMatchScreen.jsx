@@ -145,9 +145,8 @@ export default function LiveMatchScreen({ athleteId, athleteName, resume, onFini
     if (scoreboard(next).matchOver) setPhase("finish");
   };
 
-  // Placement helpers (Detailed mode). Winners commit a direction and advance;
-  // errors build up a { miss, direction } draft, then commit together.
-  const commitLocation = (location) => setPending(p => ({ ...p, location: location ?? null }));
+  // Placement helper (Detailed mode). Errors build up a { miss, direction }
+  // draft as chips are tapped; the placement step itself commits the point.
   const toggleDraft = (key, val) => setPending(p => {
     const d = { ...(p.locDraft || {}) };
     d[key] = d[key] === val ? undefined : val;
@@ -343,7 +342,30 @@ export default function LiveMatchScreen({ athleteId, athleteName, resume, onFini
               </>
             )}
 
-            {pending?.outcome != null && pending.outcome !== "df" && pending.shot === undefined && (
+            {pending?.outcome != null && pending.outcome !== "df" && pending.rallyLength === undefined && (
+              <>
+                <div style={label}>Rally length</div>
+                <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                  <div onClick={() => setPending(p => ({ ...p, rallyLength: 3 }))} style={bigBtn(M.card, M.ink)}>Short (1–4)</div>
+                  <div onClick={() => setPending(p => ({ ...p, rallyLength: 6 }))} style={bigBtn(M.card, M.ink)}>Medium (5–8)</div>
+                  <div onClick={() => setPending(p => ({ ...p, rallyLength: 10 }))} style={bigBtn(M.card, M.ink)}>Long (9+)</div>
+                </div>
+                {/* exact count for the moments it matters */}
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                  <div onClick={() => setExactRally(n => Math.max(0, n - 1))} style={{ ...bigBtn(M.fillAlt, M.ink), padding: "12px 0", flex: "0 0 52px" }}>–</div>
+                  <div style={{ flex: 1, textAlign: "center", fontFamily: M.display, fontWeight: 700, fontSize: 15, color: M.ink }}>
+                    exact: {exactRally} shot{exactRally === 1 ? "" : "s"}
+                  </div>
+                  <div onClick={() => setExactRally(n => n + 1)} style={{ ...bigBtn(M.fillAlt, M.ink), padding: "12px 0", flex: "0 0 52px" }}>+</div>
+                </div>
+                <div onClick={() => setPending(p => ({ ...p, rallyLength: exactRally }))} style={{ ...bigBtn(M.gradient), marginBottom: 10 }}>{exactRally} shots →</div>
+                <div onClick={() => setPending(p => ({ ...p, rallyLength: null }))} style={{ cursor: "pointer", textAlign: "center", fontSize: 12.5, fontWeight: 700, fontFamily: M.display, color: M.muted, marginBottom: 12 }}>
+                  skip ›
+                </div>
+              </>
+            )}
+
+            {pending?.outcome != null && pending.outcome !== "df" && pending.rallyLength !== undefined && pending.shot === undefined && (
               <>
                 <div style={label}>
                   {pending.outcome === "w"
@@ -363,17 +385,18 @@ export default function LiveMatchScreen({ athleteId, athleteName, resume, onFini
               </>
             )}
 
-            {/* placement (Detailed mode) — winner direction, or error miss + aim */}
-            {pending?.outcome != null && pending.outcome !== "df" && pending.shot !== undefined && pending.location === undefined && (
+            {/* placement (Detailed mode) — commits the point. Winner picks a
+                direction; error builds a miss + aim draft, then logs together. */}
+            {pending?.outcome != null && pending.outcome !== "df" && pending.rallyLength !== undefined && pending.shot !== undefined && (
               pending.outcome === "w" ? (
                 <>
                   <div style={label}>Where did the winner land?</div>
                   <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
                     {DIRECTIONS.map(d => (
-                      <div key={d.key} onClick={() => commitLocation({ direction: d.key })} style={bigBtn(M.card, M.ink)}>{d.label}</div>
+                      <div key={d.key} onClick={() => applyPoint({ ...pending, location: { direction: d.key } })} style={bigBtn(M.card, M.ink)}>{d.label}</div>
                     ))}
                   </div>
-                  <div onClick={() => commitLocation(null)} style={{ cursor: "pointer", textAlign: "center", fontSize: 12.5, fontWeight: 700, fontFamily: M.display, color: M.muted, marginBottom: 12 }}>
+                  <div onClick={() => applyPoint({ ...pending, location: null })} style={{ cursor: "pointer", textAlign: "center", fontSize: 12.5, fontWeight: 700, fontFamily: M.display, color: M.muted, marginBottom: 12 }}>
                     skip placement ›
                   </div>
                 </>
@@ -391,8 +414,8 @@ export default function LiveMatchScreen({ athleteId, athleteName, resume, onFini
                       <div key={d.key} onClick={() => toggleDraft("direction", d.key)} style={chip(pending.locDraft?.direction === d.key)}>{d.label}</div>
                     ))}
                   </div>
-                  <div onClick={() => commitLocation(pending.locDraft || null)} style={bigBtn(M.gradient)}>Next →</div>
-                  <div onClick={() => commitLocation(null)} style={{ cursor: "pointer", textAlign: "center", fontSize: 12.5, fontWeight: 700, fontFamily: M.display, color: M.muted, margin: "10px 0 12px" }}>
+                  <div onClick={() => applyPoint({ ...pending, location: pending.locDraft || null })} style={bigBtn(M.gradient)}>Log point →</div>
+                  <div onClick={() => applyPoint({ ...pending, location: null })} style={{ cursor: "pointer", textAlign: "center", fontSize: 12.5, fontWeight: 700, fontFamily: M.display, color: M.muted, margin: "10px 0 12px" }}>
                     skip placement ›
                   </div>
                 </>
@@ -409,29 +432,6 @@ export default function LiveMatchScreen({ athleteId, athleteName, resume, onFini
                   ))}
                 </div>
                 <div onClick={() => applyPoint({ ...pending })} style={{ cursor: "pointer", textAlign: "center", fontSize: 12.5, fontWeight: 700, fontFamily: M.display, color: M.muted, marginBottom: 12 }}>
-                  skip ›
-                </div>
-              </>
-            )}
-
-            {pending?.outcome != null && pending.outcome !== "df" && pending.shot !== undefined && pending.location !== undefined && (
-              <>
-                <div style={label}>Rally length</div>
-                <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-                  <div onClick={() => applyPoint({ ...pending, rallyLength: 3 })} style={bigBtn(M.card, M.ink)}>Short (1–4)</div>
-                  <div onClick={() => applyPoint({ ...pending, rallyLength: 6 })} style={bigBtn(M.card, M.ink)}>Medium (5–8)</div>
-                  <div onClick={() => applyPoint({ ...pending, rallyLength: 10 })} style={bigBtn(M.card, M.ink)}>Long (9+)</div>
-                </div>
-                {/* exact count for the moments it matters */}
-                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                  <div onClick={() => setExactRally(n => Math.max(0, n - 1))} style={{ ...bigBtn(M.fillAlt, M.ink), padding: "12px 0", flex: "0 0 52px" }}>–</div>
-                  <div style={{ flex: 1, textAlign: "center", fontFamily: M.display, fontWeight: 700, fontSize: 15, color: M.ink }}>
-                    exact: {exactRally} shot{exactRally === 1 ? "" : "s"}
-                  </div>
-                  <div onClick={() => setExactRally(n => n + 1)} style={{ ...bigBtn(M.fillAlt, M.ink), padding: "12px 0", flex: "0 0 52px" }}>+</div>
-                </div>
-                <div onClick={() => applyPoint({ ...pending, rallyLength: exactRally })} style={{ ...bigBtn(M.gradient), marginBottom: 10 }}>Log {exactRally}-shot rally →</div>
-                <div onClick={() => applyPoint({ ...pending, rallyLength: null })} style={{ cursor: "pointer", textAlign: "center", fontSize: 12.5, fontWeight: 700, fontFamily: M.display, color: M.muted, marginBottom: 12 }}>
                   skip ›
                 </div>
               </>
