@@ -1,7 +1,7 @@
 import { doc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { buildAthleteContext } from "./athleteContext.js";
-import { saveDeferredPriorities, refreshEscalations, resolveDeferred } from "./deferredPriorities.js";
+import { saveDeferredPriorities, refreshEscalations, resolveDeferred, getEscalated } from "./deferredPriorities.js";
 import { hasResolvableStats, selectAutoResolvable } from "./autoResolve.js";
 import { callClaudeJSON } from "./ai.js";
 
@@ -23,7 +23,19 @@ export async function generateMatchAnalysis(athleteId, match) {
     : "Very High";
 
   const matchId = match.id || match.matchId;
-  const dp = context.deferredPriorities;
+  // Priorities the match can clear: active ones (from context) plus escalated
+  // (overdue) ones — the latter aren't in the shared context, so fetch them
+  // here. resolveDeferred already flips either status to resolved by label.
+  const escalatedActive = await getEscalated(athleteId);
+  const dp = [
+    ...context.deferredPriorities,
+    ...escalatedActive.map(e => ({
+      priority: e.priority,
+      weeksDeferredCount: e.weeksDeferredCount ?? 0,
+      resolveCondition: e.resolveCondition ?? null,
+      escalated: true,
+    })),
+  ];
 
   const scoreStr = (match.setScores?.p1 || [])
     .map((s, i) => `${s}–${match.setScores?.p2?.[i] ?? "?"}`)
@@ -99,8 +111,8 @@ ATHLETE CONTEXT:
 - Upcoming tournament: ${context.tournamentStatus.hasUpcomingTournament ? `Yes, ${context.tournamentStatus.daysUntilTournament} days away` : "None"}
 - Recent tournament (last 14 days): ${context.tournamentStatus.playedTournamentRecently ? `Yes, ${context.tournamentStatus.daysSinceTournament} days ago` : "No"}
 
-EXISTING DEFERRED PRIORITIES (${dp.length} active):
-${dp.length > 0 ? dp.map(d => `- ${d.priority} (deferred ${d.weeksDeferredCount} weeks)${d.resolveCondition ? ` — resolve when: ${d.resolveCondition}` : ""}`).join("\n") : "None"}
+EXISTING DEFERRED PRIORITIES (${dp.length}):
+${dp.length > 0 ? dp.map(d => `- ${d.priority} (deferred ${d.weeksDeferredCount} weeks${d.escalated ? ", ESCALATED — overdue" : ""})${d.resolveCondition ? ` — resolve when: ${d.resolveCondition}` : ""}`).join("\n") : "None"}
 
 For each existing deferred priority above, check its "resolve when" condition against THIS match's statistics (SERVICE STATS, POINT STATS, RALLY PATTERNS, SHOT BREAKDOWN). List it in "resolvedPriorities" ONLY when the numbers clearly satisfy the condition — e.g. condition "second-serve points won above 50%" and 2nd Serve Pts Won shows 56%; condition "cut backhand unforced errors" and Backhand shows 1E against 4W; condition "win more long rallies" and 9+ shots shows a 70% win rate over 10+ points. Copy the priority label EXACTLY as written above. If a relevant stat is "—", missing, or based on only a handful of points, do NOT resolve it. Return an empty array when nothing clearly qualifies.
 
