@@ -106,10 +106,14 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
     const forId = String(detailMatch.matchId || detailMatch.id);
     setAnalysisGenerating(true);
     try {
-      const { analysis: report } = await generateMatchAnalysis(athleteId, detailMatch);
+      const { analysis: report, autoResolved } = await generateMatchAnalysis(athleteId, detailMatch);
       if (detailMatchIdRef.current === forId) {
         setAnalysis(report);
-        showToast("Coaching report ready 🧠");
+        if (autoResolved && autoResolved.length > 0) {
+          showToast(`Focus cleared: ${autoResolved.map(p => p.priority).join(", ")} ✅`);
+        } else {
+          showToast("Coaching report ready 🧠");
+        }
       }
       refresh();
     } catch (e) {

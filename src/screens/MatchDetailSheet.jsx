@@ -73,6 +73,17 @@ export default function MatchDetailSheet({ match, analysis, analysisLoading, gen
               ))}
             </>
           )}
+          {analysis.resolvedPriorities?.length > 0 && (
+            <div style={{ marginTop: 4, marginBottom: 14, padding: 13, background: "rgba(18,181,133,0.1)", borderRadius: 14 }}>
+              <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", color: M.success, marginBottom: 8 }}>✅ CLEARED FROM THE FOCUS LIST</div>
+              {analysis.resolvedPriorities.map((p, i) => (
+                <div key={i} style={{ marginBottom: i < analysis.resolvedPriorities.length - 1 ? 8 : 0 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, fontFamily: M.display, color: M.ink }}>{typeof p === "string" ? p : p.priority}</div>
+                  {p.evidence && <div style={{ fontSize: 11.5, color: "#4a5a52", lineHeight: 1.45 }}>{p.evidence}</div>}
+                </div>
+              ))}
+            </div>
+          )}
           {analysis.athleteNote && (
             <div style={{ marginTop: 14, padding: 13, background: "linear-gradient(150deg,#eefbdf,#e2fbf2)", borderRadius: 14 }}>
               <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", color: "#5c7a0a", marginBottom: 4 }}>FOR VALISSA 🎾</div>

@@ -1,7 +1,8 @@
 import { doc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { buildAthleteContext } from "./athleteContext.js";
-import { saveDeferredPriorities, refreshEscalations } from "./deferredPriorities.js";
+import { saveDeferredPriorities, refreshEscalations, resolveDeferred } from "./deferredPriorities.js";
+import { hasResolvableStats, selectAutoResolvable } from "./autoResolve.js";
 import { callClaudeJSON } from "./ai.js";
 
 // Match-analysis generation, shared by the classic MatchDetail and any future
@@ -99,7 +100,9 @@ ATHLETE CONTEXT:
 - Recent tournament (last 14 days): ${context.tournamentStatus.playedTournamentRecently ? `Yes, ${context.tournamentStatus.daysSinceTournament} days ago` : "No"}
 
 EXISTING DEFERRED PRIORITIES (${dp.length} active):
-${dp.length > 0 ? dp.map(d => `- ${d.priority} (deferred ${d.weeksDeferredCount} weeks)`).join("\n") : "None"}
+${dp.length > 0 ? dp.map(d => `- ${d.priority} (deferred ${d.weeksDeferredCount} weeks)${d.resolveCondition ? ` — resolve when: ${d.resolveCondition}` : ""}`).join("\n") : "None"}
+
+For each existing deferred priority above, check its "resolve when" condition against THIS match's statistics (SERVICE STATS, POINT STATS, RALLY PATTERNS, SHOT BREAKDOWN). List it in "resolvedPriorities" ONLY when the numbers clearly satisfy the condition — e.g. condition "second-serve points won above 50%" and 2nd Serve Pts Won shows 56%; condition "cut backhand unforced errors" and Backhand shows 1E against 4W; condition "win more long rallies" and 9+ shots shows a 70% win rate over 10+ points. Copy the priority label EXACTLY as written above. If a relevant stat is "—", missing, or based on only a handful of points, do NOT resolve it. Return an empty array when nothing clearly qualifies.
 
 Respond with exactly this JSON structure:
 {
@@ -114,6 +117,9 @@ Respond with exactly this JSON structure:
   "shotBreakdownInsights": "Key insights from shot-level winner and error patterns",
   "deferredPriorities": [
     { "priority": "short label", "reason": "why defer now", "resolveCondition": "when to address" }
+  ],
+  "resolvedPriorities": [
+    { "priority": "exact label of an existing deferred priority now demonstrably met by this match's stats", "evidence": "the specific statistic(s) that satisfy its resolve condition" }
   ],
   "parentNote": "Message for the parent — context, encouragement, what to watch for",
   "athleteNote": "Direct message for ${context.athleteProfile?.name || "Valissa"} — positive, motivating, 1-2 action points"
@@ -131,7 +137,17 @@ Respond with exactly this JSON structure:
     await saveDeferredPriorities(athleteId, parsed.deferredPriorities);
   }
 
+  // Auto-resolve priorities this match's stats clearly satisfy. Runs before
+  // escalation so a just-resolved item can't be escalated in the same pass.
+  // Only labels the model was actually shown (dp) and that it didn't re-defer
+  // are honored, and only when the match carries usable stats.
+  let autoResolved = [];
+  if (hasResolvableStats(match)) {
+    autoResolved = selectAutoResolvable(parsed.resolvedPriorities, dp, parsed.deferredPriorities);
+    for (const p of autoResolved) await resolveDeferred(athleteId, p.priority);
+  }
+
   const escalatedItems = await refreshEscalations(athleteId);
 
-  return { analysis: parsed, escalations: escalatedItems };
+  return { analysis: parsed, escalations: escalatedItems, autoResolved };
 }
