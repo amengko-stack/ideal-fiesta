@@ -296,6 +296,43 @@ export function recordPoint(state, input) {
 
 export const undo = (state) => ({ ...state, log: state.log.slice(0, -1) });
 
+// Corrects the match format/scoring mid-match. Because scoreboard/liveStats and
+// extractMatchData read each point's STAMPED derived fields (not the config),
+// changing config also restamps every log entry from a fresh derivation — the
+// raw observations (who won, serve type, outcome, shot, location, rally) are
+// never touched. Framing: the user is fixing the app's record of the format the
+// match was always being played under, so re-derived servers/games/sets are the
+// truth. firstServer is not changeable (it anchors serve rotation).
+export function reconfigure(state, patch) {
+  const format = FORMATS[patch.format] ? patch.format : state.config.format;
+  const noAd = (patch.noAd ?? state.config.noAd) || FORMATS[format].forcedNoAd;
+  const config = { ...state.config, format, noAd };
+  const derived = deriveScore(config, state.log);
+  // If the new format means the match is already decided, drop the points that
+  // were played past the new match end — otherwise their stale stamps would
+  // pollute the final stats and the scoreboard/finalize would disagree.
+  const endIdx = derived.snapshots.findIndex(s => s.matchEnded);
+  const kept = endIdx === -1 ? state.log : state.log.slice(0, endIdx + 1);
+  const log = kept.map((pt, i) => {
+    const s = derived.snapshots[i];
+    return {
+      ...pt,
+      setNumber: s.setNumber,
+      gameNumber: s.gameNumber,
+      whoServed: String(s.server),
+      breakPoint: s.breakPoint ? 1 : 0,
+      gameEndedOnPoint: s.gameEnded ? 1 : 0,
+      setEndedOnPoint: s.setEnded ? 1 : 0,
+      matchEndedOnPoint: s.matchEnded ? 1 : 0,
+      pOneGameScore: s.postPts.p1,
+      pTwoGameScore: s.postPts.p2,
+      pOneSetScore: s.postGamesInSet.p1,
+      pTwoSetScore: s.postGamesInSet.p2,
+    };
+  });
+  return { ...state, config, log };
+}
+
 // Pops exactly one decision off the capture UI's in-progress `pending` object,
 // so a wrong winner/error is a one-tap fix without throwing the whole point
 // away. Reverse of the Detailed step order placement→shot→rally→outcome→winner

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createMatch, recordPoint, undo, scoreboard, liveStats, finalizeMatch, FORMATS, stepBackPending } from "./liveScoring.js";
+import { createMatch, recordPoint, undo, reconfigure, scoreboard, liveStats, finalizeMatch, FORMATS, stepBackPending } from "./liveScoring.js";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -405,6 +405,75 @@ describe("stepBackPending", () => {
     const copy = JSON.parse(JSON.stringify(p));
     stepBackPending(p);
     expect(p).toEqual(copy);
+  });
+});
+
+// ─── reconfigure (change format/scoring mid-match) ────────────────────────────
+
+describe("reconfigure", () => {
+  it("flips no-ad mid-deuce and re-derives a deciding point", () => {
+    let s = createMatch({ format: "bo3", noAd: false });
+    for (const w of [1, 1, 1, 2, 2, 2]) s = point(s, w); // deuce, advantage scoring
+    expect(scoreboard(s).decidingPoint).toBe(false);
+    const r = reconfigure(s, { noAd: true });
+    expect(r.config.noAd).toBe(true);
+    expect(scoreboard(r).decidingPoint).toBe(true);
+    expect(scoreboard(r).breakPoint).toBe(true); // returner one point from the break
+  });
+
+  it("re-splits sets and restamps the log when the format changes", () => {
+    let s = createMatch({ format: "bo3" });
+    for (let g = 0; g < 4; g++) s = winGame(s, 1); // 4-0 under bo3 (one set, not over)
+    const r = reconfigure(s, { format: "fast4" });
+    const sb = scoreboard(r);
+    expect(sb.sets.p1).toEqual([4]);      // 4 games is a completed Fast4 set
+    expect(sb.setNumber).toBe(2);
+    expect(sb.matchOver).toBe(false);     // Fast4 needs two sets
+    // the point that won game 4 now also ends set 1
+    const lastSetPoint = r.log[15];       // 4 games × 4 points = points 0..15
+    expect(lastSetPoint.setEndedOnPoint).toBe(1);
+    expect(lastSetPoint.pOneSetScore).toBe(4);
+  });
+
+  it("can end the match retroactively (shrink to a single set) and blocks further points", () => {
+    let s = createMatch({ format: "bo3" });
+    for (let i = 0; i < 12; i++) s = winGame(s, 1); // 6-0, 6-0 → over under bo3
+    const r = reconfigure(s, { format: "set1" });
+    expect(scoreboard(r).matchOver).toBe(true);
+    expect(scoreboard(r).sets.p1).toEqual([6]);       // only the first set counts
+    expect(() => recordPoint(r, { winner: 1, serve: 1 })).toThrow("match-over");
+  });
+
+  it("finalize round-trips after a reconfigure", () => {
+    let s = createMatch({ format: "bo3" });
+    for (let i = 0; i < 12; i++) s = winGame(s, 1);
+    const r = reconfigure(s, { format: "set1" });
+    expect(finalizeMatch(r, {}).setScores.p1).toEqual(scoreboard(r).sets.p1);
+  });
+
+  it("forces no-ad for Fast4 even if asked otherwise; ignores unknown formats", () => {
+    const s = createMatch({ format: "bo3", noAd: false });
+    expect(reconfigure(s, { format: "fast4", noAd: false }).config.noAd).toBe(true);
+    expect(reconfigure(s, { format: "nonsense" }).config.format).toBe("bo3");
+  });
+
+  it("is a no-op when nothing changes", () => {
+    let s = createMatch({ format: "bo3", noAd: false });
+    s = winGame(s, 1); s = point(s, 2);
+    const r = reconfigure(s, {});
+    expect(r.config).toEqual(s.config);
+    expect(r.log).toEqual(s.log);
+  });
+
+  it("keeps scoring and undo working after a reconfigure", () => {
+    let s = createMatch({ format: "bo3" });
+    for (let g = 0; g < 3; g++) s = winGame(s, 1); // 3-0
+    let r = reconfigure(s, { format: "fast4" });
+    r = winGame(r, 1); // 4th game → Fast4 set 1 won
+    expect(scoreboard(r).sets.p1).toEqual([4]);
+    r = undo(r);       // undo the set-winning point
+    expect(scoreboard(r).sets.p1).toEqual([]);
+    expect(scoreboard(r).games.p1).toBe(3);
   });
 });
 

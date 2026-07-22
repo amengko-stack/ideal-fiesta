@@ -3,7 +3,7 @@ import { doc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { M } from "../styles/mobileTheme.js";
 import {
-  createMatch, recordPoint, undo, scoreboard, liveStats, FORMATS, SHOT_TYPES, DIRECTIONS, MISSES, stepBackPending,
+  createMatch, recordPoint, undo, reconfigure, scoreboard, liveStats, FORMATS, SHOT_TYPES, DIRECTIONS, MISSES, stepBackPending,
 } from "../lib/liveScoring.js";
 
 const label = { fontSize: 11, color: M.sub, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", marginBottom: 9 };
@@ -108,6 +108,7 @@ export default function LiveMatchScreen({ athleteId, athleteName, resume, onFini
   // pending point being assembled across taps: { serve, winner, outcome }
   const [pending, setPending] = useState(null);
   const [endEarly, setEndEarly] = useState(false);
+  const [settings, setSettings] = useState(null); // null | { format, noAd } — mid-match format editor
   const [rpe, setRpe] = useState(6);
   const [exactRally, setExactRally] = useState(6); // stepper value for exact rally length
   const [now, setNow] = useState(() => Date.now()); // match clock, refreshed on an interval
@@ -164,6 +165,15 @@ export default function LiveMatchScreen({ athleteId, athleteName, resume, onFini
     if (phase === "finish") setPhase("play");
   };
 
+  const applySettings = () => {
+    const next = reconfigure(match, settings);
+    persist(next);
+    setMatch(next);
+    setPending(null); // server/context may have shifted; drop the in-progress point
+    setSettings(null);
+    if (scoreboard(next).matchOver) setPhase("finish");
+  };
+
   const start = () => {
     const created = createMatch({
       format, noAd, firstServer, mode,
@@ -194,11 +204,17 @@ export default function LiveMatchScreen({ athleteId, athleteName, resume, onFini
             <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 13, color: M.ink }}>⏱ {fmtClock(elapsedMin)}</div>
           )}
           {phase === "play" && (
-            <div onClick={onUndo} style={{
-              cursor: "pointer", fontFamily: M.display, fontWeight: 700, fontSize: 13,
-              color: match?.log.length ? "#5c7a0a" : M.muted, background: M.card, borderRadius: 20,
-              padding: "6px 14px", boxShadow: M.dropSm,
-            }}>↩ Undo</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <div onClick={() => setSettings({ format: match.config.format, noAd: match.config.noAd })} style={{
+                cursor: "pointer", fontFamily: M.display, fontWeight: 700, fontSize: 13,
+                color: M.ink, background: M.card, borderRadius: 20, padding: "8px 14px", boxShadow: M.dropSm,
+              }}>⚙︎</div>
+              <div onClick={onUndo} style={{
+                cursor: "pointer", fontFamily: M.display, fontWeight: 700, fontSize: 13,
+                color: match?.log.length ? "#5c7a0a" : M.muted, background: M.card, borderRadius: 20,
+                padding: "8px 16px", boxShadow: M.dropSm,
+              }}>↩ Undo</div>
+            </div>
           )}
         </div>
 
@@ -265,6 +281,31 @@ export default function LiveMatchScreen({ athleteId, athleteName, resume, onFini
         {/* ── PLAY ── */}
         {phase === "play" && sb && (
           <>
+            {settings && (
+              <div style={{ background: M.card, borderRadius: 16, padding: 14, marginBottom: 12, boxShadow: M.dropSm }}>
+                <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 15, color: M.ink, marginBottom: 12 }}>Match format ⚙︎</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+                  {Object.entries(FORMATS).map(([id, f]) => (
+                    <div key={id} onClick={() => setSettings(s => ({ ...s, noAd: FORMATS[id].forcedNoAd ? true : s.noAd, format: id }))}
+                      style={{ ...chip(settings.format === id), padding: "12px 10px", textAlign: "left", paddingLeft: 16 }}>{f.label}</div>
+                  ))}
+                </div>
+                {!FORMATS[settings.format].forcedNoAd && (
+                  <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                    <div onClick={() => setSettings(s => ({ ...s, noAd: true }))} style={chip(settings.noAd)}>No-ad</div>
+                    <div onClick={() => setSettings(s => ({ ...s, noAd: false }))} style={chip(!settings.noAd)}>Advantage</div>
+                  </div>
+                )}
+                <div style={{ fontSize: 12, color: M.warn, lineHeight: 1.45, marginBottom: 12 }}>
+                  Score is recalculated from every logged point — completed set scores and who's serving may change, and the match may end if the new format is already decided.
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <div onClick={applySettings} style={{ ...bigBtn(M.gradient), padding: "13px 10px", fontSize: 15 }}>Apply</div>
+                  <div onClick={() => setSettings(null)} style={{ ...chip(false), padding: "13px 10px", flex: "0 0 38%" }}>Cancel</div>
+                </div>
+              </div>
+            )}
+
             <ScoreBoard sb={sb} config={match.config} />
             <MomentumStrip momentum={stats.momentum} />
             <LiveStatsRow stats={stats} />
