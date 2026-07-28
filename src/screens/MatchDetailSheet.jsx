@@ -3,6 +3,7 @@ import { M } from "../styles/mobileTheme.js";
 import { fmtMatchDate, fmtScore } from "./MatchesScreen.jsx";
 import { shareCoachReport } from "../lib/coachReport.js";
 import { computeMatchStats, statsFromAggregates } from "../lib/matchStats.js";
+import { printReport } from "../lib/printReport.js";
 import MatchStatsView from "./MatchStatsView.jsx";
 
 const PRIORITY_COLOR = { critical: M.danger, important: M.warn, monitor: M.parentBlue };
@@ -133,7 +134,15 @@ export default function MatchDetailSheet({ match, analysis, analysisLoading, gen
         )
       )}
 
-      <ShareRow match={match} analysis={analysis} />
+      <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+        <ShareRow match={match} analysis={analysis} />
+        <div onClick={() => printReport({ match, stats, analysis })} style={{
+          cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+          background: M.card, border: "1.5px solid #D6E2DB", borderRadius: 13, padding: 12,
+          fontFamily: M.display, fontWeight: 700, fontSize: 13.5, color: M.ink, boxShadow: M.dropSm,
+          flex: "0 0 44%",
+        }}>🖨 Save as PDF</div>
+      </div>
       <DeleteRow onDelete={onDelete} />
     </>
   );
@@ -150,13 +159,13 @@ function ShareRow({ match, analysis }) {
   };
   return (
     <div onClick={share} style={{
-      cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-      background: M.card, border: "1.5px solid #D6E2DB", borderRadius: 13, padding: 12, marginTop: 14,
+      cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+      background: M.card, border: "1.5px solid #D6E2DB", borderRadius: 13, padding: 12, flex: 1,
       fontFamily: M.display, fontWeight: 700, fontSize: 13.5, color: M.ink, boxShadow: M.dropSm,
     }}>
-      {status === "copied" ? "Copied — paste it to the coach ✅"
+      {status === "copied" ? "Copied ✅"
         : status === "failed" ? "Couldn't share 🙈"
-        : "📤 Share coach report"}
+        : "📤 Share text"}
     </div>
   );
 }

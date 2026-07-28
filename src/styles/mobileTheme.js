@@ -40,4 +40,36 @@ export const mobileCss = `
   @keyframes toastPop { 0% { transform: translate(-50%,20px) scale(.9); opacity: 0; } 60% { transform: translate(-50%,-3px) scale(1.03); } 100% { transform: translate(-50%,0) scale(1); opacity: 1; } }
   @keyframes screenIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Printable coach report (see lib/printReport.js). The report is mounted
+     into the live document and everything else is hidden, so "Save as PDF"
+     works inside an installed PWA where popups/iframes are unreliable. */
+  .print-root { display: none; }
+  @media print {
+    body > *:not(.print-root) { display: none !important; }
+    .print-root {
+      display: block; padding: 0; color: #12312a;
+      font-family: 'DM Sans', system-ui, sans-serif; font-size: 11pt;
+    }
+    .print-root h1 { font-size: 17pt; margin: 0 0 2pt; }
+    .print-root h2 { font-size: 12.5pt; margin: 14pt 0 4pt; border-bottom: 1px solid #999; padding-bottom: 2pt; }
+    .print-root h3 { font-size: 11pt; margin: 9pt 0 3pt; }
+    .print-root .sub { color: #555; margin-bottom: 4pt; }
+    .print-root table { width: 100%; border-collapse: collapse; }
+    .print-root td, .print-root th { padding: 2.5pt 0; font-size: 10pt; }
+    .print-root tr { border-bottom: 1px solid #eee; }
+    .print-root .lbl { text-align: center; color: #555; }
+    .print-root .v { font-weight: 700; width: 27%; }
+    .print-root .left { text-align: left; }
+    .print-root .right { text-align: right; }
+    .print-root .strong td { border-top: 1px solid #999; }
+    .print-root table.head th { font-size: 10pt; color: #12312a; border: none; }
+    .print-root ul { margin: 3pt 0; padding-left: 14pt; }
+    .print-root li { margin-bottom: 2pt; }
+    .print-root p { margin: 3pt 0; line-height: 1.4; }
+    .print-root section { break-inside: auto; }
+    .print-root .ai { break-before: auto; }
+    .print-root footer { margin-top: 12pt; color: #888; font-size: 8.5pt; }
+    @page { margin: 12mm; }
+  }
 `;
