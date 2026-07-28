@@ -20,7 +20,6 @@ export default function MatchDetailSheet({ match, analysis, analysisLoading, gen
 
   if (!match) return null;
   const won = match.whoWonMatch === 1;
-  const v = match.valissa || {};
   return (
     <>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
@@ -34,10 +33,12 @@ export default function MatchDetailSheet({ match, analysis, analysisLoading, gen
 
       <div style={{ display: "flex", gap: 9, marginBottom: 16 }}>
         {[
-          { label: "1st serve", val: v.firstServePct != null ? `${Number(v.firstServePct).toFixed(0)}%` : "—" },
-          { label: "winners", val: v.winners ?? "—" },
-          { label: "unforced", val: v.unforcedErrors ?? "—" },
-          { label: "dbl faults", val: v.doubleFaults ?? "—" },
+          // Read the computed stats so the tiles always agree with the table
+          // below, including for imports whose stored aggregates are empty.
+          { label: "1st serve", val: stats.p1.firstServePct != null ? `${stats.p1.firstServePct.toFixed(0)}%` : "—" },
+          { label: "winners", val: stats.p1.totalWinners ?? "—" },
+          { label: "unforced", val: stats.p1.unforcedErrors ?? "—" },
+          { label: "dbl faults", val: stats.p1.doubleFaults ?? "—" },
         ].map(s => (
           <div key={s.label} style={{ flex: 1, background: M.fill, borderRadius: 13, padding: 11, textAlign: "center" }}>
             <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 17, color: M.ink }}>{s.val}</div>
