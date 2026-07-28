@@ -1,11 +1,22 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { M } from "../styles/mobileTheme.js";
 import { fmtMatchDate, fmtScore } from "./MatchesScreen.jsx";
 import { shareCoachReport } from "../lib/coachReport.js";
+import { computeMatchStats, statsFromAggregates } from "../lib/matchStats.js";
+import MatchStatsView from "./MatchStatsView.jsx";
 
 const PRIORITY_COLOR = { critical: M.danger, important: M.warn, monitor: M.parentBlue };
 
 export default function MatchDetailSheet({ match, analysis, analysisLoading, generating, onGenerate, onDelete }) {
+  // Full stats come from the point log when there is one; legacy imports that
+  // only carry aggregates fall back to a reduced table.
+  const log = useMemo(() => (Array.isArray(match?.matchLog) ? match.matchLog : []), [match]);
+  const stats = useMemo(() => (
+    log.length
+      ? computeMatchStats(log, { aces: { p1: match?.valissa?.aces, p2: match?.opponent?.aces } })
+      : statsFromAggregates(match)
+  ), [log, match]);
+
   if (!match) return null;
   const won = match.whoWonMatch === 1;
   const v = match.valissa || {};
@@ -35,6 +46,14 @@ export default function MatchDetailSheet({ match, analysis, analysisLoading, gen
       </div>
 
       <PlacementBreakdown match={match} />
+
+      <div style={{ marginBottom: 18 }}>
+        <MatchStatsView
+          stats={stats}
+          log={log}
+          names={{ p1: match.valissaName || "Valissa", p2: match.opponentName || "Opponent" }}
+        />
+      </div>
 
       {analysisLoading && (
         <div style={{ display: "flex", justifyContent: "center", padding: "14px 0" }}>
