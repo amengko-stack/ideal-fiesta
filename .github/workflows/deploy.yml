@@ -16,11 +16,15 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     steps:
+      # Actions are pinned to a full commit SHA (not a mutable tag like @v7)
+      # so a compromised or re-tagged upstream release can't silently run
+      # different code in this job — the deploy step below holds a real
+      # credential. Version is noted in a comment for readability/updates.
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
@@ -35,6 +39,12 @@ jobs:
       - name: Run tests
         run: npm test
 
+      # These VITE_FIREBASE_* values are Firebase's public client config —
+      # already embedded in the shipped JS bundle for every site visitor,
+      # so they carry no secrecy value. Security is enforced by Firestore
+      # rules, not by hiding this config. The real credential below
+      # (FIREBASE_SERVICE_ACCOUNT) is kept out of this and every earlier
+      # step's environment, isolated to the one action that needs it.
       - name: Build
         run: npm run build
         env:
@@ -46,7 +56,7 @@ jobs:
           VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
 
       - name: Deploy to Firebase Hosting (live)
-        uses: FirebaseExtended/action-hosting-deploy@v0
+        uses: FirebaseExtended/action-hosting-deploy@500ac625ca2dd40cbd15f7659af953801858032a # v0.11.0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
