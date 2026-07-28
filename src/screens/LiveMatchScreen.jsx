@@ -5,6 +5,8 @@ import { M } from "../styles/mobileTheme.js";
 import {
   createMatch, recordPoint, undo, reconfigure, scoreboard, liveStats, FORMATS, SHOT_TYPES, DIRECTIONS, MISSES, stepBackPending,
 } from "../lib/liveScoring.js";
+import { computeMatchStats } from "../lib/matchStats.js";
+import MatchStatsView from "./MatchStatsView.jsx";
 
 const label = { fontSize: 11, color: M.sub, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", marginBottom: 9 };
 const chip = (sel, accent = M.tennisLight) => ({
@@ -109,6 +111,7 @@ export default function LiveMatchScreen({ athleteId, athleteName, resume, onFini
   const [pending, setPending] = useState(null);
   const [endEarly, setEndEarly] = useState(false);
   const [settings, setSettings] = useState(null); // null | { format, noAd } — mid-match format editor
+  const [showStats, setShowStats] = useState(false); // full stats overlay
   const [rpe, setRpe] = useState(6);
   const [exactRally, setExactRally] = useState(6); // stepper value for exact rally length
   const [now, setNow] = useState(() => Date.now()); // match clock, refreshed on an interval
@@ -127,6 +130,8 @@ export default function LiveMatchScreen({ athleteId, athleteName, resume, onFini
 
   const sb = useMemo(() => (match ? scoreboard(match) : null), [match]);
   const stats = useMemo(() => (match ? liveStats(match) : null), [match]);
+  // Full head-to-head table, recomputed as points land so it stays live.
+  const fullStats = useMemo(() => (match ? computeMatchStats(match.log) : null), [match]);
   const elapsedMin = match ? Math.max(1, Math.round((now - new Date(match.config.startedAt)) / 60000)) : 0;
 
   // Crash/refresh-proof: every scoring action persists the draft (offline-first,
@@ -205,6 +210,10 @@ export default function LiveMatchScreen({ athleteId, athleteName, resume, onFini
           )}
           {phase === "play" && (
             <div style={{ display: "flex", gap: 8 }}>
+              <div onClick={() => setShowStats(true)} style={{
+                cursor: "pointer", fontFamily: M.display, fontWeight: 700, fontSize: 13,
+                color: M.ink, background: M.card, borderRadius: 20, padding: "8px 14px", boxShadow: M.dropSm,
+              }}>📊</div>
               <div onClick={() => setSettings({ format: match.config.format, noAd: match.config.noAd })} style={{
                 cursor: "pointer", fontFamily: M.display, fontWeight: 700, fontSize: 13,
                 color: M.ink, background: M.card, borderRadius: 20, padding: "8px 14px", boxShadow: M.dropSm,
@@ -524,6 +533,12 @@ export default function LiveMatchScreen({ athleteId, athleteName, resume, onFini
             <ScoreBoard sb={sb} config={match.config} />
             <LiveStatsRow stats={stats} />
 
+            <div onClick={() => setShowStats(true)} style={{
+              cursor: "pointer", textAlign: "center", background: M.card, border: "1.5px solid #D6E2DB",
+              borderRadius: 13, padding: 12, marginBottom: 4,
+              fontFamily: M.display, fontWeight: 700, fontSize: 13.5, color: M.ink, boxShadow: M.dropSm,
+            }}>📊 See full match stats</div>
+
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 9, marginTop: 8 }}>
               <span style={{ ...label, marginBottom: 0 }}>How hard was it? (feeds training load)</span>
               <span style={{ fontFamily: M.display, fontWeight: 700, fontSize: 20, color: M.success }}>
@@ -559,6 +574,26 @@ export default function LiveMatchScreen({ athleteId, athleteName, resume, onFini
           </>
         )}
       </div>
+
+      {/* full stats overlay — live during play, and on the finish screen */}
+      {showStats && match && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 40, background: M.pageBg, overflowY: "auto" }}>
+          <div style={{ maxWidth: 480, margin: "0 auto", padding: "18px 16px 40px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+              <div onClick={() => setShowStats(false)} style={{ cursor: "pointer", fontFamily: M.display, fontWeight: 700, fontSize: 13, color: M.sub }}>
+                ‹ Back to match
+              </div>
+              <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 13, color: M.ink }}>⏱ {fmtClock(elapsedMin)}</div>
+            </div>
+            <ScoreBoard sb={sb} config={match.config} />
+            <MatchStatsView
+              stats={fullStats}
+              log={match.log}
+              names={{ p1: match.config.valissaName, p2: match.config.opponentName }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
