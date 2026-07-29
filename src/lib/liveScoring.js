@@ -11,9 +11,18 @@ export const FORMATS = {
   "bo3":     { label: "Best of 3 sets",          setsToWin: 2, gamesPerSet: 6, tbAt: 6, tbTarget: 7, finalSetSuperTb: false, forcedNoAd: false },
   "bo3-stb": { label: "Best of 3 · 10-pt 3rd",   setsToWin: 2, gamesPerSet: 6, tbAt: 6, tbTarget: 7, finalSetSuperTb: true,  forcedNoAd: false },
   "set1":    { label: "Single set",              setsToWin: 1, gamesPerSet: 6, tbAt: 6, tbTarget: 7, finalSetSuperTb: false, forcedNoAd: false },
-  "fast4":   { label: "Fast4 (4-game sets)",     setsToWin: 2, gamesPerSet: 4, tbAt: 3, tbTarget: 7, finalSetSuperTb: false, forcedNoAd: true  },
+  // Fast4: 4-game sets, but 3-3 plays on (4-3 doesn't win it) and 4-4 is a tiebreak.
+  // At one set all the scorer picks how the third set runs — see DECIDER_RULES.
+  "fast4":   { label: "Fast4 · TB at 4-4",       setsToWin: 2, gamesPerSet: 4, tbAt: 4, tbTarget: 7, finalSetSuperTb: false, forcedNoAd: true,  deciderChoice: true },
   "pro8":    { label: "8-game pro set",          setsToWin: 1, gamesPerSet: 8, tbAt: 8, tbTarget: 7, finalSetSuperTb: false, forcedNoAd: false },
 };
+
+// How the deciding set is played, chosen courtside once the match is one set all
+// (formats with deciderChoice). Held in config.decider: null until the call is made.
+export const DECIDER_RULES = [
+  { key: "set",     label: "Play a Fast4 set",        detail: "Third set as normal — to 4, plays on at 3-3, tiebreak at 4-4" },
+  { key: "superTb", label: "10-point match tiebreak", detail: "First to 10, win by 2 — decides the match" },
+];
 
 // Shot codes match MatchTrack; plist.js resolveShotField buckets them (drop
 // shots to their own field, lob/inside-out/passing shot onto the base wing).
@@ -72,6 +81,9 @@ export function createMatch(config = {}) {
       valissaName: config.valissaName || "Valissa",
       opponentName: config.opponentName || "Opponent",
       mode: config.mode === "detailed" ? "detailed" : "quick",
+      // Always written (never undefined) so the Firestore draft round-trips it, and so
+      // the engine can tell "not chosen yet" (null) from a pre-feature draft (no key).
+      decider: DECIDER_RULES.some(r => r.key === config.decider) ? config.decider : null,
       startedAt: config.startedAt || new Date().toISOString(),
     },
     log: [],
@@ -96,7 +108,12 @@ export function deriveScore(config, log) {
   let winner = null;
   const snapshots = [];
 
-  const isSuperTbSet = () => fmt.finalSetSuperTb && setNumber === finalSetNumber;
+  // Drafts saved before the third-set choice existed carry no `decider` key — read them
+  // as a normal set, which is how they were already being scored.
+  const deciderRule = "decider" in config ? config.decider : "set";
+  const chosenSuperTb = () => !!fmt.deciderChoice && deciderRule === "superTb";
+
+  const isSuperTbSet = () => (fmt.finalSetSuperTb || chosenSuperTb()) && setNumber === finalSetNumber;
   const inTiebreak = () => isSuperTbSet() || (games.p1 === fmt.tbAt && games.p2 === fmt.tbAt);
   const tbTarget = () => (isSuperTbSet() ? 10 : fmt.tbTarget);
 
@@ -194,6 +211,10 @@ export function deriveScore(config, log) {
 
   const superTb = isSuperTbSet();
   const tiebreak = !matchOver && inTiebreak();
+  // The third-set call is open at the start of the deciding set — including after undoing
+  // back into it, so a mis-tap can be corrected. Scoring is blocked while it's unanswered.
+  const deciderChoice = !!fmt.deciderChoice && !matchOver && setNumber === finalSetNumber
+    && games.p1 === 0 && games.p2 === 0 && pts.p1 === 0 && pts.p2 === 0;
   return {
     sets,
     setsWon: {
@@ -209,6 +230,9 @@ export function deriveScore(config, log) {
     server: matchOver ? null : currentServer(),
     breakPoint: currentBreakPoint(),
     decidingPoint: !matchOver && !tiebreak && noAd && pts.p1 === 3 && pts.p2 === 3,
+    deciderRule,
+    deciderChoice,
+    deciderPending: deciderChoice && deciderRule == null,
     matchOver,
     winner,
     gamesCompletedTotal,

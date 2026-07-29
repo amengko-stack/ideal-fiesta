@@ -3,7 +3,8 @@ import { doc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { M } from "../styles/mobileTheme.js";
 import {
-  createMatch, recordPoint, undo, scoreboard, liveStats, FORMATS, SHOT_TYPES, DIRECTIONS, MISSES,
+  createMatch, recordPoint, undo, scoreboard, liveStats,
+  FORMATS, DECIDER_RULES, SHOT_TYPES, DIRECTIONS, MISSES,
 } from "../lib/liveScoring.js";
 
 const label = { fontSize: 11, color: M.sub, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", marginBottom: 9 };
@@ -145,6 +146,14 @@ export default function LiveMatchScreen({ athleteId, athleteName, resume, onFini
     if (scoreboard(next).matchOver) setPhase("finish");
   };
 
+  // The third-set call at one set all (Fast4). Lives in config, so it persists with the
+  // draft and is re-derived by the engine like every other rule.
+  const chooseDecider = (key) => {
+    const next = { ...match, config: { ...match.config, decider: key } };
+    persist(next);
+    setMatch(next);
+  };
+
   // Placement helpers (Detailed mode). Winners commit a direction and advance;
   // errors build up a { miss, direction } draft, then commit together.
   const commitLocation = (location) => setPending(p => ({ ...p, location: location ?? null }));
@@ -282,8 +291,31 @@ export default function LiveMatchScreen({ athleteId, athleteName, resume, onFini
               </div>
             )}
 
+            {/* third-set call at one set all — scoring waits until it's answered */}
+            {sb.deciderChoice && (
+              <div style={{ background: M.card, borderRadius: 16, padding: 14, marginBottom: 12, boxShadow: M.dropSm }}>
+                <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 14, color: M.ink, marginBottom: 3 }}>
+                  One set all — how is the third set played?
+                </div>
+                <div style={{ fontSize: 12, color: M.sub, marginBottom: 10 }}>
+                  {sb.deciderPending ? "Ask the umpire before the first point." : "Tap to change while it's still 0-0."}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {DECIDER_RULES.map(r => (
+                    <div key={r.key} onClick={() => chooseDecider(r.key)}
+                      style={{ ...chip(sb.deciderRule === r.key), padding: "11px 14px", textAlign: "left" }}>
+                      {r.label}
+                      <div style={{ fontSize: 11, fontWeight: 600, color: sb.deciderRule === r.key ? M.deepGreen : M.muted, marginTop: 2 }}>
+                        {r.detail}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* point capture */}
-            {!pending && (
+            {!pending && !sb.deciderPending && (
               <>
                 <div style={label}>{serverName} serving — how was the serve?</div>
                 <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>

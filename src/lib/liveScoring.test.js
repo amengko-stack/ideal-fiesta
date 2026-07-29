@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { createMatch, recordPoint, undo, scoreboard, liveStats, finalizeMatch, FORMATS } from "./liveScoring.js";
+import {
+  createMatch, recordPoint, undo, scoreboard, deriveScore, liveStats, finalizeMatch,
+  FORMATS, DECIDER_RULES,
+} from "./liveScoring.js";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -163,15 +166,41 @@ describe("match formats", () => {
     expect(sb.sets.p2).toEqual([0, 6, 10]);
   });
 
-  it("fast4: 4-game sets with a tiebreak at 3-3, no-ad forced", () => {
+  it("fast4: 4-2 takes the set, no-ad forced", () => {
     let s = createMatch({ format: "fast4" });
     expect(s.config.noAd).toBe(true);
-    for (let g = 0; g < 3; g++) { s = winGame(s, 1); s = winGame(s, 2); }
+    for (const w of [1, 1, 2, 2, 1, 1]) s = winGame(s, w); // 2-2 then 4-2
+    const sb = scoreboard(s);
+    expect(sb.sets.p1).toEqual([4]);
+    expect(sb.sets.p2).toEqual([2]);
+    expect(sb.setNumber).toBe(2);
+  });
+
+  it("fast4: 3-3 plays on — 4-3 is not the set, 5-3 is", () => {
+    let s = createMatch({ format: "fast4" });
+    for (let g = 0; g < 3; g++) { s = winGame(s, 1); s = winGame(s, 2); } // 3-3
+    let sb = scoreboard(s);
+    expect(sb.games).toEqual({ p1: 3, p2: 3 });
+    expect(sb.inTiebreak).toBe(false);
+    s = winGame(s, 1); // 4-3 — win-by-two not met
+    sb = scoreboard(s);
+    expect(sb.games).toEqual({ p1: 4, p2: 3 });
+    expect(sb.sets.p1).toEqual([]);
+    s = winGame(s, 1); // 5-3
+    sb = scoreboard(s);
+    expect(sb.sets.p1).toEqual([5]);
+    expect(sb.sets.p2).toEqual([3]);
+    expect(sb.setNumber).toBe(2);
+  });
+
+  it("fast4: tiebreak at 4-4, recorded 5-4", () => {
+    let s = createMatch({ format: "fast4" });
+    for (let g = 0; g < 4; g++) { s = winGame(s, 1); s = winGame(s, 2); } // 4-4
     expect(scoreboard(s).inTiebreak).toBe(true);
     for (let i = 0; i < 7; i++) s = point(s, 1);
     const sb = scoreboard(s);
-    expect(sb.sets.p1).toEqual([4]);
-    expect(sb.sets.p2).toEqual([3]);
+    expect(sb.sets.p1).toEqual([5]);
+    expect(sb.sets.p2).toEqual([4]);
   });
 
   it("pro8: single 8-game set", () => {
@@ -180,6 +209,94 @@ describe("match formats", () => {
     const sb = scoreboard(s);
     expect(sb.matchOver).toBe(true);
     expect(sb.sets.p1).toEqual([8]);
+  });
+});
+
+// ─── fast4 third-set decider (chosen courtside at one set all) ─────────────────
+
+describe("fast4 third-set decider", () => {
+  // Set 1 to Valissa 4-0, set 2 to the opponent 0-4 → one set all, third set to come.
+  const oneSetAll = (decider) => {
+    let s = createMatch({ format: "fast4", ...(decider === undefined ? {} : { decider }) });
+    for (let g = 0; g < 4; g++) s = winGame(s, 1);
+    for (let g = 0; g < 4; g++) s = winGame(s, 2);
+    return s;
+  };
+  // What the live screen does when the scorer picks a rule.
+  const choose = (state, decider) => ({ ...state, config: { ...state.config, decider } });
+
+  it("starts undecided and normalises a bad value", () => {
+    expect(createMatch({ format: "fast4" }).config.decider).toBe(null);
+    expect(createMatch({ format: "fast4", decider: "superTb" }).config.decider).toBe("superTb");
+    expect(createMatch({ format: "fast4", decider: "junk" }).config.decider).toBe(null);
+  });
+
+  it("asks how the third set is played at one set all", () => {
+    const sb = scoreboard(oneSetAll());
+    expect(sb.setNumber).toBe(3);
+    expect(sb.setsWon).toEqual({ p1: 1, p2: 1 });
+    expect(sb.deciderChoice).toBe(true);
+    expect(sb.deciderPending).toBe(true);
+    expect(sb.deciderRule).toBe(null);
+    expect(sb.isSuperTb).toBe(false);
+  });
+
+  it("superTb: third set is a 10-point match tiebreak recorded in points", () => {
+    let s = choose(oneSetAll(), "superTb");
+    let sb = scoreboard(s);
+    expect(sb.deciderPending).toBe(false);
+    expect(sb.isSuperTb).toBe(true);
+    for (let i = 0; i < 10; i++) s = point(s, 2);
+    sb = scoreboard(s);
+    expect(sb.matchOver).toBe(true);
+    expect(sb.winner).toBe(2);
+    expect(sb.sets.p1).toEqual([4, 0, 0]);
+    expect(sb.sets.p2).toEqual([0, 4, 10]);
+  });
+
+  it("set: third set is an ordinary Fast4 set — 3-3 plays on to 5-3", () => {
+    let s = choose(oneSetAll(), "set");
+    expect(scoreboard(s).isSuperTb).toBe(false);
+    for (let g = 0; g < 3; g++) { s = winGame(s, 1); s = winGame(s, 2); } // 3-3
+    expect(scoreboard(s).inTiebreak).toBe(false);
+    s = winGame(s, 1); s = winGame(s, 1); // 5-3
+    const sb = scoreboard(s);
+    expect(sb.matchOver).toBe(true);
+    expect(sb.winner).toBe(1);
+    expect(sb.sets.p1).toEqual([4, 0, 5]);
+    expect(sb.sets.p2).toEqual([0, 4, 3]);
+  });
+
+  it("undoing back to the start of the third set re-opens the choice, keeping the rule", () => {
+    let s = choose(oneSetAll(), "set");
+    s = winGame(s, 1); // 1-0 in the third
+    expect(scoreboard(s).deciderChoice).toBe(false);
+    for (let i = 0; i < 4; i++) s = undo(s);
+    const sb = scoreboard(s);
+    expect(sb.setNumber).toBe(3);
+    expect(sb.games).toEqual({ p1: 0, p2: 0 });
+    expect(sb.deciderChoice).toBe(true);
+    expect(sb.deciderPending).toBe(false);
+    expect(sb.deciderRule).toBe("set");
+  });
+
+  it("drafts saved before the choice existed score the third set as a normal set", () => {
+    const s = choose(oneSetAll(), "set");
+    const legacy = { ...s.config };
+    delete legacy.decider; // pre-feature draft: no decider key at all
+    const sb = deriveScore(legacy, s.log);
+    expect(sb.deciderRule).toBe("set");
+    expect(sb.deciderPending).toBe(false);
+    expect(sb.isSuperTb).toBe(false);
+  });
+
+  it("no other format offers the choice", () => {
+    for (const [id, f] of Object.entries(FORMATS)) expect(!!f.deciderChoice).toBe(id === "fast4");
+    for (const id of ["bo3", "bo3-stb", "set1", "pro8"]) {
+      const sb = scoreboard(createMatch({ format: id }));
+      expect(sb.deciderChoice).toBe(false);
+      expect(sb.deciderPending).toBe(false);
+    }
   });
 });
 
@@ -369,5 +486,13 @@ describe("drop shots and exact rally", () => {
 describe("FORMATS", () => {
   it("exposes labels for the setup UI", () => {
     for (const f of Object.values(FORMATS)) expect(f.label).toBeTruthy();
+  });
+
+  it("exposes the third-set decider options with copy for the prompt", () => {
+    expect(DECIDER_RULES.map(r => r.key)).toEqual(["set", "superTb"]);
+    for (const r of DECIDER_RULES) {
+      expect(r.label).toBeTruthy();
+      expect(r.detail).toBeTruthy();
+    }
   });
 });
