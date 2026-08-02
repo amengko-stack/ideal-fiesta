@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { emptyMemory, capMemory, memoryBlock, recordDivisionChange } from "./athleteMemory.js";
+import fs from "node:fs";
+import path from "node:path";
+import { emptyMemory, capMemory, memoryBlock, recordDivisionChange } from "./athleteMemoryCore.js";
 
 describe("emptyMemory", () => {
   it("returns the null-shaped default", () => {
@@ -193,5 +195,51 @@ describe("recordDivisionChange", () => {
     const memory = emptyMemory();
     const result = recordDivisionChange(memory, null, "2026-03-01");
     expect(result.divisionHistory).toEqual([]);
+  });
+});
+
+// Why this module is split from athleteMemory.js: src/firebase.js calls
+// getAuth() at import time, which throws auth/invalid-api-key wherever the
+// VITE_FIREBASE_* vars are absent. CI passes those to the build step only, so
+// a test that transitively imports firebase passes locally (a .env supplies
+// them) and fails in CI. This guard catches that before a push does.
+describe("test suite stays free of Firebase", () => {
+  const LIB = path.resolve("src/lib");
+  const FIREBASE = path.resolve("src/firebase.js");
+
+  const importsOf = (file) => {
+    if (!fs.existsSync(file)) return [];
+    return [...fs.readFileSync(file, "utf8").matchAll(/froms+["']([^"']+)["']/g)]
+      .map(m => m[1]).filter(s => s.startsWith("."));
+  };
+  const resolveSpec = (from, spec) => {
+    const base = path.resolve(path.dirname(from), spec);
+    if (fs.existsSync(base) && fs.statSync(base).isFile()) return base;
+    for (const ext of [".js", ".jsx"]) if (fs.existsSync(base + ext)) return base + ext;
+    return null;
+  };
+  const reachesFirebase = (entry) => {
+    const seen = new Set(); const stack = [entry];
+    while (stack.length) {
+      const cur = stack.pop();
+      if (seen.has(cur)) continue;
+      seen.add(cur);
+      if (cur === FIREBASE) return true;
+      for (const s of importsOf(cur)) {
+        const r = resolveSpec(cur, s);
+        if (r) stack.push(r);
+      }
+    }
+    return false;
+  };
+
+  const testFiles = fs.readdirSync(LIB).filter(f => f.endsWith(".test.js"));
+
+  it("finds the test files it is meant to guard", () => {
+    expect(testFiles.length).toBeGreaterThan(5);
+  });
+
+  it.each(testFiles)("%s does not transitively import src/firebase.js", (f) => {
+    expect(reachesFirebase(path.join(LIB, f))).toBe(false);
   });
 });
