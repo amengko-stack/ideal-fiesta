@@ -55,7 +55,13 @@ export function friendlyAiError(err) {
   if (!raw.trim()) return "Something went wrong — no error detail was reported.";
 
   for (const rule of RULES) {
-    if (rule.match.test(raw)) return rule.message;
+    if (rule.match.test(raw)) {
+      // ai.js attaches what the model actually sent as `(began: "…")`. Keep it
+      // — without it a malformed reply is unfixable, because nobody can see
+      // what was wrong with it.
+      const began = raw.match(/\(began: [\s\S]*\)\s*$/);
+      return began ? `${rule.message} ${began[0]}` : rule.message;
+    }
   }
   return truncate(raw);
 }

@@ -38,6 +38,14 @@ describe("friendlyAiError", () => {
       .toBe("The AI's reply was too long to finish. Try again.");
   });
 
+  it("keeps the snippet of what the model actually sent", () => {
+    // ai.js appends this; without it a malformed reply can't be diagnosed.
+    const err = new Error('AI response was not valid JSON (began: "Here is the season review:")');
+    const out = friendlyAiError(err);
+    expect(out).toContain("The AI returned a malformed reply.");
+    expect(out).toContain('(began: "Here is the season review:")');
+  });
+
   it("passes an unrecognised message through rather than hiding it", () => {
     expect(friendlyAiError(new TypeError("Cannot read properties of undefined (reading 'valissa')")))
       .toBe("Cannot read properties of undefined (reading 'valissa')");
