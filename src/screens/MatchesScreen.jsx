@@ -22,7 +22,21 @@ const sortedByRecency = (matches) => [...(matches || [])].sort((a, b) => {
   return b.matchStartTime.localeCompare(a.matchStartTime);
 });
 
-export default function MatchesScreen({ matches, tournaments, seasonReport, seasonLoading, showParentNotes, liveDraft, onStartLive, onResumeLive, onDiscardLive, onOpenMatch, onOpenImport, onAddTournament, onGenerateSeason }) {
+// Why the last generation failed, kept on the card: a toast is gone before
+// anyone can read it, let alone report it.
+function ErrorNote({ text }) {
+  return (
+    <div style={{
+      padding: "11px 13px", background: "rgba(224,67,63,0.14)", border: "1px solid rgba(224,67,63,0.35)",
+      borderRadius: 12, marginBottom: 12,
+    }}>
+      <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", color: "#ff9d9a", marginBottom: 4 }}>COULDN'T GENERATE</div>
+      <div style={{ fontSize: 12.5, color: "#f2dedd", lineHeight: 1.5 }}>{text}</div>
+    </div>
+  );
+}
+
+export default function MatchesScreen({ matches, tournaments, seasonReport, seasonLoading, seasonError, showParentNotes, liveDraft, onStartLive, onResumeLive, onDiscardLive, onOpenMatch, onOpenImport, onAddTournament, onGenerateSeason }) {
   const list = sortedByRecency(matches);
   const wins = list.filter(m => m.whoWonMatch === 1).length;
   const total = list.length;
@@ -147,12 +161,19 @@ export default function MatchesScreen({ matches, tournaments, seasonReport, seas
             <div style={{ fontSize: 13, color: "#eaf3ee", lineHeight: 1.55, marginBottom: 14 }}>
               {seasonReport.seasonOverview || seasonReport.overview || seasonReport.developmentalStageAssessment || "Season analysis ready."}
             </div>
+            {seasonReport.divisionContext && (
+              <div style={{ padding: "12px 13px", background: "rgba(200,245,100,0.10)", borderRadius: 12, marginBottom: 12 }}>
+                <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", color: M.limeDim, marginBottom: 4 }}>DIVISION CONTEXT</div>
+                <div style={{ fontSize: 12.5, color: "#dfeee6", lineHeight: 1.5 }}>{seasonReport.divisionContext}</div>
+              </div>
+            )}
             {showParentNotes && seasonReport.parentNote && (
               <div style={{ padding: "12px 13px", background: "rgba(47,127,217,0.14)", borderRadius: 12, marginBottom: 12 }}>
                 <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", color: "#7fb6f0", marginBottom: 4 }}>FOR PARENTS</div>
                 <div style={{ fontSize: 12.5, color: "#dfeee6", lineHeight: 1.5 }}>{seasonReport.parentNote}</div>
               </div>
             )}
+            {seasonError && <ErrorNote text={seasonError} />}
             <div onClick={onGenerateSeason} style={{ cursor: "pointer", textAlign: "center", fontFamily: M.display, fontWeight: 700, fontSize: 12.5, color: M.limeDim }}>↺ Regenerate</div>
           </>
         ) : (
@@ -160,6 +181,7 @@ export default function MatchesScreen({ matches, tournaments, seasonReport, seas
             <div style={{ fontSize: 12.5, color: "#aebfb6", lineHeight: 1.5, marginBottom: 14 }}>
               {total} match{total === 1 ? "" : "es"} recorded. Generate an AI review to spot patterns, strengths and what to work on next.
             </div>
+            {seasonError && <ErrorNote text={seasonError} />}
             <div onClick={total ? onGenerateSeason : undefined} style={{
               cursor: total ? "pointer" : "default", background: total ? M.gradient : "#23433a",
               color: total ? M.deepGreen : "#688577", borderRadius: 13, padding: 13, textAlign: "center",

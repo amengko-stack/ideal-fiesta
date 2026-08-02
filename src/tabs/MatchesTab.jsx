@@ -11,6 +11,7 @@ import { generateSeasonReport } from "../lib/seasonReport.js";
 import { COLORS } from "../styles/theme.js";
 import MatchDetail from "./MatchDetail.jsx";
 import SeasonReportView from "./SeasonReportView.jsx";
+import { friendlyAiError } from "../lib/aiErrors.js";
 
 // ─── MATCHES TAB ─────────────────────────────────────────────────────────────
 export default function MatchesTab({ athleteId }) {
@@ -62,7 +63,7 @@ export default function MatchesTab({ athleteId }) {
       setViewingSeasonReport(true);
     } catch (err) {
       console.error("Season analysis error:", err);
-      setStatus({ ok: false, text: `Season analysis failed: ${err.message}` });
+      setStatus({ ok: false, text: `Season analysis failed — ${friendlyAiError(err)}` });
     } finally {
       setSeasonLoading(false);
     }

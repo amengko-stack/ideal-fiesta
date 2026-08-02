@@ -27,6 +27,7 @@ import ProfileSheet from "./ProfileSheet.jsx";
 import { computeAge, chronologicalCategory } from "../lib/athleteIdentity.js";
 import { mergeWellbeingByDate } from "../lib/load.js";
 import { generateSeasonReport } from "../lib/seasonReport.js";
+import { friendlyAiError } from "../lib/aiErrors.js";
 import { generateMatchAnalysis } from "../lib/matchAnalysis.js";
 import { acwrStatus, computeLoad } from "../lib/load.js";
 import { daysUntil, nearestUpcoming } from "../lib/tournaments.js";
@@ -60,6 +61,10 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
   const [seasonReport, setSeasonReport] = useState(null);
   const [planResult, setPlanResult] = useState(null);
   const [planLoading, setPlanLoading] = useState(false);
+  // Why the last AI generation failed, kept on the card because a toast is
+  // gone before anyone can read or report it.
+  const [seasonError, setSeasonError] = useState(null);
+  const [planError, setPlanError] = useState(null);
   const [sheet, setSheet]       = useState(null); // null | "log" | "checkin" | "tournament" | "import"
   const [earnedBadges, setEarnedBadges] = useState({});
   const [badgeSheet, setBadgeSheet] = useState(null); // null | BADGES entry
@@ -117,7 +122,7 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
       refresh();
     } catch (e) {
       console.error("Match analysis:", e);
-      if (detailMatchIdRef.current === forId) showToast("Couldn't analyse — try again later 🙈");
+      if (detailMatchIdRef.current === forId) showToast(`Couldn't analyse — ${friendlyAiError(e)}`);
     } finally {
       setAnalysisGenerating(false);
     }
@@ -198,13 +203,18 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
   const generateSeason = async () => {
     if (seasonLoading) return;
     setSeasonLoading(true);
+    setSeasonError(null);
     try {
       const report = await generateSeasonReport(athleteId, matches);
       setSeasonReport(report);
       showToast("Season analysis ready 🧠");
     } catch (e) {
       console.error("Season generation:", e);
-      showToast("Couldn't generate — try again later 🙈");
+      // Toasts vanish; the card keeps the reason around long enough to read
+      // and report it.
+      const reason = friendlyAiError(e);
+      setSeasonError(reason);
+      showToast(`Couldn't generate — ${reason}`);
     } finally {
       setSeasonLoading(false);
     }
@@ -213,6 +223,7 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
   const generatePlan = async (mode) => {
     if (planLoading) return;
     setPlanLoading(true);
+    setPlanError(null);
     try {
       const { planData } = await generateSundayPlan(athleteId, {
         profile, weekLogs, sessionHistory, wellbeing,
@@ -224,7 +235,9 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
       showToast(msg);
     } catch (e) {
       console.error("Plan generation:", e);
-      showToast("Couldn't build the plan — try again 🙈");
+      const reason = friendlyAiError(e);
+      setPlanError(reason);
+      showToast(`Couldn't build the plan — ${reason}`);
     } finally {
       setPlanLoading(false);
     }
@@ -469,6 +482,7 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
               tournaments={tournaments}
               seasonReport={seasonReport}
               seasonLoading={seasonLoading}
+              seasonError={seasonError}
               showParentNotes={isParent && parentMode}
               liveDraft={liveDraft}
               onStartLive={startLive}
@@ -484,6 +498,7 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
               plan={planResult}
               tournaments={tournaments}
               loading={planLoading}
+              error={planError}
               doneMap={planResult?.doneMap}
               onGenerate={generatePlan}
               onToggleExercise={toggleExercise}

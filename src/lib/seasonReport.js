@@ -35,7 +35,23 @@ export async function generateSeasonReport(athleteId, matches) {
     return "—";
   };
 
-  const matchLines = matchesWithAnalysis.map((m, idx) => {
+  // Detail every match and the prompt grows without bound as the season runs,
+  // eventually costing more than it's worth and risking a truncated reply.
+  // Detail the most recent DETAIL_LIMIT and summarise the rest — but say so in
+  // the prompt, or the model reports on a partial season while sounding
+  // comprehensive.
+  const DETAIL_LIMIT = 20;
+  const detailed = matchesWithAnalysis.slice(-DETAIL_LIMIT);
+  const omitted  = matchesWithAnalysis.slice(0, Math.max(0, matchesWithAnalysis.length - DETAIL_LIMIT));
+
+  const omittedSummary = omitted.length === 0 ? "" : (() => {
+    const wins = omitted.filter(m => m.whoWonMatch === 1).length;
+    const first = omitted[0]?.matchStartTime?.slice(0, 10) ?? "?";
+    const last  = omitted[omitted.length - 1]?.matchStartTime?.slice(0, 10) ?? "?";
+    return `EARLIER MATCHES (not detailed below): ${omitted.length} analysed matches from ${first} to ${last}, record ${wins}W-${omitted.length - wins}L. Only the ${detailed.length} most recent are broken out below — treat the season as longer than the detail you can see, and do not claim a trend spans the whole season when it only spans the detailed matches.\n`;
+  })();
+
+  const matchLines = detailed.map((m, idx) => {
     const date = m.matchStartTime
       ? new Date(m.matchStartTime).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })
       : "Unknown date";
@@ -60,9 +76,9 @@ export async function generateSeasonReport(athleteId, matches) {
 
   const userMsg = `${ctx.athleteProfile?.identityText || `ATHLETE: ${identity.name} · female · age ${identity.age ?? "unknown"}`}
 ${memorySection}
-Season review across ${matchesWithAnalysis.length} matches:
+Season review across ${matchesWithAnalysis.length} analysed matches:
 
-${matchLines}
+${omittedSummary}${matchLines}
 
 Current training load context:
 Weekly sRPE: ${ctx.sessionLogs?.thisWeekSrpe ?? "—"} | ACWR: ${ctx.sessionLogs?.acwr ?? "—"} | Load level: ${loadLevelFromAcwr(ctx.sessionLogs?.acwr)}`;
@@ -104,7 +120,10 @@ Weekly sRPE: ${ctx.sessionLogs?.thisWeekSrpe ?? "—"} | ACWR: ${ctx.sessionLogs
   "divisionContext": "how the step up in division across this season's matches (if any) affects the reading of her results — narrate any transition between age divisions rather than treating the season as homogeneous"
 }`;
 
-  const parsed = await callClaudeJSON({ system: systemPrompt, userContent: userMsg, maxTokens: 4000 });
+  // 6000 is the proxy's own clamp (functions/index.js) and what match analysis
+  // and plan generation already use. This call was left at 4000 — the tightest
+  // budget in the app — and then gained a divisionContext output field.
+  const parsed = await callClaudeJSON({ system: systemPrompt, userContent: userMsg, maxTokens: 6000 });
 
   const report = { ...parsed, generatedAt: new Date().toISOString(), matchCount: matchesWithAnalysis.length };
   await setDoc(doc(db, "athletes", athleteId, "reports", "seasonLatest"), report);

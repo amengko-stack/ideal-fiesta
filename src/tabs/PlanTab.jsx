@@ -7,6 +7,7 @@ import { calculateMetrics } from "../lib/load.js";
 import { COLORS } from "../styles/theme.js";
 import { TENNIS_GAPS } from "../lib/exerciseDb.js";
 import { generateSundayPlan } from "../lib/planGen.js";
+import { friendlyAiError } from "../lib/aiErrors.js";
 
 // ─── PLAN TAB ─────────────────────────────────────────────────────────────────
 export default function PlanTab({ athleteId, profile, weekLogs, sessionHistory, wellbeing, aiLoading, setAiLoading, planResult, setPlanResult }) {
@@ -34,7 +35,7 @@ export default function PlanTab({ athleteId, profile, weekLogs, sessionHistory, 
       setEscalations(escalatedItems);
     } catch (e) {
       console.error("Plan generation error:", e);
-      setAiError(`Could not generate plan — ${e.message}`);
+      setAiError(`Could not generate plan — ${friendlyAiError(e)}`);
     } finally {
       isGenerating.current = false;
       setAiLoading(false);

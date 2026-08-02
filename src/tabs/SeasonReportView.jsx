@@ -102,6 +102,14 @@ export default function SeasonReportView({ report, onBack, onRegenerate, seasonL
         </div>
       )}
 
+      {/* Division Context — how the step up between age divisions colours the season */}
+      {report.divisionContext && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          <div className="card-title" style={{ marginBottom: 8 }}>Division Context</div>
+          <div style={{ color: COLORS.text, fontSize: "0.87rem", lineHeight: 1.65 }}>{report.divisionContext}</div>
+        </div>
+      )}
+
       {/* Long Term Outlook */}
       {report.longTermOutlook && (
         <div className="card" style={{ marginBottom: 14 }}>

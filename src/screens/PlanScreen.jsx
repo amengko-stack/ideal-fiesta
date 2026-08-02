@@ -17,7 +17,7 @@ const AUTO_MODE = { normal: "none", pre: "pre", week_of: "week_of" };
 
 const label = { fontSize: 11, color: M.sub, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", margin: "16px 0 9px" };
 
-export default function PlanScreen({ plan, tournaments, loading, doneMap, onGenerate, onToggleExercise, onFinishSession, onRegenerate }) {
+export default function PlanScreen({ plan, tournaments, loading, error, doneMap, onGenerate, onToggleExercise, onFinishSession, onRegenerate }) {
   const [override, setOverride] = useState(null);
   const [finishing, setFinishing] = useState(false);
   const [difficulty, setDifficulty] = useState(3);
@@ -56,6 +56,15 @@ export default function PlanScreen({ plan, tournaments, loading, doneMap, onGene
         </div>
         {override != null && override !== autoMode && (
           <div onClick={() => setOverride(null)} style={{ cursor: "pointer", fontFamily: M.display, fontWeight: 700, fontSize: 12, color: "#5c7a0a", marginBottom: 10 }}>↺ Back to auto (from the schedule)</div>
+        )}
+        {error && !loading && (
+          <div style={{
+            padding: "11px 13px", background: "#FDECEC", border: `1px solid ${M.danger}33`,
+            borderRadius: 12, marginTop: 6, marginBottom: 4,
+          }}>
+            <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", color: M.danger, marginBottom: 4 }}>COULDN&apos;T BUILD THE PLAN</div>
+            <div style={{ fontSize: 12.5, color: M.ink, lineHeight: 1.5 }}>{error}</div>
+          </div>
         )}
         <div onClick={loading ? undefined : () => onGenerate(mode)} style={{
           cursor: loading ? "default" : "pointer", background: M.gradient, color: M.deepGreen,

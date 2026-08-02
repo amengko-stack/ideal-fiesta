@@ -6,6 +6,7 @@ import { doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { generateMatchAnalysis } from "../lib/matchAnalysis.js";
 import { COLORS } from "../styles/theme.js";
+import { friendlyAiError } from "../lib/aiErrors.js";
 
 // ── Shared table styles ──
 const TH  = { fontSize: "0.7rem", color: COLORS.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", padding: "5px 8px", textAlign: "right" };
@@ -68,7 +69,9 @@ export default function MatchDetail({ match, onBack, onDelete, athleteId }) {
       setEscalations(escalatedItems);
     } catch (err) {
       console.error("Analysis error:", err);
-      setAnalysisError("Failed to generate analysis. Make sure the backend server is running.");
+      // Was a fixed "make sure the backend server is running", which is wrong
+      // for most causes and sent people chasing the wrong problem.
+      setAnalysisError(friendlyAiError(err));
     } finally {
       setAnalysisLoading(false);
     }
