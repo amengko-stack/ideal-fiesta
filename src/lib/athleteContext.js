@@ -4,6 +4,9 @@ import {
 } from "firebase/firestore";
 import { sessionSRPE, computeLoad } from "./load.js";
 import { toLocalDateStr } from "./dates.js";
+import { nearestUpcoming, daysUntil } from "./tournaments.js";
+import { computeAge, identityBlock, resolveIdentity } from "./athleteIdentity.js";
+import { loadMemory, memoryBlock } from "./athleteMemory.js";
 
 // ─── ATHLETE CONTEXT BUILDER ─────────────────────────────────────────────────
 // Assembles a unified context object from Firestore before every AI analysis.
@@ -79,23 +82,46 @@ export async function buildAthleteContext(athleteUid) {
     daysSinceTournament:     null,
   };
   try {
-    const tSnap = await getDoc(doc(db, "athletes", athleteUid, "config", "tournamentStatus"));
-    if (tSnap.exists()) {
-      const t        = tSnap.data();
-      const daysUntil = t.upcomingTournamentDate
-        ? Math.round((new Date(t.upcomingTournamentDate) - now) / msPerDay)
-        : null;
-      const daysSince = t.lastTournamentDate
-        ? Math.round((now - new Date(t.lastTournamentDate)) / msPerDay)
-        : null;
+    const todayStr = toLocalDateStr(now);
+    const tourSnap = await getDocs(collection(db, "athletes", athleteUid, "tournaments"));
+    const tournaments = tourSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    if (tournaments.length > 0) {
+      const upcoming = nearestUpcoming(tournaments, todayStr);
+      const past = tournaments
+        .filter(t => t.date && daysUntil(t.date, todayStr) < 0)
+        .sort((a, b) => b.date.localeCompare(a.date))[0] || null;
+
+      const daysUntilVal = upcoming ? daysUntil(upcoming.date, todayStr) : null;
+      const daysSinceVal = past ? -daysUntil(past.date, todayStr) : null;
+
       tournamentStatus = {
-        hasUpcomingTournament:    daysUntil != null && daysUntil >= 0,
-        daysUntilTournament:      daysUntil != null && daysUntil >= 0 ? daysUntil : null,
-        playedTournamentRecently: daysSince != null && daysSince <= 14,
-        daysSinceTournament:      daysSince,
+        hasUpcomingTournament:    daysUntilVal != null,
+        daysUntilTournament:      daysUntilVal,
+        playedTournamentRecently: daysSinceVal != null && daysSinceVal <= 14,
+        daysSinceTournament:      daysSinceVal,
       };
+    } else {
+      // Legacy fallback — no code writes this doc anymore, kept only for
+      // any pre-existing accounts that still have one.
+      const tSnap = await getDoc(doc(db, "athletes", athleteUid, "config", "tournamentStatus"));
+      if (tSnap.exists()) {
+        const t        = tSnap.data();
+        const daysUntilVal = t.upcomingTournamentDate
+          ? Math.round((new Date(t.upcomingTournamentDate) - now) / msPerDay)
+          : null;
+        const daysSinceVal = t.lastTournamentDate
+          ? Math.round((now - new Date(t.lastTournamentDate)) / msPerDay)
+          : null;
+        tournamentStatus = {
+          hasUpcomingTournament:    daysUntilVal != null && daysUntilVal >= 0,
+          daysUntilTournament:      daysUntilVal != null && daysUntilVal >= 0 ? daysUntilVal : null,
+          playedTournamentRecently: daysSinceVal != null && daysSinceVal <= 14,
+          daysSinceTournament:      daysSinceVal,
+        };
+      }
     }
-  } catch (_) { /* document not yet created — defaults stand */ }
+  } catch { /* document not yet created — defaults stand */ }
 
   // ── 4. Last strength session ───────────────────────────────────────────────
   const strengthSnap = await getDocs(
@@ -120,13 +146,19 @@ export async function buildAthleteContext(athleteUid) {
   const profileSnap = await getDoc(doc(db, "athletes", athleteUid));
   let athleteProfile = null;
   if (profileSnap.exists()) {
-    const p   = profileSnap.data();
-    const dob = p.dob ? new Date(p.dob) : null;
+    const p        = profileSnap.data();
+    const identity  = resolveIdentity(p, now);
     athleteProfile = {
-      name:       p.name ?? null,
-      age:        dob ? Math.floor((now - dob) / (365.25 * msPerDay)) : null,
-      tennisSaps: p.gaps ?? [],
-      phvStage:   p.phvStage ?? null,
+      name:                p.name ?? null,
+      age:                 computeAge(p.dob, now),
+      dob:                 p.dob ?? null,
+      competitionCategory: p.competitionCategory ?? null,
+      categoryLabel:       identity.categoryLabel,
+      playingUp:           identity.playingUp,
+      isPlayingUp:         identity.isPlayingUp,
+      gaps:                p.gaps ?? [],
+      phvStage:            p.phvStage ?? null,
+      identityText:        identityBlock(p, now),
     };
   }
 
@@ -149,7 +181,7 @@ export async function buildAthleteContext(athleteUid) {
           deferredPriorities: Array.isArray(a.deferredPriorities) ? a.deferredPriorities : [],
         };
       }
-    } catch (_) {}
+    } catch { /* absent or unreadable — degrade to the default above */ }
   }
 
   // ── 7. Deferred priorities (status = "active") ─────────────────────────────
@@ -185,7 +217,34 @@ export async function buildAthleteContext(athleteUid) {
         assessment:  a.assessment  ?? null,
         priority:    a.priority    ?? null,
       }));
-  } catch (_) {}
+  } catch { /* absent or unreadable — degrade to the default above */ }
+
+  // ── 9. Athlete development memory ──────────────────────────────────────────
+  let memory;
+  let memoryText;
+  try {
+    memory = await loadMemory(athleteUid);
+    memoryText = memoryBlock(memory);
+  } catch {
+    memory = null;
+    memoryText = "";
+  }
+
+  // ── 10. Season report — closes the dead feedback loop ──────────────────────
+  // Only nextMonthPriority + longTermOutlook are surfaced (not the whole doc).
+  let standingSeasonPriority = null;
+  try {
+    const seasonSnap = await getDoc(doc(db, "athletes", athleteUid, "reports", "seasonLatest"));
+    if (seasonSnap.exists()) {
+      const s = seasonSnap.data();
+      if (s.nextMonthPriority || s.longTermOutlook) {
+        standingSeasonPriority = {
+          nextMonthPriority: s.nextMonthPriority ?? null,
+          longTermOutlook:   s.longTermOutlook   ?? null,
+        };
+      }
+    }
+  } catch { /* absent or unreadable — degrade to the default above */ }
 
   const context = {
     generatedAt:         now.toISOString(),
@@ -199,6 +258,9 @@ export async function buildAthleteContext(athleteUid) {
     matchAnalysis,
     deferredPriorities,
     technicalAssessments,
+    memory,
+    memoryText,
+    standingSeasonPriority,
   };
 
   return context;

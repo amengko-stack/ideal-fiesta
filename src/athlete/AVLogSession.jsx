@@ -7,6 +7,8 @@ import {
 import { COLORS } from "../styles/theme.js";
 import { callClaudeText } from "../lib/ai.js";
 import { toLocalDateStr } from "../lib/dates.js";
+import { shoutoutSystemPrompt } from "../lib/athleteIdentity.js";
+import { loadMemory, pushShoutout } from "../lib/athleteMemory.js";
 
 function TypeBtn({ t, icon, label, color, type, setType, setFocus, setSportName }) {
   return (
@@ -28,7 +30,7 @@ function TypeBtn({ t, icon, label, color, type, setType, setFocus, setSportName 
 }
 
 // ─── AV: LOG SESSION ──────────────────────────────────────────────────────────
-export default function AVLogSession({ athleteId }) {
+export default function AVLogSession({ athleteId, profile }) {
   const [type, setType]           = useState("tennis");
   const [sportName, setSportName] = useState("");
   const [duration, setDuration]   = useState("");
@@ -114,12 +116,16 @@ export default function AVLogSession({ athleteId }) {
     // Fetch motivational message in background
     const activityLabel = type === "tennis" ? "Tennis" : entry.sportName || "Other Sport";
     const userMsg = `Valissa just logged a ${activityLabel} session:\n- Duration: ${entry.duration} minutes\n- Intensity: ${entry.intensity}/5\n- Focus: ${entry.focus || "general training"}\n- Time of day: ${timeOfDay}\n- Day of week: ${dayOfWeek}\n\nWrite a motivational confirmation message specifically referencing what she just did. Make it feel personal and real.`;
-    callClaudeText({
-      system: "You are an encouraging sports coach writing a short motivational message to a 12-year-old female tennis athlete named Valissa who also cross-trains in other sports. Keep it genuine, specific, and energetic — not generic. Never use the same phrasing twice. Write like a coach who actually watched her train, not a robot. Maximum 2 sentences.",
-      userContent: userMsg,
-      maxTokens: 120,
-    })
-      .then(msg => setMotivationMsg(msg || "Great work today — every session counts! Keep showing up. 💪"))
+    loadMemory(athleteId)
+      .then(memory => callClaudeText({
+        system: shoutoutSystemPrompt(profile, memory.shoutouts || []),
+        userContent: userMsg,
+        maxTokens: 120,
+      }))
+      .then(msg => {
+        setMotivationMsg(msg || "Great work today — every session counts! Keep showing up. 💪");
+        if (msg) pushShoutout(athleteId, msg).catch(() => { /* non-blocking */ });
+      })
       .catch(() => setMotivationMsg("Great work today — every session counts! Keep showing up. 💪"))
       .finally(() => setMotivationLoading(false));
   };

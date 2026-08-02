@@ -85,6 +85,7 @@ export function createMatch(config = {}) {
       // the engine can tell "not chosen yet" (null) from a pre-feature draft (no key).
       decider: DECIDER_RULES.some(r => r.key === config.decider) ? config.decider : null,
       startedAt: config.startedAt || new Date().toISOString(),
+      ageCategory: config.ageCategory ?? null,
     },
     log: [],
   };
@@ -428,6 +429,7 @@ export function finalizeMatch(state, { durationMin = null, winner = null } = {})
     id: String(Date.now()),
     matchStartTime: state.config.startedAt,
     season: new Date(state.config.startedAt).getFullYear(),
+    ageCategory: state.config.ageCategory ?? null,
     whoWonMatch: whoWon,
     players: [], // absent stats → extractMatchData reconstructs everything from the log
     matchLog: state.log,

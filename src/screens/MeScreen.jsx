@@ -4,6 +4,7 @@ import { levelFromXp } from "../lib/gamification.js";
 import { TENNIS_GAPS } from "../lib/exerciseDb.js";
 import { FITNESS_TESTS } from "../lib/fitnessTests.js";
 import { growthVelocity } from "../lib/growth.js";
+import { identityChipText } from "../lib/athleteIdentity.js";
 
 const secTitle = { fontFamily: M.display, fontWeight: 700, fontSize: 15, color: M.ink, marginBottom: 12 };
 const PARENT_BADGE = (
@@ -22,9 +23,10 @@ const previousFor = (rows, key, latest) =>
   (rows || []).filter(r => r[key] === latest[key] && r.id !== latest.id && (r.date || "") <= (latest.date || ""))
     .sort((a, b) => (b.date || "").localeCompare(a.date || ""))[0] || null;
 
-export default function MeScreen({ profile, xp, streak, sessionHistory, priorities, benchmarks, technical, isParent, parentMode, onToggleParentMode, onToggleGap, onResolvePriority, onLogGrowth, onLogBenchmark, onLogStroke, onEditProfile, onSignOut }) {
+const PATTERN_STATUS_COLOR = { active: M.danger, improving: M.warn, resolved: M.success };
+
+export default function MeScreen({ profile, xp, streak, sessionHistory, priorities, benchmarks, technical, memory, onRemoveMemoryPattern, isParent, parentMode, onToggleParentMode, onToggleGap, onResolvePriority, onLogGrowth, onLogBenchmark, onLogStroke, onEditProfile, onSignOut }) {
   const firstName = (profile?.name || "Athlete").split(" ")[0];
-  const age = profile?.dob ? Math.floor((new Date() - new Date(`${profile.dob}T00:00:00`)) / (365.25 * 86400000)) : null;
   const lv = levelFromXp(xp);
   const gaps = profile?.gaps || [];
   const measurements = profile?.measurements || [];
@@ -50,7 +52,7 @@ export default function MeScreen({ profile, xp, streak, sessionHistory, prioriti
         }}>{firstName.charAt(0).toUpperCase() || "A"}</div>
         <div style={{ flex: 1 }}>
           <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 22, color: M.ink, lineHeight: 1 }}>{firstName}</div>
-          <div style={{ fontSize: 12.5, color: M.sub, marginTop: 4 }}>{age != null ? `Age ${age} · ` : ""}Tennis + Cross-Training</div>
+          <div style={{ fontSize: 12.5, color: M.sub, marginTop: 4 }}>{identityChipText(profile)} · Tennis + Cross-Training</div>
           <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
             <span style={{ fontFamily: M.display, fontWeight: 700, fontSize: 11, color: M.deepGreen, background: M.gradient, padding: "3px 10px", borderRadius: 10 }}>Lvl {lv.level}</span>
             <span style={{ fontSize: 11, fontWeight: 700, color: M.streakOrange, background: "#FFF1DD", padding: "3px 10px", borderRadius: 10 }}>🔥 {streak} days</span>
@@ -172,6 +174,48 @@ export default function MeScreen({ profile, xp, streak, sessionHistory, prioriti
               </div>
             ))}
           </Card>
+
+          {memory && (memory.narrative || memory.trajectory || (memory.persistentPatterns || []).length > 0) && (
+            <Card>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                <span style={{ fontFamily: M.display, fontWeight: 700, fontSize: 15, color: M.ink }}>What the AI knows about you 🧠</span>
+                {PARENT_BADGE}
+              </div>
+              {memory.narrative && (
+                <div style={{ fontSize: 12.5, color: M.ink, lineHeight: 1.5, marginBottom: 10 }}>{memory.narrative}</div>
+              )}
+              {memory.trajectory && (
+                <div style={{ fontSize: 12, color: M.sub, lineHeight: 1.5, marginBottom: 10 }}>
+                  <span style={{ fontWeight: 700 }}>Trajectory: </span>{memory.trajectory}
+                </div>
+              )}
+              {(memory.persistentPatterns || []).length > 0 && (
+                <>
+                  <div style={{ fontSize: 11, color: M.sub, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", marginTop: 6, marginBottom: 6 }}>
+                    Persistent patterns
+                  </div>
+                  {memory.persistentPatterns.map((p, i) => (
+                    <div key={`${p.pattern}-${i}`} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "9px 0", borderTop: `1px solid ${M.divider}` }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                          <span style={{ fontFamily: M.display, fontWeight: 600, fontSize: 13, color: M.ink }}>{p.pattern}</span>
+                          {p.status && (
+                            <span style={{ fontSize: 9, fontWeight: 700, color: PATTERN_STATUS_COLOR[p.status] || M.muted, background: `${PATTERN_STATUS_COLOR[p.status] || M.muted}18`, padding: "2px 7px", borderRadius: 20, textTransform: "uppercase" }}>{p.status}</span>
+                          )}
+                        </div>
+                        {p.evidence && <div style={{ fontSize: 11, color: M.sub, marginTop: 2 }}>{p.evidence}</div>}
+                      </div>
+                      <span
+                        onClick={() => onRemoveMemoryPattern && onRemoveMemoryPattern(p.pattern)}
+                        style={{ cursor: "pointer", fontSize: 11, color: M.danger, fontWeight: 700, flexShrink: 0, padding: "3px 6px" }}
+                        title="Remove — if this is wrong, take it out"
+                      >✕ Remove</span>
+                    </div>
+                  ))}
+                </>
+              )}
+            </Card>
+          )}
 
         </>
       )}

@@ -24,6 +24,7 @@ import GrowthSheet from "./GrowthSheet.jsx";
 import BenchmarkSheet from "./BenchmarkSheet.jsx";
 import StrokeSheet from "./StrokeSheet.jsx";
 import ProfileSheet from "./ProfileSheet.jsx";
+import { computeAge, chronologicalCategory } from "../lib/athleteIdentity.js";
 import { mergeWellbeingByDate } from "../lib/load.js";
 import { generateSeasonReport } from "../lib/seasonReport.js";
 import { generateMatchAnalysis } from "../lib/matchAnalysis.js";
@@ -36,6 +37,7 @@ import { sessionSRPE } from "../lib/load.js";
 import { finalizeMatch } from "../lib/liveScoring.js";
 import { BADGES, evaluateBadges } from "../lib/badges.js";
 import { resolveDeferred } from "../lib/deferredPriorities.js";
+import { emptyMemory, deleteMemoryPattern } from "../lib/athleteMemory.js";
 
 const SCREENS = {
   home:    { kicker: null,              label: "Home",    emoji: "🏠" },
@@ -66,6 +68,7 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
   const [priorities, setPriorities] = useState([]);
   const [benchmarks, setBenchmarks] = useState([]);
   const [technical, setTechnical] = useState([]);
+  const [memory, setMemory] = useState(emptyMemory());
   const [parentMode, setParentMode] = useState(() => {
     try { return localStorage.getItem("parentMode") !== "0"; } catch { return true; }
   });
@@ -136,6 +139,11 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
 
   const finishLive = (state, { durationMin, rpe }) => {
     const matchData = finalizeMatch(state, { durationMin });
+    if (matchData.ageCategory == null) {
+      matchData.ageCategory = profile?.competitionCategory
+        || chronologicalCategory(computeAge(profile?.dob))
+        || "U12";
+    }
     setDoc(doc(db, "matches", matchData.matchId), {
       ...matchData, athleteId, importedAt: new Date().toISOString(),
     }).catch(e => console.error("live match save:", e));
@@ -254,6 +262,17 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
     }
   };
 
+  const removeMemoryPattern = async (pattern) => {
+    try {
+      await deleteMemoryPattern(athleteId, pattern);
+      setMemory(prev => ({ ...prev, persistentPatterns: (prev.persistentPatterns || []).filter(p => p.pattern !== pattern) }));
+      showToast("Removed 🗑️");
+    } catch (e) {
+      console.error("removeMemoryPattern:", e);
+      showToast("Couldn't remove — try again 🙈");
+    }
+  };
+
   const toggleParentMode = () => {
     setParentMode(p => {
       const next = !p;
@@ -294,13 +313,14 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
       getDocs(collection(db, "athletes", athleteId, "benchmarks")),
       getDocs(collection(db, "athletes", athleteId, "technicalAssessments")),
       getDoc(doc(db, "athletes", athleteId, "liveMatches", "current")),
+      getDoc(doc(db, "athletes", athleteId, "memory", "current")),
     ])
       .then((results) => {
         if (cancelled) return;
         const val = (i) => (results[i].status === "fulfilled" ? results[i].value : null);
         const failed = results.filter(r => r.status === "rejected");
-        if (failed.length) console.error(`MobileApp data load: ${failed.length}/13 reads failed`, failed[0].reason);
-        const [profileSnap, logsSnap, wbSnap, sessSnap, xpSnap, matchesSnap, tournamentsSnap, seasonSnap, planSnap, prioritiesSnap, benchmarksSnap, technicalSnap, liveSnap] =
+        if (failed.length) console.error(`MobileApp data load: ${failed.length}/14 reads failed`, failed[0].reason);
+        const [profileSnap, logsSnap, wbSnap, sessSnap, xpSnap, matchesSnap, tournamentsSnap, seasonSnap, planSnap, prioritiesSnap, benchmarksSnap, technicalSnap, liveSnap, memorySnap] =
           results.map((_, i) => val(i));
         if (profileSnap?.exists()) setProfile({ id: profileSnap.id, ...profileSnap.data() });
         const logs = logsSnap ? logsSnap.docs.map(d => ({ id: d.id, ...d.data() })) : [];
@@ -322,6 +342,7 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
         if (benchmarksSnap) setBenchmarks(benchmarksSnap.docs.map(d => ({ id: d.id, ...d.data() })));
         if (technicalSnap) setTechnical(technicalSnap.docs.map(d => ({ id: d.id, ...d.data() })));
         if (liveSnap) setLiveDraft(liveSnap.exists() ? liveSnap.data() : null);
+        if (memorySnap) setMemory(memorySnap.exists() ? { ...emptyMemory(), ...memorySnap.data() } : emptyMemory());
         const dates = [
           ...logs.map(l => l.date),
           ...wb.map(w => w.date),
@@ -478,6 +499,8 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
               priorities={priorities}
               benchmarks={benchmarks}
               technical={technical}
+              memory={memory}
+              onRemoveMemoryPattern={removeMemoryPattern}
               isParent={isParent}
               parentMode={parentMode}
               onToggleParentMode={toggleParentMode}
@@ -499,6 +522,7 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
         <LiveMatchScreen
           athleteId={athleteId}
           athleteName={firstName}
+          profile={profile}
           resume={liveResume}
           onFinish={finishLive}
           onDiscard={discardLive}
@@ -507,7 +531,7 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
       )}
 
       <BottomSheet open={sheet === "log"} onClose={() => setSheet(null)}>
-        <LogSheet athleteId={athleteId} onSaved={onSaved} onMotivate={showToast} onClose={() => setSheet(null)} />
+        <LogSheet athleteId={athleteId} profile={profile} onSaved={onSaved} onMotivate={showToast} onClose={() => setSheet(null)} />
       </BottomSheet>
       <BottomSheet open={sheet === "checkin"} onClose={() => setSheet(null)}>
         <CheckinSheet athleteId={athleteId} initial={todayWb} onSaved={onSaved} onClose={() => setSheet(null)} />
@@ -527,7 +551,7 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
         <TournamentSheet athleteId={athleteId} onSaved={onSaved} onClose={() => setSheet(null)} />
       </BottomSheet>
       <BottomSheet open={sheet === "import"} onClose={() => setSheet(null)}>
-        <ImportSheet athleteId={athleteId} onSaved={onSaved} onClose={() => setSheet(null)} />
+        <ImportSheet athleteId={athleteId} profile={profile} onSaved={onSaved} onClose={() => setSheet(null)} />
       </BottomSheet>
       <BottomSheet open={sheet === "growth"} onClose={() => setSheet(null)}>
         <GrowthSheet athleteId={athleteId} measurements={profile?.measurements || []} onSaved={onSaved} onClose={() => setSheet(null)} />

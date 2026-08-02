@@ -134,6 +134,16 @@ export function readinessScore(mood, soreness) {
   return Math.round(Math.min(100, Math.max(0, raw)));
 }
 
+// Human load-level label from ACWR. Shared by matchAnalysis.js and
+// seasonReport.js so the two prompts can never drift on thresholds.
+export function loadLevelFromAcwr(acwr) {
+  if (acwr == null) return "Unknown";
+  if (acwr < 0.8)  return "Low";
+  if (acwr <= 1.3) return "Optimal";
+  if (acwr <= 1.5) return "High";
+  return "Very High";
+}
+
 // UI status for an ACWR value (thresholds match getACWRContext guidance).
 export function acwrStatus(acwr) {
   if (acwr == null) return { label: "No data", tone: "muted" };

@@ -3,8 +3,9 @@ import { doc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { M } from "../styles/mobileTheme.js";
 import { parsePlist, extractMatchData } from "../lib/plist.js";
+import { computeAge, chronologicalCategory } from "../lib/athleteIdentity.js";
 
-export default function ImportSheet({ athleteId, onSaved, onClose }) {
+export default function ImportSheet({ athleteId, profile, onSaved, onClose }) {
   const [busy, setBusy] = useState(false);
 
   const onFile = async (e) => {
@@ -20,10 +21,15 @@ export default function ImportSheet({ athleteId, onSaved, onClose }) {
       if (!matchData.matchId || matchData.matchId === "undefined") {
         throw new Error("missing match id");
       }
+      // Imported .matchtrack files carry no division of their own — stamp it from
+      // the athlete's current profile category at import time.
+      const ageCategory = profile?.competitionCategory
+        || chronologicalCategory(computeAge(profile?.dob))
+        || "U12";
       // Fire-and-forget: local commit is instant; syncs when online. (Parsing
       // above stays awaited — it's local and its failures matter to the user.)
       setDoc(doc(db, "matches", matchData.matchId), {
-        ...matchData, athleteId, importedAt: new Date().toISOString(),
+        ...matchData, ageCategory, athleteId, importedAt: new Date().toISOString(),
       }).catch(err => console.error("ImportSheet save:", err));
       onSaved(`Match vs ${matchData.opponentName || "Opponent"} imported! 🎾`);
       onClose();

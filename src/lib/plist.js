@@ -95,7 +95,7 @@ export function parseShotLocation(code) {
 
 export function extractMatchData(plistObj) {
   const players  = plistObj.players ?? [];
-  const { id, matchStartTime, season, whoWonMatch, matchLog = [] } = plistObj;
+  const { id, matchStartTime, season, whoWonMatch, matchLog = [], ageCategory } = plistObj;
 
   // ─── CRITICAL FIX ────────────────────────────────────────────────────────────
   // The plist has 4 player objects. The outer playerNumber is NOT reliable.
@@ -403,6 +403,7 @@ export function extractMatchData(plistObj) {
     matchId:        String(id),
     matchStartTime: matchStartTime ?? null,
     season:         season ?? null,
+    ageCategory:    ageCategory ?? null,
     whoWonMatch:    whoWonMatch ?? null,
     valissaName,
     opponentName,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { sessionSRPE, computeLoad, computeLoadHistory, mergeWellbeingByDate, calculateMetrics, readinessScore, acwrStatus } from "./load.js";
+import { sessionSRPE, computeLoad, computeLoadHistory, mergeWellbeingByDate, calculateMetrics, readinessScore, acwrStatus, loadLevelFromAcwr } from "./load.js";
 import { getWeekBounds, toLocalDateStr } from "./dates.js";
 
 describe("sessionSRPE", () => {
@@ -154,6 +154,26 @@ describe("readinessScore", () => {
   });
   it("clamps to 0..100", () => {
     expect(readinessScore(5, 0)).toBe(100);  // 60 + 40 = 100
+  });
+});
+
+describe("loadLevelFromAcwr", () => {
+  it("returns Unknown for null", () => {
+    expect(loadLevelFromAcwr(null)).toBe("Unknown");
+  });
+  it("returns Low below 0.8", () => {
+    expect(loadLevelFromAcwr(0.7)).toBe("Low");
+  });
+  it("returns Optimal between 0.8 and 1.3 inclusive", () => {
+    expect(loadLevelFromAcwr(0.8)).toBe("Optimal");
+    expect(loadLevelFromAcwr(1.3)).toBe("Optimal");
+  });
+  it("returns High between 1.3 (exclusive) and 1.5 inclusive", () => {
+    expect(loadLevelFromAcwr(1.4)).toBe("High");
+    expect(loadLevelFromAcwr(1.5)).toBe("High");
+  });
+  it("returns Very High above 1.5", () => {
+    expect(loadLevelFromAcwr(1.6)).toBe("Very High");
   });
 });
 

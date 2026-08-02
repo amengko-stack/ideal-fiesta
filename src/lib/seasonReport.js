@@ -2,6 +2,9 @@ import { doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { callClaudeJSON } from "./ai.js";
 import { buildAthleteContext } from "./athleteContext.js";
+import { resolveIdentity, categoryLabel } from "./athleteIdentity.js";
+import { loadLevelFromAcwr } from "./load.js";
+import { updateMemoryFromSeasonReport } from "./athleteMemory.js";
 
 // Season-report generation, shared by the classic MatchesTab and the new
 // MatchesScreen. Logic moved verbatim from MatchesTab (2026-07-08).
@@ -23,6 +26,8 @@ export async function generateSeasonReport(athleteId, matches) {
   }
 
   const ctx = await buildAthleteContext(athleteId);
+  const identity = resolveIdentity(ctx.athleteProfile || {});
+  const profileCategory = ctx.athleteProfile?.competitionCategory;
 
   const fmtMatchScore = m => {
     const sc = m.setScores;
@@ -39,10 +44,10 @@ export async function generateSeasonReport(athleteId, matches) {
     const o = m.opponent ?? {};
     const calc = m.calculated ?? {};
     const rally = calc.rallyDistribution ?? {};
-    const findings = (m.analysis?.criticalFindings ?? []).map(f => `${f.area}: ${f.finding}`).join(" | ");
+    const findings = (m.analysis?.criticalFindings ?? []).map(f => `${f.priority}: ${f.finding}`).join(" | ");
     return [
       `Match ${idx + 1} — ${date} vs ${m.opponentName || "Opponent"} — ${result} ${fmtMatchScore(m)}`,
-      `Tournament: ${m.season || "—"}`,
+      `Division: ${categoryLabel(m.ageCategory ?? profileCategory)}`,
       `Valissa: W=${v.winners ?? 0} UE=${v.unforcedErrors ?? 0} FE=${v.forcedErrors ?? 0} 1st serve=${v.firstServePct != null ? Number(v.firstServePct).toFixed(1) : "—"}% DF=${v.doubleFaults ?? 0}`,
       `Opponent: W=${o.winners ?? 0} UE=${o.unforcedErrors ?? 0}`,
       `Rally win rates: 0-4shots=${rally["0-4"]?.valissaWinPct ?? "—"}% 5-8shots=${rally["5-8"]?.valissaWinPct ?? "—"}% 9+shots=${rally["9+"]?.valissaWinPct ?? "—"}%`,
@@ -51,15 +56,23 @@ export async function generateSeasonReport(athleteId, matches) {
     ].filter(Boolean).join("\n");
   }).join("\n\n");
 
-  const userMsg = `Athlete: Valissa, age 12, female junior tennis player
+  const memorySection = ctx.memoryText ? `\n${ctx.memoryText}\n` : "";
+
+  const userMsg = `${ctx.athleteProfile?.identityText || `ATHLETE: ${identity.name} · female · age ${identity.age ?? "unknown"}`}
+${memorySection}
 Season review across ${matchesWithAnalysis.length} matches:
 
 ${matchLines}
 
 Current training load context:
-Weekly sRPE: ${ctx.thisWeekSRPE ?? "—"} | ACWR: ${ctx.acuteChronicRatio ?? "—"} | Load level: ${ctx.loadLevel ?? "—"}`;
+Weekly sRPE: ${ctx.sessionLogs?.thisWeekSrpe ?? "—"} | ACWR: ${ctx.sessionLogs?.acwr ?? "—"} | Load level: ${loadLevelFromAcwr(ctx.sessionLogs?.acwr)}`;
 
-  const systemPrompt = `You are a junior tennis development coach conducting a season review for a 12-year-old female athlete named Valissa. Analyze the following match statistics across multiple matches in chronological order. Return ONLY a raw JSON object — no markdown fences, start with { and end with }:
+  const ageDescriptor = identity.age != null ? `a ${identity.age}-year-old` : "a junior";
+  const upNote = identity.isPlayingUp
+    ? ` She is playing UP by ${identity.playingUp} year${identity.playingUp === 1 ? "" : "s"} — weigh her results against opponents who may be that much older and further developed.`
+    : "";
+
+  const systemPrompt = `You are a junior tennis development coach conducting a season review for ${identity.name}, ${ageDescriptor} female athlete competing in ${identity.categoryLabel}.${upNote} Analyze the following match statistics across multiple matches in chronological order. Return ONLY a raw JSON object — no markdown fences, start with { and end with }:
 
 {
   "totalMatchesAnalyzed": integer,
@@ -84,15 +97,24 @@ Weekly sRPE: ${ctx.thisWeekSRPE ?? "—"} | ACWR: ${ctx.acuteChronicRatio ?? "�
       "observation": "good in some matches poor in others — possible cause"
     }
   ],
-  "developmentalStageAssessment": "paragraph on where she is as a developing junior athlete based on all match data — contextualised for age 12",
+  "developmentalStageAssessment": "paragraph on where she is as a developing junior athlete based on all match data — contextualised for age ${identity.age ?? "her age"} and her ${identity.categoryLabel} division",
   "nextMonthPriority": "the single most important technical or physical development focus for the next 30 days with specific reasoning from the data",
   "longTermOutlook": "2-3 sentences on trajectory and what consistent training in her weak areas could produce over 6-12 months",
-  "parentNote": "one encouraging paragraph for the parent contextualising the season so far"
+  "parentNote": "one encouraging paragraph for the parent contextualising the season so far",
+  "divisionContext": "how the step up in division across this season's matches (if any) affects the reading of her results — narrate any transition between age divisions rather than treating the season as homogeneous"
 }`;
 
   const parsed = await callClaudeJSON({ system: systemPrompt, userContent: userMsg, maxTokens: 4000 });
 
   const report = { ...parsed, generatedAt: new Date().toISOString(), matchCount: matchesWithAnalysis.length };
   await setDoc(doc(db, "athletes", athleteId, "reports", "seasonLatest"), report);
+
+  // Memory update is an enhancement, never a reason for report generation to fail.
+  try {
+    await updateMemoryFromSeasonReport(athleteId, { profile: ctx.athleteProfile, report });
+  } catch (e) {
+    console.error("athleteMemory update (season):", e);
+  }
+
   return report;
 }

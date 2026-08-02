@@ -7,6 +7,8 @@ import { sessionSRPE } from "../lib/load.js";
 import { xpForSession } from "../lib/gamification.js";
 import { awardXp } from "../lib/gamificationStore.js";
 import { callClaudeText } from "../lib/ai.js";
+import { shoutoutSystemPrompt } from "../lib/athleteIdentity.js";
+import { loadMemory, pushShoutout } from "../lib/athleteMemory.js";
 
 const TYPES = [
   { id: "tennis",   label: "Tennis",   accent: M.tennisLight },
@@ -28,7 +30,7 @@ const chip = (sel, accent) => ({
   boxShadow: sel ? "0 4px 0 rgba(0,0,0,0.13)" : "none", transform: sel ? "translateY(-1px)" : "none",
 });
 
-export default function LogSheet({ athleteId, onSaved, onMotivate, onClose }) {
+export default function LogSheet({ athleteId, profile, onSaved, onMotivate, onClose }) {
   const [type, setType]           = useState("tennis");
   const [sportName, setSportName] = useState("");
   const [dur, setDur]             = useState(60);
@@ -68,12 +70,16 @@ export default function LogSheet({ athleteId, onSaved, onMotivate, onClose }) {
     // Personal coach shout-out, arriving as a follow-up toast (best-effort).
     const activityLabel = type === "tennis" ? "Tennis" : type === "match" ? "a tennis match"
       : type === "strength" ? "Strength training" : entry.sportName || "Cross-training";
-    callClaudeText({
-      system: "You are an encouraging sports coach writing a short motivational message to a 12-year-old female tennis athlete named Valissa who also cross-trains in other sports. Keep it genuine, specific, and energetic — not generic. Never use the same phrasing twice. Write like a coach who actually watched her train, not a robot. Maximum 2 sentences.",
-      userContent: `Valissa just logged: ${activityLabel}, ${dur} minutes, effort ${rpe}/10${focus ? `, focus: ${focus}` : ""}${entry.result ? `, result: ${entry.result === "W" ? "won!" : "lost"}` : ""}. Write a motivational confirmation referencing what she just did.`,
-      maxTokens: 120,
-    })
-      .then(msg => { if (msg && onMotivate) onMotivate(msg); })
+    loadMemory(athleteId)
+      .then(memory => callClaudeText({
+        system: shoutoutSystemPrompt(profile, memory.shoutouts || []),
+        userContent: `Valissa just logged: ${activityLabel}, ${dur} minutes, effort ${rpe}/10${focus ? `, focus: ${focus}` : ""}${entry.result ? `, result: ${entry.result === "W" ? "won!" : "lost"}` : ""}. Write a motivational confirmation referencing what she just did.`,
+        maxTokens: 120,
+      }))
+      .then(msg => {
+        if (msg && onMotivate) onMotivate(msg);
+        if (msg) pushShoutout(athleteId, msg).catch(() => { /* non-blocking */ });
+      })
       .catch(() => { /* best-effort only */ });
   };
 

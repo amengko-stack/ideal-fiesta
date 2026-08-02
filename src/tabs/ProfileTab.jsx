@@ -3,6 +3,7 @@ import { Calendar, FileText, Ruler, Target, User } from "lucide-react";
 import { TENNIS_GAPS } from "../lib/exerciseDb.js";
 import { toLocalDateStr } from "../lib/dates.js";
 import { COLORS } from "../styles/theme.js";
+import { AGE_CATEGORIES, computeAge, chronologicalCategory, identityChipText } from "../lib/athleteIdentity.js";
 
 // ─── PROFILE TAB ─────────────────────────────────────────────────────────────
 export default function ProfileTab({ profile, saveProfile }) {
@@ -10,6 +11,7 @@ export default function ProfileTab({ profile, saveProfile }) {
     name: "", dob: "", gaps: [],
     tennisSchedule: "", cheerSchedule: "", coachNotes: "",
     weight: "", height: "", sittingHeight: "", measurements: [],
+    competitionCategory: chronologicalCategory(computeAge(profile?.dob)) || "U12",
   });
   const [saved, setSaved]         = useState(false);
   const [saveError, setSaveError] = useState(false);
@@ -67,6 +69,32 @@ export default function ProfileTab({ profile, saveProfile }) {
           <div>
             <div className="label">Date of Birth</div>
             <input name="dob" type="date" value={form.dob} onChange={e => setForm(f => ({ ...f, dob: e.target.value }))} />
+          </div>
+        </div>
+        <div style={{ marginTop: 14 }}>
+          <div className="label">Competition Division</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {AGE_CATEGORIES.map(c => {
+              // Before a division has ever been chosen the profile doc has no
+              // `competitionCategory` key, so fall back to her chronological
+              // division rather than a fixed U12 — never assume she plays up.
+              const sel = (form.competitionCategory
+                || chronologicalCategory(computeAge(form.dob))
+                || "U12") === c.id;
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  className={`gap-chip ${sel ? "selected" : ""}`}
+                  onClick={() => setForm(f => ({ ...f, competitionCategory: c.id }))}
+                >
+                  {c.label}
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ color: COLORS.muted, fontSize: "0.78rem", marginTop: 8 }}>
+            {identityChipText(form)}
           </div>
         </div>
       </div>

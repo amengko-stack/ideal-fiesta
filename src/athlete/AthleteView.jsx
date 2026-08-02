@@ -5,6 +5,7 @@ import {
 import { db } from "../firebase";
 import { doc, getDoc } from "firebase/firestore";
 import { COLORS, css } from "../styles/theme.js";
+import { identityChipText } from "../lib/athleteIdentity.js";
 
 const AVLogSession = lazy(() => import("./AVLogSession.jsx"));
 const AVWellbeing  = lazy(() => import("./AVWellbeing.jsx"));
@@ -17,12 +18,16 @@ export default function AthleteView({ athleteId, user, onSignOut }) {
   const [section, setSection]     = useState("log");
   const [currentPlan, setPlan]    = useState(null);
   const [planLoading, setPlanLoading] = useState(true);
+  const [profile, setProfile]     = useState(null);
 
   useEffect(() => {
     getDoc(doc(db, "athletes", athleteId, "plans", "current"))
       .then(snap => { if (snap.exists()) setPlan(snap.data()); })
       .catch(e => console.error("Load plan error:", e))
       .finally(() => setPlanLoading(false));
+    getDoc(doc(db, "athletes", athleteId))
+      .then(snap => { if (snap.exists()) setProfile(snap.data()); })
+      .catch(e => console.error("Load profile error:", e));
   }, [athleteId]);
 
   const NAV = [
@@ -45,7 +50,7 @@ export default function AthleteView({ athleteId, user, onSignOut }) {
         <div style={{ display: "flex", gap: 5, marginTop: 6, flexWrap: "wrap", alignItems: "center" }}>
           {[
             { label: user?.displayName?.split(" ")[0] || "Athlete", color: COLORS.accent, bg: COLORS.accentMuted },
-            { label: "Age 12", color: COLORS.muted, bg: COLORS.surface },
+            { label: identityChipText(profile), color: COLORS.muted, bg: COLORS.surface },
             { label: "Tennis", color: COLORS.tennis, bg: "rgba(200,245,100,0.1)" },
             { label: "Cross-Training", color: COLORS.yellow, bg: "rgba(245,197,24,0.1)" },
             { label: "Athlete View", color: COLORS.yellow, bg: "rgba(245,197,24,0.12)" },
@@ -57,7 +62,7 @@ export default function AthleteView({ athleteId, user, onSignOut }) {
 
       <div style={{ padding: "20px 16px 110px", maxWidth: 480, margin: "0 auto" }}>
         <Suspense fallback={<div className="empty">Loading…</div>}>
-          {section === "log"       && <AVLogSession  athleteId={athleteId} />}
+          {section === "log"       && <AVLogSession  athleteId={athleteId} profile={profile} />}
           {section === "wellbeing" && <AVWellbeing   athleteId={athleteId} />}
           {section === "growth"    && <AVGrowth      athleteId={athleteId} />}
           {section === "plan"      && <AVPlan plan={currentPlan} loading={planLoading} />}

@@ -4,6 +4,7 @@ import { doc, getDoc, setDoc, addDoc, deleteDoc, collection, getDocs, query, ord
 import { db } from "../firebase";
 import { COLORS, css } from "../styles/theme.js";
 import AlertsBanner from "../components/AlertsBanner.jsx";
+import { identityChipText } from "../lib/athleteIdentity.js";
 
 const PlanTab        = lazy(() => import("./PlanTab.jsx"));
 const LogTab         = lazy(() => import("./LogTab.jsx"));
@@ -104,7 +105,7 @@ export default function AthleteMain({ athleteId, isParent, user, onBack, onSignO
           <div style={{ display: "flex", gap: 5, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
             {[
               { label: profile?.name || "Athlete",   color: COLORS.accent,  bg: COLORS.accentMuted },
-              { label: "Age 12",                     color: COLORS.muted,   bg: COLORS.surface },
+              { label: identityChipText(profile),    color: COLORS.muted,   bg: COLORS.surface },
               { label: "Tennis",                     color: COLORS.tennis,  bg: "rgba(200,245,100,0.1)" },
               { label: "Cross-Training",             color: COLORS.yellow,  bg: "rgba(245,197,24,0.1)" },
               ...(isParent ? [{ label: "Parent View", color: COLORS.yellow, bg: "rgba(245,197,24,0.12)" }] : []),

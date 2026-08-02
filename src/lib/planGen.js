@@ -6,10 +6,12 @@ import { getWeekBounds } from "./dates.js";
 import { calculateMetrics, getACWRContext } from "./load.js";
 import { EXERCISE_DB, TENNIS_GAPS } from "./exerciseDb.js";
 import { callClaudeJSON } from "./ai.js";
+import { resolveIdentity, identityBlock } from "./athleteIdentity.js";
 
 // ─── SUNDAY PLAN GENERATION ─────────────────────────────────────────────────
 export async function generateSundayPlan(athleteId, { profile, weekLogs, sessionHistory, wellbeing, tournament, sessionTime }) {
   const gaps = profile?.gaps || [];
+  const identity = resolveIdentity(profile);
 
   // Fetch unified context (includes match analysis + deferred priorities)
   const ctx = athleteId ? await buildAthleteContext(athleteId).catch(() => null) : null;
@@ -77,10 +79,15 @@ export async function generateSundayPlan(athleteId, { profile, weekLogs, session
 ATHLETE PROFILE
 ═══════════════════════════════════════════
 - Name: ${profile?.name || "Athlete"}
-- Age: 12 · Female · Growth phase (growth plates NOT yet fused)
+- Age: ${identity.age ?? "unknown"} · Female · Growth phase (growth plates NOT yet fused)
 - Primary sport: Tennis | Secondary: cross-training in other sports (she recently stopped cheerleading — older logs may include cheer sessions; treat those as historical load only)
 - Training age: youth athlete, still developing fundamental movement patterns
 - Tennis areas to develop: ${gapLabels.join(", ") || "general athletic development"}
+
+${identityBlock(profile)}
+${identity.isPlayingUp ? `- Physical preparation must help close the gap to opponents up to ${identity.yearsOlderOpponents} year${identity.yearsOlderOpponents === 1 ? "" : "s"} older, safely and WITHIN the growth-plate limits below — never by relaxing them.` : ""}
+${ctx?.memoryText ? `\n${ctx.memoryText}\n` : ""}
+${ctx?.standingSeasonPriority ? `STANDING SEASON PRIORITY:\n${ctx.standingSeasonPriority.nextMonthPriority ? `- Next month priority: ${ctx.standingSeasonPriority.nextMonthPriority}\n` : ""}${ctx.standingSeasonPriority.longTermOutlook ? `- Long-term outlook: ${ctx.standingSeasonPriority.longTermOutlook}\n` : ""}` : ""}
 
 PHYSICAL MEASUREMENTS (last 2 recorded):
 ${measurementText}
@@ -100,7 +107,7 @@ AGE & DEVELOPMENT RULES — APPLY TO EVERY SESSION
 - This is a critical motor-pattern window; every session should reinforce correct mechanics
 
 FEMALE ATHLETE MANDATORY INCLUSIONS:
-- ACL injury risk is significantly elevated in 12-year-old female athletes (growth, hormones, biomechanics)
+- ACL injury risk is significantly elevated in ${identity.age != null ? `${identity.age}-year-old` : "adolescent"} female athletes (growth, hormones, biomechanics)
 - EVERY session must include at least one landing-mechanics or single-leg stability exercise
 - Emphasise hip abductors and glute strength — weakness here is the #1 predictor of knee injury in female athletes
 - Watch for and cue against valgus collapse (knees caving in) on all landings and single-leg work
@@ -265,7 +272,7 @@ Respond with ONLY valid JSON, no other text:
 PRIORITY HIERARCHY — apply strictly in this order:
 1. Safety: if acute:chronic ratio > 1.3 OR average mood < 2 for 3+ consecutive days OR athlete within 48 hours post-tournament → prescribe recovery session only, override everything else
 2. Tournament proximity: if tournament within 7 days → reduce all volume 35%, familiar exercises only, no new movements, keep agility and movement quality intact
-3. Weekly load: if sRPE > 2000 → reduce weighted sets by 1, shorten session by 15 minutes. ALWAYS protect regardless of load: at least one agility movement, at least one plyometric, one core exercise — non-negotiable for age 12 athletic development window
+3. Weekly load: if sRPE > 2000 → reduce weighted sets by 1, shorten session by 15 minutes. ALWAYS protect regardless of load: at least one agility movement, at least one plyometric, one core exercise — non-negotiable for her ${identity.age ?? "current"}-year-old athletic development window
 4. Match findings: within constraints set by rules 1-3, prioritise exercises addressing critical findings and active deferred priorities — longest deferred first
 5. Progression: apply progressive overload only if rules 1-4 leave room — never sacrifice recovery for progression
 

@@ -3,6 +3,9 @@ import { db } from "../firebase";
 import { buildAthleteContext } from "./athleteContext.js";
 import { saveDeferredPriorities, refreshEscalations } from "./deferredPriorities.js";
 import { callClaudeJSON } from "./ai.js";
+import { categoryLabel, identityBlock } from "./athleteIdentity.js";
+import { loadLevelFromAcwr } from "./load.js";
+import { updateMemoryFromMatch } from "./athleteMemory.js";
 
 // Match-analysis generation, shared by the classic MatchDetail and any future
 // UI. Logic moved verbatim from MatchDetail (2026-07-09).
@@ -15,11 +18,7 @@ export async function generateMatchAnalysis(athleteId, match) {
   const context = await buildAthleteContext(athleteId);
 
   const acwr = context.sessionLogs.acwr;
-  const loadLevel = acwr == null ? "Unknown"
-    : acwr < 0.8  ? "Low"
-    : acwr <= 1.3 ? "Optimal"
-    : acwr <= 1.5 ? "High"
-    : "Very High";
+  const loadLevel = loadLevelFromAcwr(acwr);
 
   const matchId = match.id || match.matchId;
   const dp = context.deferredPriorities;
@@ -56,10 +55,17 @@ export async function generateMatchAnalysis(athleteId, match) {
     "identify priorities for growth. Be constructive and age-appropriate. " +
     "Return ONLY a raw JSON object. Do NOT wrap in markdown code fences. Do NOT include ```json or ``` anywhere in your response. Start your response with { and end with }.";
 
-  const userPrompt =
-`Analyze this tennis match for ${context.athleteProfile?.name || "Valissa"}, age ${context.athleteProfile?.age || 12}.
+  const divisionLabel = categoryLabel(match.ageCategory ?? context.athleteProfile?.competitionCategory);
 
-MATCH: ${match.whoWonMatch === 1 ? "WIN" : "LOSS"} vs ${match.opponentName || "Opponent"} on ${match.matchStartTime ? new Date(match.matchStartTime).toLocaleDateString() : "unknown date"}
+  const memorySection = context.memoryText ? `\n${context.memoryText}\n` : "";
+  const seasonPrioritySection = context.standingSeasonPriority
+    ? `\nSTANDING SEASON PRIORITY:\n${context.standingSeasonPriority.nextMonthPriority ? `- Next month priority: ${context.standingSeasonPriority.nextMonthPriority}\n` : ""}${context.standingSeasonPriority.longTermOutlook ? `- Long-term outlook: ${context.standingSeasonPriority.longTermOutlook}\n` : ""}`
+    : "";
+
+  const userPrompt =
+`${context.athleteProfile?.identityText || identityBlock({})}
+${memorySection}${seasonPrioritySection}
+MATCH (${divisionLabel}): ${match.whoWonMatch === 1 ? "WIN" : "LOSS"} vs ${match.opponentName || "Opponent"} on ${match.matchStartTime ? new Date(match.matchStartTime).toLocaleDateString() : "unknown date"}
 Score: ${scoreStr}
 
 SERVICE STATS (Valissa / Opponent):
@@ -101,6 +107,8 @@ ATHLETE CONTEXT:
 EXISTING DEFERRED PRIORITIES (${dp.length} active):
 ${dp.length > 0 ? dp.map(d => `- ${d.priority} (deferred ${d.weeksDeferredCount} weeks)`).join("\n") : "None"}
 
+In "matchSummary" and "parentNote", explicitly frame the result against the division she played (${divisionLabel}) — do not report an expected physical or power deficit against older opponents as a technical fault.
+
 Respond with exactly this JSON structure:
 {
   "matchSummary": "2-3 sentence tactical overview of the match",
@@ -132,6 +140,13 @@ Respond with exactly this JSON structure:
   }
 
   const escalatedItems = await refreshEscalations(athleteId);
+
+  // Memory update is an enhancement, never a reason for analysis to fail.
+  try {
+    await updateMemoryFromMatch(athleteId, { profile: context.athleteProfile, match, analysis: parsed });
+  } catch (e) {
+    console.error("athleteMemory update (match):", e);
+  }
 
   return { analysis: parsed, escalations: escalatedItems };
 }

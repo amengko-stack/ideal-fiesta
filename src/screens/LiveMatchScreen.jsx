@@ -6,6 +6,7 @@ import {
   createMatch, recordPoint, undo, scoreboard, liveStats,
   FORMATS, DECIDER_RULES, SHOT_TYPES, DIRECTIONS, MISSES,
 } from "../lib/liveScoring.js";
+import { AGE_CATEGORIES, computeAge, chronologicalCategory } from "../lib/athleteIdentity.js";
 
 const label = { fontSize: 11, color: M.sub, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", marginBottom: 9 };
 const chip = (sel, accent = M.tennisLight) => ({
@@ -198,7 +199,7 @@ function LiveStatsPanel({ stats, config, open, onToggle, scopeAvailable, statSco
 
 // ─── main screen ──────────────────────────────────────────────────────────────
 
-export default function LiveMatchScreen({ athleteId, athleteName, resume, onFinish, onDiscard, onClose }) {
+export default function LiveMatchScreen({ athleteId, athleteName, profile, resume, onFinish, onDiscard, onClose }) {
   const [match, setMatch] = useState(resume || null);
   const [phase, setPhase] = useState(resume ? "play" : "setup"); // setup | play | finish
   // pending point being assembled across taps: { serve, winner, outcome }
@@ -216,6 +217,8 @@ export default function LiveMatchScreen({ athleteId, athleteName, resume, onFini
   const [noAd, setNoAd] = useState(true);
   const [firstServer, setFirstServer] = useState(1);
   const [mode, setMode] = useState("quick");
+  const [ageCategory, setAgeCategory] = useState(() =>
+    profile?.competitionCategory || chronologicalCategory(computeAge(profile?.dob)) || "U12");
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 30000);
@@ -288,7 +291,7 @@ export default function LiveMatchScreen({ athleteId, athleteName, resume, onFini
 
   const start = () => {
     const created = createMatch({
-      format, noAd, firstServer, mode,
+      format, noAd, firstServer, mode, ageCategory,
       valissaName: athleteName || "Valissa",
       opponentName: opponent.trim() || "Opponent",
     });
@@ -373,6 +376,15 @@ export default function LiveMatchScreen({ athleteId, athleteName, resume, onFini
               {mode === "quick"
                 ? "Score, serves, aces and double faults — easy to keep up with courtside."
                 : "Adds how each point ended and the shot that ended it — richer stats for the coach."}
+            </div>
+
+            <div style={label}>Division</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 22 }}>
+              {AGE_CATEGORIES.map(c => (
+                <div key={c.id} onClick={() => setAgeCategory(c.id)} style={{ ...chip(ageCategory === c.id), flex: "none", padding: "10px 14px" }}>
+                  {c.id}
+                </div>
+              ))}
             </div>
 
             <div onClick={start} style={{

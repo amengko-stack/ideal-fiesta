@@ -52,6 +52,10 @@ export default function BenchmarksTab({ athleteId, profile }) {
   const sittingHeight = parseFloat(profile?.sittingHeight) || null;
   const weight        = parseFloat(profile?.weight)        || null;
   const dob           = profile?.dob ? new Date(profile.dob) : null;
+  // Intentionally NOT using the shared `computeAge` helper from athleteIdentity.js:
+  // the Mirwald maturity-offset equation below needs a fractional age (years since
+  // birth as a decimal), while computeAge() returns birthday-correct whole years.
+  // Swapping this out would shift every maturity-offset calculation.
   const ageYears      = dob ? (Date.now() - dob.getTime()) / (365.25 * 24 * 60 * 60 * 1000) : null;
 
   let mirwald = null;

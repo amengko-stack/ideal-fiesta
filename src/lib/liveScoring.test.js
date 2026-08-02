@@ -561,6 +561,16 @@ describe("finalizeMatch", () => {
     expect(doc.calculated.rallyDistribution["9+"].valissaWinPct).toBe(100);
   });
 
+  it("carries ageCategory from config, and null when config omits it", () => {
+    let s = createMatch({ format: "set1", ageCategory: "U14" });
+    s = winSet(s, 1);
+    expect(finalizeMatch(s, {}).ageCategory).toBe("U14");
+
+    let s2 = createMatch({ format: "set1" });
+    s2 = winSet(s2, 1);
+    expect(finalizeMatch(s2, {}).ageCategory).toBeNull();
+  });
+
   it("picks the leader when a match ends early", () => {
     let s = createMatch({ format: "bo3" });
     s = winSet(s, 2);

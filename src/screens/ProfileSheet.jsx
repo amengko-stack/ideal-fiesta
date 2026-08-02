@@ -2,6 +2,7 @@ import { useState } from "react";
 import { doc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { M } from "../styles/mobileTheme.js";
+import { AGE_CATEGORIES, computeAge, chronologicalCategory, identityChipText } from "../lib/athleteIdentity.js";
 
 const label = { fontSize: 11, color: M.sub, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", marginBottom: 9 };
 const input = {
@@ -19,6 +20,9 @@ export default function ProfileSheet({ athleteId, profile, onSaved, onClose }) {
   const [tennisSchedule, setTennisSchedule] = useState(profile?.tennisSchedule || "");
   const [crossSchedule, setCrossSchedule]   = useState(profile?.cheerSchedule || "");
   const [coachNotes, setCoachNotes]         = useState(profile?.coachNotes || "");
+  const [competitionCategory, setCompetitionCategory] = useState(
+    profile?.competitionCategory || chronologicalCategory(computeAge(profile?.dob)) || "U12"
+  );
   const [saving, setSaving]                 = useState(false);
 
   const save = () => {
@@ -30,6 +34,7 @@ export default function ProfileSheet({ athleteId, profile, onSaved, onClose }) {
       tennisSchedule: tennisSchedule.trim(),
       cheerSchedule: crossSchedule.trim(),
       coachNotes: coachNotes.trim().slice(0, 2000),
+      competitionCategory,
     }, { merge: true }).catch(e => console.error("ProfileSheet save:", e));
     onSaved("Profile updated ✓");
     onClose();
@@ -42,6 +47,23 @@ export default function ProfileSheet({ athleteId, profile, onSaved, onClose }) {
       <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Athlete name" style={input} />
       <div style={label}>Date of birth</div>
       <input type="date" value={dob} onChange={e => setDob(e.target.value)} style={input} />
+      <div style={label}>Competition division</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 6 }}>
+        {AGE_CATEGORIES.map(c => {
+          const sel = competitionCategory === c.id;
+          return (
+            <div key={c.id} onClick={() => setCompetitionCategory(c.id)} style={{
+              cursor: "pointer", padding: "7px 13px", borderRadius: 20, fontFamily: M.display,
+              fontWeight: 700, fontSize: 12,
+              border: sel ? "1.5px solid transparent" : "1.5px solid #D6E2DB",
+              background: sel ? M.gradient : M.card, color: sel ? M.deepGreen : M.muted,
+            }}>{c.label}</div>
+          );
+        })}
+      </div>
+      <div style={{ fontSize: 11.5, color: M.sub, marginBottom: 18 }}>
+        {identityChipText({ dob, competitionCategory })}
+      </div>
       <div style={label}>Tennis schedule</div>
       <input type="text" value={tennisSchedule} onChange={e => setTennisSchedule(e.target.value)} placeholder="e.g. Mon, Wed, Fri — 2hrs" style={input} />
       <div style={label}>Cross-training schedule</div>
