@@ -5,7 +5,7 @@
 // dropping the last entry (mirroring how plist.js reconstructs imported matches
 // from their matchLog). Emitted log entries use the exact MatchTrack field names
 // and codes so extractMatchData() can build the canonical match doc unchanged.
-import { extractMatchData } from "./plist.js";
+import { extractMatchData, rallyBucket } from "./plist.js";
 
 export const FORMATS = {
   "bo3":     { label: "Best of 3 sets",          setsToWin: 2, gamesPerSet: 6, tbAt: 6, tbTarget: 7, finalSetSuperTb: false, forcedNoAd: false },
@@ -327,8 +327,14 @@ export function liveStats(state, { setNumber = null } = {}) {
     firstIn: 0, serveTotal: 0, firstWon: 0, secondTotal: 0, secondWon: 0,
     aces: 0, doubleFaults: 0, winners: 0, unforcedErrors: 0, forcedErrors: 0,
     bpChances: 0, bpConverted: 0, bpFaced: 0, bpSaved: 0, pointsWon: 0,
+    servePointsWon: 0, returnTotal: 0, returnWon: 0,
   });
   const stats = { p1: mk(), p2: mk() };
+  const rally = {
+    "0-4": { total: 0, p1Won: 0 },
+    "5-8": { total: 0, p1Won: 0 },
+    "9+":  { total: 0, p1Won: 0 },
+  };
 
   for (const pt of points) {
     const server = parseInt(pt.whoServed, 10);
@@ -343,10 +349,16 @@ export function liveStats(state, { setNumber = null } = {}) {
     if (pt.serveType === 2) {
       sv.secondTotal += 1;
       if (pt.pointWonType === "df") sv.doubleFaults += 1;
-      else if (serverWon) sv.secondWon += 1;
+      else if (serverWon) { sv.secondWon += 1; sv.servePointsWon += 1; }
     } else {
       sv.firstIn += 1;
-      if (serverWon) sv.firstWon += 1;
+      if (serverWon) { sv.firstWon += 1; sv.servePointsWon += 1; }
+    }
+    // A double fault is not a return point — the returner never hit a return,
+    // so it must not be counted in returnTotal (mirrors plist.js's return-stat rule).
+    if (pt.pointWonType !== "df") {
+      rt.returnTotal += 1;
+      if (!serverWon) rt.returnWon += 1;
     }
     if (pt.outcome === "ace") sv.aces += 1;
     if (pt.breakPoint === 1) {
@@ -357,9 +369,19 @@ export function liveStats(state, { setNumber = null } = {}) {
     }
     const hitter = pt.whoHitShot === "1" ? stats.p1 : pt.whoHitShot === "2" ? stats.p2 : null;
     if (hitter) {
-      if (pt.pointWonType === "w") hitter.winners += 1;
+      // Aces/service winners are pointShotType "svcW" — plist.js excludes them from
+      // winners (they're counted in aces instead), so mirror that rule here.
+      if (pt.pointWonType === "w" && pt.pointShotType !== "svcW") hitter.winners += 1;
       else if (pt.pointWonType === "ufE") hitter.unforcedErrors += 1;
       else if (pt.pointWonType === "fE") hitter.forcedErrors += 1;
+    }
+
+    // Rally length buckets, using plist's boundaries. recordPoint defaults rallyLength
+    // to 1 for aces and 0 for double faults, so both land in "0-4" like plist does.
+    const key = rallyBucket(pt.rallyLength);
+    if (key) {
+      rally[key].total += 1;
+      if (winner === 1) rally[key].p1Won += 1;
     }
   }
 
@@ -368,10 +390,23 @@ export function liveStats(state, { setNumber = null } = {}) {
     p.firstServePct = pct(p.firstIn, p.serveTotal);
     p.firstWonPct = pct(p.firstWon, p.firstIn);
     p.secondWonPct = pct(p.secondWon, p.secondTotal);
+    p.servePointsWonPct = pct(p.servePointsWon, p.serveTotal);
+    p.returnWonPct = pct(p.returnWon, p.returnTotal);
   }
+  // Denominator is p1.pointsWon + p2.pointsWon, never points.length: the continue
+  // above skips points with an unusable whoServed before pointsWon is incremented.
+  const totalPointsWon = stats.p1.pointsWon + stats.p2.pointsWon;
+  for (const p of [stats.p1, stats.p2]) {
+    p.pointsWonPct = pct(p.pointsWon, totalPointsWon);
+  }
+  for (const key of Object.keys(rally)) {
+    rally[key].p1WonPct = pct(rally[key].p1Won, rally[key].total);
+  }
+
   return {
     ...stats,
-    momentum: state.log.slice(-10).map(p => parseInt(p.whoWonPoint, 10)),
+    momentum: points.slice(-10).map(p => parseInt(p.whoWonPoint, 10)),
+    rally,
   };
 }
 

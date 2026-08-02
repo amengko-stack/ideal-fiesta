@@ -22,6 +22,13 @@ const bigBtn = (bg, color = M.deepGreen) => ({
 
 const fmtClock = (min) => `${Math.floor(min / 60)}:${String(min % 60).padStart(2, "0")}`;
 
+// Shared value formatter for stats: an em-dash whenever a denominator is 0 or a
+// *Pct is null — "not applicable" (e.g. no break points in a super tiebreak) reads
+// very differently from "0/0" (failure).
+const fmtPct = (p) => (p == null ? "—" : `${p}%`);
+const fmtFrac = (n, d) => (!d ? "—" : `${n}/${d}`);
+const fmtCombo = (n, d, p) => (!d ? "—" : `${n}/${d} (${fmtPct(p)})`);
+
 // ─── scoreboard card ──────────────────────────────────────────────────────────
 
 function ScoreBoard({ sb, config }) {
@@ -90,13 +97,101 @@ function StatChip({ title, v1, v2 }) {
   );
 }
 
-function LiveStatsRow({ stats }) {
-  const pc = (v) => (v == null ? "—" : `${v}%`);
+function StatRow({ label: rowLabel, v1, v2, alt }) {
   return (
-    <div style={{ display: "flex", gap: 7, marginBottom: 12 }}>
-      <StatChip title="1ST SERVE" v1={pc(stats.p1.firstServePct)} v2={pc(stats.p2.firstServePct)} />
-      <StatChip title="BREAK PTS" v1={`${stats.p1.bpConverted}/${stats.p1.bpChances}`} v2={`${stats.p2.bpConverted}/${stats.p2.bpChances}`} />
-      <StatChip title="ACES · DF" v1={`${stats.p1.aces}·${stats.p1.doubleFaults}`} v2={`${stats.p2.aces}·${stats.p2.doubleFaults}`} />
+    <div style={{ display: "flex", alignItems: "center", padding: "6px 8px", background: alt ? M.fill : "transparent", borderRadius: 8 }}>
+      <span style={{ flex: 1.4, fontSize: 11.5, color: M.sub }}>{rowLabel}</span>
+      <span style={{ flex: 1, textAlign: "center", fontSize: 12, fontWeight: 700, color: M.ink }}>{v1}</span>
+      <span style={{ flex: 1, textAlign: "center", fontSize: 12, fontWeight: 700, color: M.ink }}>{v2}</span>
+    </div>
+  );
+}
+
+const RALLY_BUCKETS = [["0-4", "0-4 shots"], ["5-8", "5-8 shots"], ["9+", "9+ shots"]];
+
+// Expandable stats panel — collapsed default (three StatChips) or an expanded
+// comparison table, with a Match/Set N scope toggle when a set view would differ
+// from the match view.
+function LiveStatsPanel({ stats, config, open, onToggle, scopeAvailable, statScope, setStatScope, scopeSetNumber, detailed }) {
+  const p1 = stats.p1, p2 = stats.p2;
+  let rowIdx = 0;
+  const alt = () => rowIdx++ % 2 === 1;
+  const sectionLabel = { ...label, fontSize: 10, marginBottom: 4 };
+
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+        <span onClick={onToggle} style={{ ...label, marginBottom: 0, cursor: "pointer" }}>
+          STATS {open ? "⌃" : "⌄"}
+        </span>
+        {scopeAvailable && (
+          <div style={{ display: "flex", gap: 5 }}>
+            <div onClick={() => setStatScope("match")} style={{ ...chip(statScope === "match"), padding: "4px 10px", fontSize: 11, flex: "none" }}>Match</div>
+            <div onClick={() => setStatScope("set")} style={{ ...chip(statScope === "set"), padding: "4px 10px", fontSize: 11, flex: "none" }}>Set {scopeSetNumber}</div>
+          </div>
+        )}
+      </div>
+
+      {!open && (
+        <div style={{ display: "flex", gap: 7 }}>
+          <StatChip title="1ST SERVE" v1={fmtPct(p1.firstServePct)} v2={fmtPct(p2.firstServePct)} />
+          <StatChip title="BREAK PTS" v1={fmtFrac(p1.bpConverted, p1.bpChances)} v2={fmtFrac(p2.bpConverted, p2.bpChances)} />
+          <StatChip title="ACES · DF" v1={`${p1.aces}·${p1.doubleFaults}`} v2={`${p2.aces}·${p2.doubleFaults}`} />
+        </div>
+      )}
+
+      {open && (
+        <div style={{ background: M.card, borderRadius: 14, padding: "10px 10px 12px", boxShadow: M.dropSm }}>
+          <div style={{ display: "flex", padding: "2px 8px 8px" }}>
+            <span style={{ flex: 1.4 }} />
+            <span style={{ flex: 1, textAlign: "center", fontSize: 11, fontWeight: 700, color: M.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{config.valissaName}</span>
+            <span style={{ flex: 1, textAlign: "center", fontSize: 11, fontWeight: 700, color: M.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{config.opponentName}</span>
+          </div>
+
+          <div style={sectionLabel}>POINTS</div>
+          <StatRow label="Points won" v1={`${p1.pointsWon} (${fmtPct(p1.pointsWonPct)})`} v2={`${p2.pointsWon} (${fmtPct(p2.pointsWonPct)})`} alt={alt()} />
+          {detailed && (
+            <>
+              <StatRow label="Winners" v1={p1.winners} v2={p2.winners} alt={alt()} />
+              <StatRow label="Unforced" v1={p1.unforcedErrors} v2={p2.unforcedErrors} alt={alt()} />
+              <StatRow label="Forced" v1={p1.forcedErrors} v2={p2.forcedErrors} alt={alt()} />
+            </>
+          )}
+
+          <div style={{ ...sectionLabel, margin: "10px 0 4px" }}>SERVE</div>
+          <StatRow label="1st serve in" v1={fmtCombo(p1.firstIn, p1.serveTotal, p1.firstServePct)} v2={fmtCombo(p2.firstIn, p2.serveTotal, p2.firstServePct)} alt={alt()} />
+          <StatRow label="1st serve won" v1={fmtCombo(p1.firstWon, p1.firstIn, p1.firstWonPct)} v2={fmtCombo(p2.firstWon, p2.firstIn, p2.firstWonPct)} alt={alt()} />
+          <StatRow label="2nd serve won" v1={fmtCombo(p1.secondWon, p1.secondTotal, p1.secondWonPct)} v2={fmtCombo(p2.secondWon, p2.secondTotal, p2.secondWonPct)} alt={alt()} />
+          <StatRow label="Service pts won" v1={fmtCombo(p1.servePointsWon, p1.serveTotal, p1.servePointsWonPct)} v2={fmtCombo(p2.servePointsWon, p2.serveTotal, p2.servePointsWonPct)} alt={alt()} />
+          <StatRow label="Aces" v1={p1.aces} v2={p2.aces} alt={alt()} />
+          <StatRow label="Double faults" v1={p1.doubleFaults} v2={p2.doubleFaults} alt={alt()} />
+
+          <div style={{ ...sectionLabel, margin: "10px 0 4px" }}>RETURN & BREAKS</div>
+          <StatRow label="Return pts won" v1={fmtCombo(p1.returnWon, p1.returnTotal, p1.returnWonPct)} v2={fmtCombo(p2.returnWon, p2.returnTotal, p2.returnWonPct)} alt={alt()} />
+          <StatRow label="Break pts won" v1={fmtFrac(p1.bpConverted, p1.bpChances)} v2={fmtFrac(p2.bpConverted, p2.bpChances)} alt={alt()} />
+          <StatRow label="Break pts saved" v1={fmtFrac(p1.bpSaved, p1.bpFaced)} v2={fmtFrac(p2.bpSaved, p2.bpFaced)} alt={alt()} />
+
+          {detailed && (
+            <>
+              <div style={{ ...sectionLabel, margin: "10px 0 4px" }}>RALLY LENGTH</div>
+              {RALLY_BUCKETS.map(([key, lbl]) => {
+                const r = stats.rally[key];
+                return (
+                  <div key={key} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, padding: "0 8px" }}>
+                    <span style={{ width: 62, fontSize: 10.5, color: M.muted }}>{lbl}</span>
+                    <div style={{ flex: 1, height: 7, borderRadius: 4, background: M.dividerAlt, overflow: "hidden" }}>
+                      <div style={{ width: r.total ? `${Math.round(r.p1WonPct ?? 0)}%` : 0, height: "100%", background: M.tennisLight }} />
+                    </div>
+                    <span style={{ width: 76, textAlign: "right", fontSize: 10.5, fontWeight: 700, color: M.ink }}>
+                      {r.total ? `${r.total} pts · ${fmtPct(r.p1WonPct)}` : "—"}
+                    </span>
+                  </div>
+                );
+              })}
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -112,6 +207,8 @@ export default function LiveMatchScreen({ athleteId, athleteName, resume, onFini
   const [rpe, setRpe] = useState(6);
   const [exactRally, setExactRally] = useState(6); // stepper value for exact rally length
   const [now, setNow] = useState(() => Date.now()); // match clock, refreshed on an interval
+  const [statScope, setStatScope] = useState("match"); // "match" | "set"
+  const [statsOpen, setStatsOpen] = useState(false);
 
   // setup fields
   const [opponent, setOpponent] = useState("");
@@ -126,7 +223,22 @@ export default function LiveMatchScreen({ athleteId, athleteName, resume, onFini
   }, []);
 
   const sb = useMemo(() => (match ? scoreboard(match) : null), [match]);
-  const stats = useMemo(() => (match ? liveStats(match) : null), [match]);
+
+  // deriveScore advances setNumber ON the set-ending point, so sb.setNumber points at
+  // a set with zero points in several real states (just after a set ends, the Fast4
+  // decider prompt, undoing into the first point of a set, end-early -> finish, an
+  // empty log, resuming a draft whose last point ended a set). The last logged point's
+  // setNumber is never one of those empty slices, so scope is derived from the log.
+  const lastPoint = match?.log[match.log.length - 1];
+  const scopeSetNumber = lastPoint?.setNumber ?? null;
+  const scopeAvailable = !!lastPoint && match.log[0].setNumber !== lastPoint.setNumber;
+  const scopeSet = scopeAvailable && statScope === "set" && !sb?.deciderPending;
+
+  const matchStats = useMemo(() => (match ? liveStats(match) : null), [match]);
+  const scopedStats = useMemo(
+    () => (scopeSet ? liveStats(match, { setNumber: scopeSetNumber }) : matchStats),
+    [match, matchStats, scopeSet, scopeSetNumber],
+  );
   const elapsedMin = match ? Math.max(1, Math.round((now - new Date(match.config.startedAt)) / 60000)) : 0;
 
   // Crash/refresh-proof: every scoring action persists the draft (offline-first,
@@ -185,7 +297,6 @@ export default function LiveMatchScreen({ athleteId, athleteName, resume, onFini
     setPhase("play");
   };
 
-  const lastPoint = match?.log[match.log.length - 1];
   const setJustEnded = lastPoint?.setEndedOnPoint === 1 && !sb?.matchOver;
   const lastSetStats = setJustEnded ? liveStats(match, { setNumber: lastPoint.setNumber }) : null;
 
@@ -276,8 +387,18 @@ export default function LiveMatchScreen({ athleteId, athleteName, resume, onFini
         {phase === "play" && sb && (
           <>
             <ScoreBoard sb={sb} config={match.config} />
-            <MomentumStrip momentum={stats.momentum} />
-            <LiveStatsRow stats={stats} />
+            <MomentumStrip momentum={matchStats.momentum} />
+            <LiveStatsPanel
+              stats={scopedStats}
+              config={match.config}
+              open={statsOpen && !sb.deciderPending}
+              onToggle={() => setStatsOpen(o => !o)}
+              scopeAvailable={scopeAvailable}
+              statScope={statScope}
+              setStatScope={setStatScope}
+              scopeSetNumber={scopeSetNumber}
+              detailed={match.config.mode === "detailed"}
+            />
 
             {setJustEnded && lastSetStats && (
               <div style={{ background: M.parentBlueBg, borderRadius: 16, padding: 14, marginBottom: 12 }}>
@@ -510,7 +631,17 @@ export default function LiveMatchScreen({ athleteId, athleteName, resume, onFini
             </div>
 
             <ScoreBoard sb={sb} config={match.config} />
-            <LiveStatsRow stats={stats} />
+            <LiveStatsPanel
+              stats={scopedStats}
+              config={match.config}
+              open={statsOpen}
+              onToggle={() => setStatsOpen(o => !o)}
+              scopeAvailable={scopeAvailable}
+              statScope={statScope}
+              setStatScope={setStatScope}
+              scopeSetNumber={scopeSetNumber}
+              detailed={match.config.mode === "detailed"}
+            />
 
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 9, marginTop: 8 }}>
               <span style={{ ...label, marginBottom: 0 }}>How hard was it? (feeds training load)</span>

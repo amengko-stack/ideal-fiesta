@@ -383,6 +383,143 @@ describe("liveStats", () => {
     expect(liveStats(s, { setNumber: 2 }).p2.pointsWon).toBe(4);
     expect(liveStats(s, { setNumber: 1 }).p1.pointsWon).toBe(24);
   });
+
+  it("momentum respects the set filter", () => {
+    let s = createMatch({});
+    s = winSet(s, 1);
+    s = winGame(s, 2);
+    // set 2 has 4 points, all p2 — momentum for set 2 must not bleed in set 1's tail
+    expect(liveStats(s, { setNumber: 2 }).momentum).toEqual([2, 2, 2, 2]);
+    expect(liveStats(s, { setNumber: 1 }).momentum).toEqual([1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
+  });
+
+  it("momentum is unchanged for whole-match calls", () => {
+    let s = createMatch({});
+    s = winSet(s, 1);
+    s = winGame(s, 2);
+    // pins finalizeMatch's no-setNumber callers to the same slice as before 1b
+    expect(liveStats(s).momentum).toEqual([1, 1, 1, 1, 1, 1, 2, 2, 2, 2]);
+  });
+
+  it("serve and return points are two views of the same points", () => {
+    let s = createMatch({});
+    s = winSet(s, 1);
+    s = winGame(s, 2);
+    const st = liveStats(s);
+    for (const [server, returner] of [[st.p1, st.p2], [st.p2, st.p1]]) {
+      expect(returner.returnTotal).toBe(server.serveTotal - server.doubleFaults);
+      expect(returner.pointsWon).toBe(returner.servePointsWon + returner.returnWon);
+    }
+  });
+
+  it("a double fault is not a return point", () => {
+    let s = createMatch({});
+    s = recordPoint(s, { serve: 2, outcome: "df" });
+    const st = liveStats(s);
+    // the returner never hit a return on a double fault, so it doesn't count as a return point
+    expect(st.p2.returnTotal).toBe(0);
+    expect(st.p2.returnWon).toBe(0);
+    expect(st.p2.pointsWon).toBe(1);
+  });
+
+  it("percentages are null, not zero or NaN, with no data", () => {
+    const st = liveStats(createMatch({}));
+    for (const p of [st.p1, st.p2]) {
+      expect(p.firstServePct).toBeNull();
+      expect(p.firstWonPct).toBeNull();
+      expect(p.secondWonPct).toBeNull();
+      expect(p.servePointsWonPct).toBeNull();
+      expect(p.returnWonPct).toBeNull();
+      expect(p.pointsWonPct).toBeNull();
+    }
+    expect(st.momentum).toEqual([]);
+    expect(st.rally["0-4"].total).toBe(0);
+  });
+
+  it("an empty set slice is all zeros and nulls", () => {
+    let s = createMatch({});
+    s = winSet(s, 1);
+    const st = liveStats(s, { setNumber: 2 });
+    expect(st.p1.pointsWon).toBe(0);
+    expect(st.p2.pointsWon).toBe(0);
+    expect(st.p1.pointsWonPct).toBeNull();
+    expect(st.momentum).toEqual([]);
+  });
+
+  it("pointsWonPct uses total points, not the log length", () => {
+    let s = createMatch({});
+    s = winSet(s, 1);
+    s = winGame(s, 2);
+    const st = liveStats(s);
+    expect(st.p1.pointsWon).toBe(24);
+    expect(st.p2.pointsWon).toBe(4);
+    expect(st.p1.pointsWonPct).toBe(86); // 24 of 28
+    expect(st.p2.pointsWonPct).toBe(14); // 4 of 28
+  });
+
+  it("break-point counters stay zero through a super tiebreak", () => {
+    let s = createMatch({ format: "bo3-stb" });
+    s = winSet(s, 1);
+    s = winSet(s, 2);
+    for (let i = 0; i < 10; i++) s = point(s, 2);
+    const st = liveStats(s, { setNumber: 3 });
+    // currentBreakPoint() is always false in a tiebreak — hence "—" in the UI, not "0/0"
+    for (const p of [st.p1, st.p2]) {
+      expect(p.bpChances).toBe(0);
+      expect(p.bpFaced).toBe(0);
+      expect(p.bpConverted).toBe(0);
+      expect(p.bpSaved).toBe(0);
+    }
+    expect(st.p2.pointsWon).toBe(10);
+    expect(st.p1.pointsWon).toBe(0);
+    expect(st.p1.serveTotal).toBe(5);
+    expect(st.p2.serveTotal).toBe(5);
+  });
+
+  it("a set slice includes that set's tiebreak points", () => {
+    let s = createMatch({});
+    for (let g = 0; g < 6; g++) { s = winGame(s, 1); s = winGame(s, 2); } // 6-6
+    for (let i = 0; i < 6; i++) { s = point(s, 1); s = point(s, 2); } // 6-6 in the TB
+    s = point(s, 1); s = point(s, 1); // 8-6 — set over
+    const whole = state => state.log.filter(p => p.setNumber === 1).length;
+    const st = liveStats(s, { setNumber: 1 });
+    expect(st.p1.pointsWon + st.p2.pointsWon).toBe(whole(s));
+  });
+
+  it("rally buckets use plist's boundaries and skip untagged points", () => {
+    let s = createMatch({ mode: "detailed" });
+    s = recordPoint(s, { winner: 1, serve: 1, outcome: "w", shot: "fh", rallyLength: 4 });
+    s = recordPoint(s, { winner: 2, serve: 1, outcome: "w", shot: "fh", rallyLength: 5 });
+    s = recordPoint(s, { winner: 1, serve: 1, outcome: "w", shot: "fh", rallyLength: 8 });
+    s = recordPoint(s, { winner: 2, serve: 1, outcome: "w", shot: "fh", rallyLength: 9 });
+    s = recordPoint(s, { winner: 1, serve: 1, outcome: "w", shot: "fh", rallyLength: null });
+    const st = liveStats(s);
+    expect(st.rally["0-4"].total).toBe(1);
+    expect(st.rally["5-8"].total).toBe(2);
+    expect(st.rally["9+"].total).toBe(1);
+    expect(st.rally["0-4"].p1Won).toBe(1);
+  });
+
+  it("aces are not counted as winners", () => {
+    let s = createMatch({});
+    s = recordPoint(s, { serve: 1, outcome: "ace" });
+    s = recordPoint(s, { winner: 1, serve: 1, outcome: "w", shot: "fh" });
+    const st = liveStats(s);
+    expect(st.p1.aces).toBe(1);
+    expect(st.p1.winners).toBe(1); // today's bug would make this 2
+    expect(st.p1.winners).toBe(finalizeMatch(s, {}).valissa.winners);
+  });
+
+  it("an unusable server skips the point entirely", () => {
+    let s = createMatch({});
+    s = point(s, 1);
+    const before = liveStats(s);
+    const broken = { ...s, log: [...s.log, { ...s.log[0], whoServed: "0" }] };
+    const after = liveStats(broken);
+    expect(after.p1.serveTotal).toBe(before.p1.serveTotal);
+    expect(after.p1.pointsWon).toBe(before.p1.pointsWon);
+    expect(after.momentum).toHaveLength(before.momentum.length + 1);
+  });
 });
 
 // ─── finalize round trip ──────────────────────────────────────────────────────

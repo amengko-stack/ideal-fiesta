@@ -56,6 +56,15 @@ const SHOT_FIELD_MAP = {
   fh: 'fh', fhS: 'fhSlice', fhV: 'fhVolley', fhR: 'fhReturn', fhOH: 'overhead', fhA: 'approach', fhDS: 'dropShot',
   bh: 'bh', bhS: 'bhSlice', bhV: 'bhVolley', bhR: 'bhReturn', bhA: 'approach', bhDS: 'dropShot',
 };
+// Buckets a rally length using MatchTrack's boundaries: 0-4 / 5-8 / 9+.
+// Shared between the saved-match reconstruction below and liveScoring's live stats
+// so the two never disagree on where a rally lands.
+export function rallyBucket(rallyLength) {
+  const rl = typeof rallyLength === "number" ? rallyLength : parseInt(rallyLength, 10);
+  if (isNaN(rl)) return null;
+  return rl <= 4 ? "0-4" : rl <= 8 ? "5-8" : "9+";
+}
+
 export function resolveShotField(code) {
   if (!code) return null;
   if (SHOT_FIELD_MAP[code]) return SHOT_FIELD_MAP[code];
@@ -323,11 +332,10 @@ export function extractMatchData(plistObj) {
     "9+":  { total: 0, won: 0 },
   };
   for (const pt of points) {
-    const rl = parseInt(pt.rallyLength, 10);
-    if (isNaN(rl)) continue;
+    const key = rallyBucket(pt.rallyLength);
+    if (!key) continue;
     // eslint-disable-next-line eqeqeq
     const valissaWon = pt.whoWonPoint == "1";
-    const key = rl <= 4 ? "0-4" : rl <= 8 ? "5-8" : "9+";
     buckets[key].total++;
     if (valissaWon) buckets[key].won++;
   }
