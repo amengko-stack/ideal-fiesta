@@ -37,7 +37,7 @@ import { XP, levelFromXp, xpForSession } from "../lib/gamification.js";
 import { sessionSRPE } from "../lib/load.js";
 import { finalizeMatch } from "../lib/liveScoring.js";
 import { BADGES, evaluateBadges } from "../lib/badges.js";
-import { resolveDeferred } from "../lib/deferredPriorities.js";
+import { resolveDeferred, mergeDuplicatePriorities, resolveMetricTargets } from "../lib/deferredPriorities.js";
 import { emptyMemory, deleteMemoryPattern } from "../lib/athleteMemory.js";
 
 const SCREENS = {
@@ -296,13 +296,39 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
 
   const refresh = useCallback(() => setTick(t => t + 1), []);
 
-  const showToast = (msg) => {
+  // Stable identity so effects can depend on it honestly.
+  const showToast = useCallback((msg) => {
     setToast(msg);
     clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 3000);
-  };
+  }, []);
 
   useEffect(() => () => clearTimeout(toastTimer.current), []);
+
+  // Focus-priority housekeeping, once per athlete. Folds away the duplicate
+  // rows left behind by the old exact-label matching, then closes any priority
+  // whose match-stat target has been met. Both are no-ops once the list is
+  // clean, so this settles after a single pass instead of looping on refresh.
+  useEffect(() => {
+    if (!athleteId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const folded   = await mergeDuplicatePriorities(athleteId);
+        const resolved = await resolveMetricTargets(athleteId);
+        if (cancelled || (folded === 0 && resolved.length === 0)) return;
+        if (resolved.length > 0) {
+          showToast(resolved.length === 1
+            ? `"${resolved[0].priority}" hit its target — resolved 🎯`
+            : `${resolved.length} priorities hit their targets — resolved 🎯`);
+        }
+        refresh();
+      } catch (e) {
+        console.error("focus priority housekeeping:", e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [athleteId, refresh, showToast]);
 
   useEffect(() => {
     let cancelled = false;
@@ -347,10 +373,18 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
         if (tournamentsSnap) setTournaments(tournamentsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
         if (seasonSnap) setSeasonReport(seasonSnap.exists() ? seasonSnap.data() : null);
         if (planSnap) setPlanResult(planSnap.exists() ? planSnap.data() : null);
+        // Firestore returns these in document-id order, which is meaningless to
+        // a parent — surface what needs attention first: escalated, then
+        // longest-deferred.
         if (prioritiesSnap) setPriorities(
           prioritiesSnap.docs
             .map(d => ({ id: d.id, ...d.data() }))
             .filter(p => p.status === "active" || p.status === "escalated")
+            .sort((a, b) => {
+              const esc = (b.status === "escalated") - (a.status === "escalated");
+              if (esc !== 0) return esc;
+              return (b.weeksDeferredCount ?? 0) - (a.weeksDeferredCount ?? 0);
+            })
         );
         if (benchmarksSnap) setBenchmarks(benchmarksSnap.docs.map(d => ({ id: d.id, ...d.data() })));
         if (technicalSnap) setTechnical(technicalSnap.docs.map(d => ({ id: d.id, ...d.data() })));
@@ -395,7 +429,8 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
       .catch(e => console.error("MobileApp data load:", e));
 
     return () => { cancelled = true; };
-  }, [athleteId, tick]);
+    // showToast is a stable useCallback — listing it can't re-trigger the load.
+  }, [athleteId, tick, showToast]);
 
   const firstName = (profile?.name || "Athlete").split(" ")[0];
   const weekday = new Date().toLocaleDateString("en-US", { weekday: "long" });
@@ -512,6 +547,7 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
               streak={streakInfo.current}
               sessionHistory={sessionHistory}
               priorities={priorities}
+              matches={matches}
               benchmarks={benchmarks}
               technical={technical}
               memory={memory}

@@ -191,9 +191,13 @@ export async function buildAthleteContext(athleteUid) {
     .filter(dp => dp.status === "active")
     .map(dp => ({
       priority:          dp.priority   ?? null,
+      // `key` lets the next AI call reuse an existing development area instead
+      // of inventing a new label for a problem already on the list.
+      key:               dp.key        ?? null,
       reason:            dp.reason     ?? null,
       deferredDate:      dp.deferredDate ?? null,
       resolveCondition:  dp.resolveCondition ?? null,
+      metricTarget:      dp.metricTarget ?? null,
       weeksDeferredCount: dp.weeksDeferredCount ?? 0,
     }));
 

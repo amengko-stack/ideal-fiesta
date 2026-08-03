@@ -5,6 +5,7 @@ import { TENNIS_GAPS } from "../lib/exerciseDb.js";
 import { FITNESS_TESTS } from "../lib/fitnessTests.js";
 import { growthVelocity } from "../lib/growth.js";
 import { identityChipText } from "../lib/athleteIdentity.js";
+import { isMetricTarget, describeTarget, describeMetricValue, matchesSince, toISO } from "../lib/priorityMetrics.js";
 
 const secTitle = { fontFamily: M.display, fontWeight: 700, fontSize: 15, color: M.ink, marginBottom: 12 };
 const PARENT_BADGE = (
@@ -25,7 +26,7 @@ const previousFor = (rows, key, latest) =>
 
 const PATTERN_STATUS_COLOR = { active: M.danger, improving: M.warn, resolved: M.success };
 
-export default function MeScreen({ profile, xp, streak, sessionHistory, priorities, benchmarks, technical, memory, onRemoveMemoryPattern, isParent, parentMode, onToggleParentMode, onToggleGap, onResolvePriority, onLogGrowth, onLogBenchmark, onLogStroke, onEditProfile, onSignOut }) {
+export default function MeScreen({ profile, xp, streak, sessionHistory, priorities, matches, benchmarks, technical, memory, onRemoveMemoryPattern, isParent, parentMode, onToggleParentMode, onToggleGap, onResolvePriority, onLogGrowth, onLogBenchmark, onLogStroke, onEditProfile, onSignOut }) {
   const firstName = (profile?.name || "Athlete").split(" ")[0];
   const lv = levelFromXp(xp);
   const gaps = profile?.gaps || [];
@@ -36,6 +37,17 @@ export default function MeScreen({ profile, xp, streak, sessionHistory, prioriti
     .sort((a, b) => (a.date || "").localeCompare(b.date || "")).slice(-5);
   const maxH = Math.max(...heights.map(h => h.height), 1);
   const minH = Math.min(...heights.map(h => h.height), maxH) - 12;
+
+  // Most recent readable value of a priority's target metric, counting only
+  // matches played since it was raised. Blank when nothing measurable yet.
+  const latestReading = (p) => {
+    if (!isMetricTarget(p.metricTarget)) return "";
+    for (const m of matchesSince(matches, toISO(p.deferredDate))) {
+      const txt = describeMetricValue(m, p.metricTarget.metric);
+      if (txt) return txt;
+    }
+    return "";
+  };
 
   const latestBench = latestPer(benchmarks, "testName");
   const latestTech = Object.values(latestPer(technical, "strokeArea"))
@@ -85,21 +97,35 @@ export default function MeScreen({ profile, xp, streak, sessionHistory, prioriti
         {(!priorities || priorities.length === 0) && (
           <div style={{ textAlign: "center", padding: "14px 0", fontSize: 13, color: M.sub }}>All caught up — great work! 🎉</div>
         )}
-        {(priorities || []).map(p => (
+        {(priorities || []).map(p => {
+          const weeks   = p.weeksDeferredCount ?? 0;
+          const reading = latestReading(p);
+          return (
           <div key={p.id} style={{ padding: "11px 0", borderTop: `1px solid ${M.divider}` }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <div style={{ flex: 1, fontFamily: M.display, fontWeight: 600, fontSize: 14, color: M.ink }}>{p.priority}</div>
+              {weeks > 0 && (
+                <span style={{ fontSize: 9.5, fontWeight: 700, color: M.sub, background: M.fill, padding: "2px 8px", borderRadius: 20, whiteSpace: "nowrap" }}>{weeks} wk{weeks === 1 ? "" : "s"}</span>
+              )}
               {p.status === "escalated" && (
                 <span style={{ fontSize: 9.5, fontWeight: 700, color: M.danger, background: `${M.danger}18`, padding: "2px 8px", borderRadius: 20 }}>ESCALATED</span>
               )}
             </div>
             {p.reason && <div style={{ fontSize: 11.5, color: M.sub, marginTop: 1 }}>{p.reason}</div>}
+            {/* Without this the priority would just vanish one day and look like a bug. */}
+            {isMetricTarget(p.metricTarget) && (
+              <div style={{ fontSize: 11, color: M.muted, marginTop: 4 }}>
+                🎯 Clears itself at {describeTarget(p.metricTarget)} in 2 matches
+                {reading ? ` · last match ${reading}` : ""}
+              </div>
+            )}
             <div onClick={() => onResolvePriority(p.priority)} style={{
               cursor: "pointer", marginTop: 10, textAlign: "center", padding: 9, borderRadius: 11,
               background: M.gradient, color: M.deepGreen, fontFamily: M.display, fontWeight: 700, fontSize: 12.5,
             }}>✓ Resolved</div>
           </div>
-        ))}
+          );
+        })}
       </Card>
 
       {/* progress */}

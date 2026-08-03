@@ -1,7 +1,8 @@
 import { doc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { buildAthleteContext } from "./athleteContext.js";
-import { saveDeferredPriorities, refreshEscalations } from "./deferredPriorities.js";
+import { saveDeferredPriorities, refreshEscalations, resolveMetricTargets } from "./deferredPriorities.js";
+import { deferredPrioritySchemaBlock, renderExistingPriorities } from "./priorityKeys.js";
 import { callClaudeJSON } from "./ai.js";
 import { categoryLabel, identityBlock } from "./athleteIdentity.js";
 import { loadLevelFromAcwr } from "./load.js";
@@ -105,7 +106,9 @@ ATHLETE CONTEXT:
 - Recent tournament (last 14 days): ${context.tournamentStatus.playedTournamentRecently ? `Yes, ${context.tournamentStatus.daysSinceTournament} days ago` : "No"}
 
 EXISTING DEFERRED PRIORITIES (${dp.length} active):
-${dp.length > 0 ? dp.map(d => `- ${d.priority} (deferred ${d.weeksDeferredCount} weeks)`).join("\n") : "None"}
+${renderExistingPriorities(dp)}
+
+${deferredPrioritySchemaBlock()}
 
 In "matchSummary" and "parentNote", explicitly frame the result against the division she played (${divisionLabel}) — do not report an expected physical or power deficit against older opponents as a technical fault.
 
@@ -121,7 +124,13 @@ Respond with exactly this JSON structure:
   "serveAnalysis": "Specific serve observations and development priorities",
   "shotBreakdownInsights": "Key insights from shot-level winner and error patterns",
   "deferredPriorities": [
-    { "priority": "short label", "reason": "why defer now", "resolveCondition": "when to address" }
+    {
+      "priority": "short label",
+      "key": "one of the keys listed in the deferred priority rules",
+      "reason": "why defer now",
+      "resolveCondition": "when to address",
+      "metricTarget": { "metric": "secondServePointsWonPct", "comparator": ">=", "value": 45 }
+    }
   ],
   "parentNote": "Message for the parent — context, encouragement, what to watch for",
   "athleteNote": "Direct message for ${context.athleteProfile?.name || "Valissa"} — positive, motivating, 1-2 action points"
@@ -139,6 +148,15 @@ Respond with exactly this JSON structure:
     await saveDeferredPriorities(athleteId, parsed.deferredPriorities);
   }
 
+  // A freshly analysed match is exactly when a stat target may have just been
+  // met. Never a reason for the analysis itself to fail.
+  let metricResolved = [];
+  try {
+    metricResolved = await resolveMetricTargets(athleteId);
+  } catch (e) {
+    console.error("resolveMetricTargets (match):", e);
+  }
+
   const escalatedItems = await refreshEscalations(athleteId);
 
   // Memory update is an enhancement, never a reason for analysis to fail.
@@ -148,5 +166,5 @@ Respond with exactly this JSON structure:
     console.error("athleteMemory update (match):", e);
   }
 
-  return { analysis: parsed, escalations: escalatedItems };
+  return { analysis: parsed, escalations: escalatedItems, metricResolved };
 }

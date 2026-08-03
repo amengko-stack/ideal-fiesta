@@ -2,6 +2,7 @@ import { doc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { buildAthleteContext } from "./athleteContext.js";
 import { saveDeferredPriorities, refreshEscalations, resolveDeferred } from "./deferredPriorities.js";
+import { deferredPrioritySchemaBlock, renderExistingPriorities } from "./priorityKeys.js";
 import { getWeekBounds } from "./dates.js";
 import { calculateMetrics, getACWRContext } from "./load.js";
 import { EXERCISE_DB, TENNIS_GAPS } from "./exerciseDb.js";
@@ -199,9 +200,9 @@ ${matchDeferredText}`;
 ═══════════════════════════════════════════
 ACTIVE DEFERRED PRIORITIES (all previous weeks)
 ═══════════════════════════════════════════
-${(ctx?.deferredPriorities || []).length > 0
-      ? (ctx.deferredPriorities).map(d => `  - ${d.priority} (deferred ${d.weeksDeferredCount} wk${d.weeksDeferredCount !== 1 ? "s" : ""})${d.resolveCondition ? ` — resolve when: ${d.resolveCondition}` : ""}`).join("\n")
-      : "  None."}
+${renderExistingPriorities(ctx?.deferredPriorities)}
+
+${deferredPrioritySchemaBlock()}
 
 ═══════════════════════════════════════════
 RECENT TECHNICAL ASSESSMENTS (High priority only)
@@ -258,8 +259,10 @@ Respond with ONLY valid JSON, no other text:
   "deferredPriorities": [
     {
       "priority": "what was identified but not trained today",
+      "key": "one of the keys listed in the deferred priority rules",
       "reason": "why deferred",
-      "resolveCondition": "condition for when to address"
+      "resolveCondition": "condition for when to address",
+      "metricTarget": { "metric": "secondServePointsWonPct", "comparator": ">=", "value": 45 }
     }
   ],
   "coachNote": "short paragraph for the parent — plain language, no jargon",
