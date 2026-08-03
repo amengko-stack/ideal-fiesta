@@ -44,7 +44,7 @@ export default function ProfileTab({ profile, saveProfile }) {
           weight:        w  > 0 ? w  : (updatedForm.weight        || null),
           height:        h  > 0 ? h  : (updatedForm.height        || null),
           sittingHeight: sh > 0 ? sh : (updatedForm.sittingHeight || null),
-          measurements: [entry, ...prev].slice(0, 12),
+          measurements: [entry, ...prev],
         };
         setForm(updatedForm);
       }

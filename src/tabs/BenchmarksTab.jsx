@@ -7,6 +7,7 @@ import { db } from "../firebase";
 import { toLocalDateStr } from "../lib/dates.js";
 import { COLORS } from "../styles/theme.js";
 import { FITNESS_TESTS } from "../lib/fitnessTests.js";
+import { maturityOffset, stageInfo } from "../lib/maturity.js";
 
 // ─── BENCHMARKS TAB ───────────────────────────────────────────────────────────
 export default function BenchmarksTab({ athleteId, profile }) {
@@ -52,39 +53,22 @@ export default function BenchmarksTab({ athleteId, profile }) {
   const sittingHeight = parseFloat(profile?.sittingHeight) || null;
   const weight        = parseFloat(profile?.weight)        || null;
   const dob           = profile?.dob ? new Date(profile.dob) : null;
-  // Intentionally NOT using the shared `computeAge` helper from athleteIdentity.js:
-  // the Mirwald maturity-offset equation below needs a fractional age (years since
-  // birth as a decimal), while computeAge() returns birthday-correct whole years.
-  // Swapping this out would shift every maturity-offset calculation.
-  const ageYears      = dob ? (Date.now() - dob.getTime()) / (365.25 * 24 * 60 * 60 * 1000) : null;
 
-  let mirwald = null;
-  if (height && sittingHeight && weight && ageYears) {
-    const legLength = height - sittingHeight;
-    const a = ageYears;
-    const mo =
-      -9.376
-      + (0.0001882 * legLength * sittingHeight)
-      + (0.0022    * a         * legLength)
-      + (0.005841  * a         * sittingHeight)
-      - (0.002658  * a         * weight)
-      + (0.07693   * (weight / height) * 100);
-    mirwald = Math.round(mo * 100) / 100;
-  }
-
-  const phvStage = mirwald === null ? null
-    : mirwald < -1  ? "Pre-PHV"
-    : mirwald <= 1  ? "Mid-PHV"
-    : "Post-PHV";
+  const maturity = maturityOffset({
+    dob, heightCm: height, sittingHeightCm: sittingHeight, weightKg: weight,
+  });
+  const mirwald   = maturity?.offset ?? null;
+  const ageYears  = maturity?.age    ?? null;
+  const phvStage  = maturity?.stage  ?? null;
 
   const phvColor = phvStage === "Pre-PHV"  ? COLORS.accent
     : phvStage === "Mid-PHV"  ? COLORS.yellow
     : COLORS.cheer;
 
   const implications = {
-    "Pre-PHV":  "Foundation phase — emphasise fundamental movement skills, coordination, and technical quality. Growth plates are open; avoid heavy axial loading. Light resistance and bodyweight work are appropriate.",
-    "Mid-PHV":  "Rapid growth phase — most sensitive period for injury. Reduce high-impact and plyometric volume. Monitor flexibility closely as bone growth outpaces muscle length. Prioritise injury prevention and movement quality over performance.",
-    "Post-PHV": "Post-growth phase — progressive loading becomes more appropriate. Strength training gains accelerate. Can begin building structured resistance load while maintaining technical standards.",
+    "Pre-PHV":  stageInfo("Pre-PHV").implication,
+    "Mid-PHV":  stageInfo("Mid-PHV").implication,
+    "Post-PHV": stageInfo("Post-PHV").implication,
   };
 
   const missing = [];

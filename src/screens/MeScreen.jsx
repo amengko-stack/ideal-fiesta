@@ -4,8 +4,11 @@ import { levelFromXp } from "../lib/gamification.js";
 import { TENNIS_GAPS } from "../lib/exerciseDb.js";
 import { FITNESS_TESTS } from "../lib/fitnessTests.js";
 import { growthVelocity } from "../lib/growth.js";
+import { maturityOffset, stageInfo } from "../lib/maturity.js";
 import { identityChipText } from "../lib/athleteIdentity.js";
 import { isMetricTarget, describeTarget, describeMetricValue, matchesSince, toISO } from "../lib/priorityMetrics.js";
+import { openInjuries, resolvedInjuries, describeInjury, recurringAreas } from "../lib/injuries.js";
+import { practiceEvidence, focusStreakText } from "../lib/practiceFocus.js";
 
 const secTitle = { fontFamily: M.display, fontWeight: 700, fontSize: 15, color: M.ink, marginBottom: 12 };
 const PARENT_BADGE = (
@@ -26,7 +29,7 @@ const previousFor = (rows, key, latest) =>
 
 const PATTERN_STATUS_COLOR = { active: M.danger, improving: M.warn, resolved: M.success };
 
-export default function MeScreen({ profile, xp, streak, sessionHistory, priorities, matches, benchmarks, technical, memory, onRemoveMemoryPattern, isParent, parentMode, onToggleParentMode, onToggleGap, onResolvePriority, onLogGrowth, onLogBenchmark, onLogStroke, onEditProfile, onSignOut }) {
+export default function MeScreen({ profile, xp, streak, sessionHistory, weekLogs, priorities, matches, benchmarks, technical, injuries, memory, onRemoveMemoryPattern, isParent, parentMode, onToggleParentMode, onToggleGap, onResolvePriority, onLogGrowth, onLogBenchmark, onLogStroke, onLogInjury, onEditInjury, onEditProfile, onSignOut, pushState, onToggleReminders }) {
   const firstName = (profile?.name || "Athlete").split(" ")[0];
   const lv = levelFromXp(xp);
   const gaps = profile?.gaps || [];
@@ -37,6 +40,20 @@ export default function MeScreen({ profile, xp, streak, sessionHistory, prioriti
     .sort((a, b) => (a.date || "").localeCompare(b.date || "")).slice(-5);
   const maxH = Math.max(...heights.map(h => h.height), 1);
   const minH = Math.min(...heights.map(h => h.height), maxH) - 12;
+
+  // Latest measurement that has a sitting-height reading — measurements are
+  // stored newest-first, so the first match is the most recent one usable
+  // for the Mirwald equation.
+  const latestWithSittingHeight = measurements.find(m => m.sittingHeight != null);
+  const maturity = latestWithSittingHeight
+    ? maturityOffset({
+        dob:             profile?.dob,
+        heightCm:        latestWithSittingHeight.height ?? profile?.height,
+        sittingHeightCm: latestWithSittingHeight.sittingHeight,
+        weightKg:        latestWithSittingHeight.weight ?? profile?.weight,
+      })
+    : null;
+  const maturityStageColor = { "Pre-PHV": M.parentBlue, "Mid-PHV": M.streakOrange, "Post-PHV": M.success };
 
   // Most recent readable value of a priority's target metric, counting only
   // matches played since it was raised. Blank when nothing measurable yet.
@@ -52,6 +69,11 @@ export default function MeScreen({ profile, xp, streak, sessionHistory, prioriti
   const latestBench = latestPer(benchmarks, "testName");
   const latestTech = Object.values(latestPer(technical, "strokeArea"))
     .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+
+  const openInj = openInjuries(injuries);
+  const resolvedInj = resolvedInjuries(injuries);
+  const recurring = recurringAreas(injuries);
+  const SEVERITY_COLOR = { 1: M.parentBlue, 2: M.parentBlue, 3: M.warn, 4: M.danger, 5: M.danger };
 
   return (
     <>
@@ -119,6 +141,9 @@ export default function MeScreen({ profile, xp, streak, sessionHistory, prioriti
                 {reading ? ` · last match ${reading}` : ""}
               </div>
             )}
+            <div style={{ fontSize: 11, color: M.muted, marginTop: 4 }}>
+              🎾 {focusStreakText(practiceEvidence(weekLogs, p))}
+            </div>
             <div onClick={() => onResolvePriority(p.priority)} style={{
               cursor: "pointer", marginTop: 10, textAlign: "center", padding: 9, borderRadius: 11,
               background: M.gradient, color: M.deepGreen, fontFamily: M.display, fontWeight: 700, fontSize: 12.5,
@@ -246,6 +271,41 @@ export default function MeScreen({ profile, xp, streak, sessionHistory, prioriti
         </>
       )}
 
+      {/* injuries — visible to everyone; it's Valissa's own body, same reasoning as Growth below */}
+      <Card>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+          <span style={{ fontFamily: M.display, fontWeight: 700, fontSize: 15, color: M.ink }}>Injuries & niggles 🩹</span>
+          <span onClick={onLogInjury} style={{ marginLeft: "auto", cursor: "pointer", fontFamily: M.display, fontWeight: 700, fontSize: 12.5, color: "#5c7a0a" }}>＋ Log</span>
+        </div>
+        <div style={{ fontSize: 11.5, color: M.sub, marginBottom: 13 }}>Track what hurts so training and the AI can work around it</div>
+        {openInj.length === 0 && resolvedInj.length === 0 && (
+          <div onClick={onLogInjury} style={{ cursor: "pointer", fontSize: 12.5, color: M.sub, textAlign: "center", padding: "8px 0" }}>Nothing logged — tap ＋ Log if something's bothering you →</div>
+        )}
+        {openInj.map(i => (
+          <div key={i.id} onClick={() => onEditInjury && onEditInjury(i)} style={{ cursor: onEditInjury ? "pointer" : "default", display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderTop: `1px solid ${M.divider}` }}>
+            <span style={{
+              fontSize: 9.5, fontWeight: 700, color: SEVERITY_COLOR[i.severity] || M.muted,
+              background: `${SEVERITY_COLOR[i.severity] || M.muted}18`, padding: "2px 8px", borderRadius: 20, flexShrink: 0,
+            }}>OPEN</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontFamily: M.display, fontWeight: 600, fontSize: 13.5, color: M.ink }}>{describeInjury(i)}</div>
+              {i.notes && <div style={{ fontSize: 11, color: M.sub, marginTop: 1 }}>{i.notes}</div>}
+            </div>
+          </div>
+        ))}
+        {resolvedInj.map(i => (
+          <div key={i.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderTop: `1px solid ${M.divider}` }}>
+            <span style={{ fontSize: 9.5, fontWeight: 700, color: M.success, background: `${M.success}18`, padding: "2px 8px", borderRadius: 20, flexShrink: 0 }}>HEALED</span>
+            <div style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: M.sub }}>{describeInjury(i)}</div>
+          </div>
+        ))}
+        {recurring.length > 0 && (
+          <div style={{ fontSize: 11.5, color: M.warn, fontWeight: 600, marginTop: 10 }}>
+            Recurring: {recurring.map(r => `${r.bodyArea} (${r.count}×)`).join(", ")}
+          </div>
+        )}
+      </Card>
+
       {/* growth — visible to everyone; Valissa logs her own measurements */}
       <Card>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
@@ -274,6 +334,24 @@ export default function MeScreen({ profile, xp, streak, sessionHistory, prioriti
               <div style={{ fontSize: 11.5, color: M.sub, fontWeight: 600, marginTop: 10, textAlign: "center" }}>
                 Growing ~<span style={{ color: M.streakOrange, fontWeight: 700 }}>{velocity} cm/year</span>
                 {velocity >= 5.5 ? " — growth-spurt window: plans keep loads moderate 🌱" : ""}
+              </div>
+            )}
+            {isParent && parentMode && maturity && (
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${M.divider}` }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                  <span style={{
+                    fontSize: 9.5, fontWeight: 700, color: maturityStageColor[maturity.stage] || M.muted,
+                    background: `${maturityStageColor[maturity.stage] || M.muted}18`, padding: "2px 8px",
+                    borderRadius: 20, textTransform: "uppercase",
+                  }}>{maturity.stage}</span>
+                  {PARENT_BADGE}
+                  <span style={{ fontSize: 11.5, color: M.sub, fontWeight: 600 }}>
+                    ≈{Math.abs(maturity.offset).toFixed(1)} yrs {maturity.offset < 0 ? "from" : "past"} peak growth
+                  </span>
+                </div>
+                <div style={{ fontSize: 11, color: M.muted, lineHeight: 1.4 }}>
+                  {stageInfo(maturity.stage)?.implication}
+                </div>
               </div>
             )}
           </>
@@ -305,6 +383,34 @@ export default function MeScreen({ profile, xp, streak, sessionHistory, prioriti
             </div>
           </div>
         )}
+        {(() => {
+          const canToggle = pushState?.supported && pushState?.permission !== "denied";
+          const on = !!(pushState?.supported && pushState?.permission === "granted" && pushState?.enabled);
+          let subtitle;
+          if (pushState?.supported && pushState?.permission === "granted") {
+            subtitle = "Evening nudge if you haven't checked in";
+          } else if (pushState?.supported && pushState?.permission === "default") {
+            subtitle = "Turn on to get an evening nudge if you haven't checked in";
+          } else if (pushState?.permission === "denied") {
+            subtitle = "Blocked — re-enable notifications for this app in Safari/browser settings";
+          } else {
+            subtitle = "Add this app to your Home Screen and open it from there to turn this on (iPhone, iOS 16.4+)";
+          }
+          return (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 0", borderBottom: `1px solid ${M.divider}` }}>
+              <div>
+                <span style={{ fontSize: 13.5, color: M.ink, fontWeight: 600 }}>Daily reminders</span>
+                <div style={{ fontSize: 11, color: M.muted, marginTop: 1 }}>{subtitle}</div>
+              </div>
+              <div onClick={canToggle ? onToggleReminders : undefined} style={{
+                cursor: canToggle ? "pointer" : "default", width: 42, height: 24, borderRadius: 99, position: "relative",
+                background: on ? M.strength : "#D6E2DB", transition: "background .15s", flexShrink: 0, opacity: canToggle ? 1 : .5,
+              }}>
+                <div style={{ position: "absolute", top: 2, left: on ? 20 : 2, width: 20, height: 20, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
+              </div>
+            </div>
+          );
+        })()}
         <div style={{ fontSize: 11, color: M.muted, padding: "13px 0", borderBottom: `1px solid ${M.divider}` }}>
           The classic app is still available — add <b>?classic</b> to the address to open it.
         </div>

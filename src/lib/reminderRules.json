@@ -1,0 +1,13 @@
+{
+  "fitnessRetestDays": 56,
+  "strokeReviewDays": 42,
+  "tournamentWindowDays": 14,
+  "highLoadSRPE": 2000,
+  "highLoadWeeks": 3,
+  "escalationWeeks": 4,
+  "moodDeclineThreshold": 2.5,
+  "moodDeclineDays": 3,
+  "sleepDeficitHours": 7,
+  "sleepDeficitDays": 5,
+  "technicalReviewCap": 2
+}

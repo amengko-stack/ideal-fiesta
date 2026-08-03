@@ -3,6 +3,7 @@ import {
   PRIORITY_KEYS, isRealKey, normalizeLabel, normalizeTokens,
   similarity, samePriority, clusterPriorities,
   deferredPrioritySchemaBlock, renderExistingPriorities,
+  textAddressesPriority,
 } from "./priorityKeys.js";
 import { METRIC_IDS } from "./priorityMetrics.js";
 
@@ -115,6 +116,38 @@ describe("clusterPriorities", () => {
 
   it("ignores null entries", () => {
     expect(clusterPriorities([null, undefined, { priority: "Net play" }])).toHaveLength(1);
+  });
+});
+
+describe("textAddressesPriority", () => {
+  // Note: plain samePriority(text, priorityDoc) Jaccard similarity between this
+  // sentence and the priority label is only 0.5 (below SIMILARITY_THRESHOLD of
+  // 0.6) because the full sentence dilutes token overlap — a bare
+  // samePriority wrapper would wrongly return false here. textAddressesPriority
+  // instead checks whether the taxonomy key's own tokens are all present in
+  // the text, which is what makes this reworded case resolve correctly.
+  it("matches a reworded tennisConnection via the priority's real taxonomy key", () => {
+    const priority = { priority: "Improve second serve reliability", key: "second_serve" };
+    const tennisConnection = "Builds a heavier, more consistent 2nd serve under pressure";
+    expect(samePriority(tennisConnection, priority)).toBe(false); // documents the dilution finding
+    expect(textAddressesPriority(tennisConnection, priority)).toBe(true);
+  });
+
+  it("does not let a short generic label false-match an unrelated connection", () => {
+    const priority = { priority: "Net play", key: "net_play" };
+    const tennisConnection = "Improves footwork and split-step timing for baseline recovery";
+    expect(textAddressesPriority(tennisConnection, priority)).toBe(false);
+  });
+
+  it("still matches the old exact-substring case (legacy doc with no key)", () => {
+    const priority = { priority: "second serve consistency" };
+    const tennisConnection = "This drill directly targets second serve consistency under match pressure";
+    expect(textAddressesPriority(tennisConnection, priority)).toBe(true);
+  });
+
+  it("returns false rather than throwing on empty input", () => {
+    expect(textAddressesPriority("", { priority: "Net play" })).toBe(false);
+    expect(textAddressesPriority("some text", null)).toBe(false);
   });
 });
 

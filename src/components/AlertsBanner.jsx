@@ -3,12 +3,19 @@ import {
   doc, setDoc, collection, getDocs,
 } from "firebase/firestore";
 import { db } from "../firebase";
-import { refreshEscalations } from "../lib/deferredPriorities.js";
-import { toLocalDateStr } from "../lib/dates.js";
-import { mergeWellbeingByDate, calculateMetrics } from "../lib/load.js";
+import { getEscalated } from "../lib/deferredPriorities.js";
+import { dueReminders } from "../lib/reminders.js";
 import { COLORS } from "../styles/theme.js";
 
 // ─── ALERTS BANNER ────────────────────────────────────────────────────────────
+// Uses the same dueReminders() engine as MobileApp.jsx so the classic and
+// mobile apps can never drift on what counts as an alert again. This
+// component still does its own Firestore reads (benchmarks/tournaments/
+// technicalAssessments/priorities aren't passed in as props here) to assemble
+// the `state` the pure engine needs — those reads are fine, they just must
+// never write. `refreshEscalations` used to be called here for priorities,
+// but it also PROMOTES items to "escalated" (a write) — a read path must
+// never mutate, so this uses the read-only `getEscalated` instead.
 export default function AlertsBanner({ athleteId, wellbeing, sessionHistory, weekLogs }) {
   const [alerts, setAlerts]     = useState([]);
   const [loading, setLoading]   = useState(true);
@@ -25,158 +32,44 @@ export default function AlertsBanner({ athleteId, wellbeing, sessionHistory, wee
       try {
         const snap = await getDocs(collection(db, "athletes", athleteId, "dismissedAlerts"));
         snap.docs.forEach(d => { dismissedMap[d.id] = true; });
-      } catch (_) {}
+      } catch { /* a failed read just means nothing is dismissed yet */ }
       if (cancelled) return;
       setDismissed(dismissedMap);
 
-      const metrics = calculateMetrics(weekLogs, wellbeing);
-
-      // Helpers
-      const recentWellbeing = (days) => {
-        const cutoff = new Date();
-        cutoff.setDate(cutoff.getDate() - days);
-        const cutoffStr = toLocalDateStr(cutoff);
-        const byDate = mergeWellbeingByDate((wellbeing || []).filter(w => w.date >= cutoffStr));
-        return Object.values(byDate).sort((a, b) => a.date < b.date ? -1 : 1);
-      };
-
-      const checks = [
-        // 1. Load spike — ACWR > 1.3
-        async () => {
-          const { acwr } = metrics;
-          if (acwr === null || acwr <= 1.3) return null;
-          const id = `load-spike-${Math.round(acwr * 10)}`;
-          return {
-            id, severity: "red",
-            title: "Load Spike Detected",
-            body:  `Acute:chronic workload ratio is ${acwr} (threshold: 1.3). High injury risk — consider reducing intensity this week.`,
-          };
-        },
-
-        // 2. Mood decline — avg mood < 2.5 for 3+ consecutive recent days
-        async () => {
-          const recent = recentWellbeing(7);
-          const moodDays = recent.filter(w => w.mood != null);
-          if (moodDays.length < 3) return null;
-          let consecutiveLow = 0;
-          for (let i = moodDays.length - 1; i >= 0; i--) {
-            if (moodDays[i].mood < 2.5) consecutiveLow++;
-            else break;
-          }
-          if (consecutiveLow < 3) return null;
-          const id = `mood-decline-${moodDays[moodDays.length - 1].date}`;
-          return {
-            id, severity: "orange",
-            title: "Mood Decline",
-            body:  `Mood has been below 2.5/5 for ${consecutiveLow} consecutive days. Check in with your athlete.`,
-          };
-        },
-
-        // 3. Deferred escalations
-        async () => {
-          const escalated = await refreshEscalations(athleteId);
-          if (!escalated.length) return null;
-          return escalated.map(e => ({
-            id:       `escalation-${e.id}`,
-            severity: "red",
-            title:    `Priority Escalated: ${e.priority}`,
-            body:     `"${e.priority}" has been deferred for ${e.weeksDeferredCount} weeks without resolution.${e.reason ? ` Reason: ${e.reason}` : ""}`,
-          }));
-        },
-
-        // 4. Overdue fitness test — no benchmark session in 56 days, or never logged
-        async () => {
-          const cutoff = new Date();
-          cutoff.setDate(cutoff.getDate() - 56);
-          const cutoffStr = toLocalDateStr(cutoff);
-          const hasRecent = (sessionHistory || []).some(
-            s => (s.type === "fitness_test" || s.isBenchmark) && s.date >= cutoffStr
-          );
-          if (hasRecent) return null;
-          const id = `fitness-test-overdue`;
-          return {
-            id, severity: "gray",
-            title: "Fitness Test Overdue",
-            body:  "No benchmark fitness test logged in the past 8 weeks. Consider scheduling one.",
-          };
-        },
-
-        // 5. Upcoming tournament within 7 days
-        async () => {
-          const snap = await getDocs(collection(db, "athletes", athleteId, "weekLogs"));
-          const logs = snap.docs.map(d => d.data());
-          const today = toLocalDateStr(new Date());
-          const in7 = new Date();
-          in7.setDate(in7.getDate() + 7);
-          const in7Str = toLocalDateStr(in7);
-          const upcoming = logs.find(
-            l => l.tournamentDate && l.tournamentDate >= today && l.tournamentDate <= in7Str
-          );
-          if (!upcoming) return null;
-          const id = `tournament-${upcoming.tournamentDate}`;
-          return {
-            id, severity: "blue",
-            title: "Tournament This Week",
-            body:  `Tournament on ${upcoming.tournamentDate}. Review the weekly plan and ensure a taper is in place.`,
-          };
-        },
-
-        // 6. Sleep deficit — avg sleep < 7h for 5 recent days
-        async () => {
-          const recent = recentWellbeing(7);
-          const sleepDays = recent.filter(w => w.sleep != null);
-          if (sleepDays.length < 5) return null;
-          const avgSleep = sleepDays.reduce((s, w) => s + w.sleep, 0) / sleepDays.length;
-          if (avgSleep >= 7) return null;
-          const id = `sleep-deficit-${sleepDays[sleepDays.length - 1].date}`;
-          return {
-            id, severity: "orange",
-            title: "Sleep Deficit",
-            body:  `Average sleep is ${avgSleep.toFixed(1)} hours over the past ${sleepDays.length} days (recommended: 7+).`,
-          };
-        },
-
-        // 7. Extended high load — 3 consecutive weeks sRPE > 2000
-        async () => {
-          const { weekSRPEs } = metrics;
-          const consecutiveHigh = weekSRPEs.slice(0, 3).every(s => s > 2000);
-          if (!consecutiveHigh) return null;
-          return {
-            id: `high-load-3wk`, severity: "orange",
-            title: "Extended High Training Load",
-            body:  `sRPE has exceeded 2000 for 3 consecutive weeks (${weekSRPEs[2]}, ${weekSRPEs[1]}, ${weekSRPEs[0]}). Consider a deload week.`,
-          };
-        },
-
-        // 8. Technical review due
-        async () => {
-          const today = toLocalDateStr(new Date());
-          const snap = await getDocs(collection(db, "athletes", athleteId, "technicalAssessments"));
-          const allDocs = snap.docs.map(d => d.data());
-          // latest entry per stroke area
-          const byArea = {};
-          allDocs.forEach(a => {
-            if (!byArea[a.strokeArea] || a.date > byArea[a.strokeArea].date) byArea[a.strokeArea] = a;
-          });
-          const due = Object.values(byArea).filter(a => a.reviewDueDate && a.reviewDueDate <= today);
-          if (!due.length) return null;
-          return due.map(a => ({
-            id:       `tech-review-${(a.strokeArea || "").replace(/\s+/g, "-")}-${a.reviewDueDate}`,
-            severity: "blue",
-            title:    `🎥 Video Review Due: ${a.strokeArea}`,
-            body:     `Scheduled review date reached. Last assessed ${a.date}.`,
-          }));
-        },
-      ];
-
-      const results = await Promise.all(checks.map(fn => fn().catch(() => null)));
+      const [
+        benchmarksSnap, tournamentsSnap, technicalSnap, escalated,
+      ] = await Promise.all([
+        getDocs(collection(db, "athletes", athleteId, "benchmarks")).catch(() => null),
+        getDocs(collection(db, "athletes", athleteId, "tournaments")).catch(() => null),
+        getDocs(collection(db, "athletes", athleteId, "technicalAssessments")).catch(() => null),
+        getEscalated(athleteId).catch(() => []),
+      ]);
       if (cancelled) return;
 
-      const severityOrder = { red: 0, orange: 1, blue: 2, gray: 3 };
-      const flat = results
-        .flat()
-        .filter(Boolean)
-        .sort((a, b) => (severityOrder[a.severity] ?? 9) - (severityOrder[b.severity] ?? 9));
+      const benchmarks  = benchmarksSnap  ? benchmarksSnap.docs.map(d => d.data())  : [];
+      const tournaments = tournamentsSnap ? tournamentsSnap.docs.map(d => d.data()) : [];
+      const technical   = technicalSnap   ? technicalSnap.docs.map(d => ({ id: d.id, ...d.data() })) : [];
+
+      const reminders = dueReminders(
+        {
+          weekLogs, wellbeing, sessions: sessionHistory,
+          tournaments, technical, benchmarks,
+          priorities: escalated, // already-escalated only, matching what this banner used to show
+          injuries: [],          // this banner doesn't load injuries; MobileApp's alert set covers that
+        },
+        new Date()
+      );
+
+      // Map engine tone -> this component's existing red/orange/blue/gray
+      // severity scheme. No check currently emits anything but danger/warn/
+      // info, so "gray" is unused here (kept only so severityStyle below still
+      // has a safe fallback for any future muted/no-tone case).
+      const toneToSeverity = { danger: "red", warn: "orange", info: "blue" };
+      const flat = reminders.map(r => ({
+        id: r.id, severity: toneToSeverity[r.tone] || "gray",
+        title: r.title, body: r.body,
+      }));
+
       setAlerts(flat);
       setLoading(false);
     };
@@ -192,7 +85,7 @@ export default function AlertsBanner({ athleteId, wellbeing, sessionHistory, wee
         doc(db, "athletes", athleteId, "dismissedAlerts", alertId),
         { dismissedAt: new Date().toISOString() }
       );
-    } catch (_) {}
+    } catch { /* the alert stays dismissed locally; it'll reappear next load */ }
   };
 
   const visible = alerts.filter(a => !dismissed[a.id]);

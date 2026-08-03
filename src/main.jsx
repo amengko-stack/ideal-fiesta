@@ -12,7 +12,7 @@ createRoot(document.getElementById('root')).render(
 // it would fight Vite's dev server and HMR otherwise).
 if (import.meta.env.PROD && "serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch((e) => {
+    navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).catch((e) => {
       console.error("SW registration failed:", e);
     });
   });

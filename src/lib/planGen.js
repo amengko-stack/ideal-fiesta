@@ -2,17 +2,36 @@ import { doc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { buildAthleteContext } from "./athleteContext.js";
 import { saveDeferredPriorities, refreshEscalations, resolveDeferred } from "./deferredPriorities.js";
-import { deferredPrioritySchemaBlock, renderExistingPriorities } from "./priorityKeys.js";
+import { deferredPrioritySchemaBlock, renderExistingPriorities, textAddressesPriority } from "./priorityKeys.js";
 import { getWeekBounds } from "./dates.js";
 import { calculateMetrics, getACWRContext } from "./load.js";
 import { EXERCISE_DB, TENNIS_GAPS } from "./exerciseDb.js";
 import { callClaudeJSON } from "./ai.js";
 import { resolveIdentity, identityBlock } from "./athleteIdentity.js";
+import { maturityOffset, stageInfo } from "./maturity.js";
 
 // ─── SUNDAY PLAN GENERATION ─────────────────────────────────────────────────
 export async function generateSundayPlan(athleteId, { profile, weekLogs, sessionHistory, wellbeing, tournament, sessionTime }) {
   const gaps = profile?.gaps || [];
   const identity = resolveIdentity(profile);
+
+  // Maturation line — same Mirwald computation athleteContext.js uses for match
+  // analysis, mirrored here so plan generation (where growth-plate safety rules
+  // already live) sees it too. Uses the latest measurement carrying a
+  // sitting-height reading, falling back to top-level profile fields.
+  const latestWithSittingHeight = (profile?.measurements ?? []).find(m => m.sittingHeight != null);
+  const maturity = latestWithSittingHeight
+    ? maturityOffset({
+        dob:             profile?.dob,
+        heightCm:        latestWithSittingHeight.height ?? profile?.height,
+        sittingHeightCm: latestWithSittingHeight.sittingHeight ?? profile?.sittingHeight,
+        weightKg:        latestWithSittingHeight.weight ?? profile?.weight,
+        date:            new Date(),
+      })
+    : null;
+  const maturityLine = maturity
+    ? `Maturation: ${maturity.stage} (≈${Math.abs(maturity.offset).toFixed(1)} yrs ${maturity.offset < 0 ? "from" : "past"} peak height velocity) — ${stageInfo(maturity.stage)?.implication ?? ""}`
+    : null;
 
   // Fetch unified context (includes match analysis + deferred priorities)
   const ctx = athleteId ? await buildAthleteContext(athleteId).catch(() => null) : null;
@@ -86,8 +105,10 @@ ATHLETE PROFILE
 - Tennis areas to develop: ${gapLabels.join(", ") || "general athletic development"}
 
 ${identityBlock(profile)}
+${maturityLine ? maturityLine : ""}
 ${identity.isPlayingUp ? `- Physical preparation must help close the gap to opponents up to ${identity.yearsOlderOpponents} year${identity.yearsOlderOpponents === 1 ? "" : "s"} older, safely and WITHIN the growth-plate limits below — never by relaxing them.` : ""}
 ${ctx?.memoryText ? `\n${ctx.memoryText}\n` : ""}
+${ctx?.injuryText ? `\n${ctx.injuryText}\n` : ""}
 ${ctx?.standingSeasonPriority ? `STANDING SEASON PRIORITY:\n${ctx.standingSeasonPriority.nextMonthPriority ? `- Next month priority: ${ctx.standingSeasonPriority.nextMonthPriority}\n` : ""}${ctx.standingSeasonPriority.longTermOutlook ? `- Long-term outlook: ${ctx.standingSeasonPriority.longTermOutlook}\n` : ""}` : ""}
 
 PHYSICAL MEASUREMENTS (last 2 recorded):
@@ -97,6 +118,7 @@ Note: Use for loading context only. Do NOT comment on body composition.
 COACH / PARENT NOTES:
 ${profile?.coachNotes?.trim() || "None"}
 ⚠ Treat any mentioned injuries or pain areas as HARD restrictions — do not include exercises that stress those areas.
+${ctx?.injuries?.flag ? `⚠ INJURY LOAD FLAG (${ctx.injuries.flag.tone}): ${ctx.injuries.flag.headline}. ${ctx.injuries.flag.guidance} Do NOT prescribe exercises that load an injured area.` : ""}
 
 ═══════════════════════════════════════════
 AGE & DEVELOPMENT RULES — APPLY TO EVERY SESSION
@@ -106,6 +128,9 @@ AGE & DEVELOPMENT RULES — APPLY TO EVERY SESSION
 - Prioritise movement quality and body control over load — technique always beats weight
 - Plyometrics are appropriate but capped: max 2 plyometric exercises per session
 - This is a critical motor-pattern window; every session should reinforce correct mechanics
+${maturity?.stage === "Mid-PHV" ? `- MID-PHV WINDOW: she is in the peak-height-velocity growth spurt — growth-plate and tendon-attachment vulnerability is at its highest and coordination temporarily regresses. Keep plyometric/impact volume at the conservative end of the cap above, and favour technique-stability work over max-strength progression this session.` : ""}
+${maturity?.stage === "Pre-PHV" ? `- PRE-PHV: foundation phase — build fundamental movement skills and coordination; keep loading light regardless of how easy recent sessions have felt.` : ""}
+${maturity?.stage === "Post-PHV" ? `- POST-PHV: growth spurt has passed — progressive loading and strength gains can be pursued more assertively within the equipment limits above.` : ""}
 
 FEMALE ATHLETE MANDATORY INCLUSIONS:
 - ACL injury risk is significantly elevated in ${identity.age != null ? `${identity.age}-year-old` : "adolescent"} female athletes (growth, hormones, biomechanics)
@@ -273,7 +298,9 @@ Respond with ONLY valid JSON, no other text:
 `You are an elite junior tennis strength and conditioning coach for adolescent athletes. You make integrated decisions balancing training load, match findings, tournament proximity, and long-term athletic development.
 
 PRIORITY HIERARCHY — apply strictly in this order:
+0. Injury override: if any open injury has severity 4-5 ("cannot train" / medical-clearance-gated) → recovery/rehab session only for the affected area, this OUTRANKS every rule below including rule 1 and can never be outranked by a progression or load rule
 1. Safety: if acute:chronic ratio > 1.3 OR average mood < 2 for 3+ consecutive days OR athlete within 48 hours post-tournament → prescribe recovery session only, override everything else
+1b. Injury severity 3 → avoid loading the affected area and cut overall volume until it settles. Injury severity 1-2 → monitor, avoid movements that aggravate the area. Never prescribe exercises that load an injured area, at any severity.
 2. Tournament proximity: if tournament within 7 days → reduce all volume 35%, familiar exercises only, no new movements, keep agility and movement quality intact
 3. Weekly load: if sRPE > 2000 → reduce weighted sets by 1, shorten session by 15 minutes. ALWAYS protect regardless of load: at least one agility movement, at least one plyometric, one core exercise — non-negotiable for her ${identity.age ?? "current"}-year-old athletic development window
 4. Match findings: within constraints set by rules 1-3, prioritise exercises addressing critical findings and active deferred priorities — longest deferred first
@@ -322,7 +349,7 @@ Return ONLY a raw JSON object. Do NOT wrap in markdown code fences. Do NOT inclu
     for (const ex of parsed.exercises) {
       if (!ex.tennisConnection) continue;
       const matched = ctx.deferredPriorities.find(d =>
-        d.priority && ex.tennisConnection.toLowerCase().includes(d.priority.toLowerCase())
+        d.priority && textAddressesPriority(ex.tennisConnection, d)
       );
       if (matched) await resolveDeferred(athleteId, matched.priority);
     }

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { FileText } from "lucide-react";
 import {
-  addDoc, collection, getDocs, query, orderBy,
+  addDoc, collection, getDocs, query, orderBy, updateDoc, doc,
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { toLocalDateStr } from "../lib/dates.js";
@@ -84,6 +84,22 @@ export default function TechnicalTab({ athleteId }) {
     setFormSaving(false);
   };
 
+  // Nothing else ever moves a technicalAssessments doc off status:"active", so
+  // a review reminder (reviewDueDate <= today) could never clear once it
+  // fired. This is the missing affordance: mark the latest assessment for an
+  // area "reviewed" once it's actually been looked at, which both this tab's
+  // own reviewDue banner and the reminders engine's technical-review check key
+  // off of `status === "active"`.
+  const markReviewed = async (entry) => {
+    if (!entry?.id) return;
+    try {
+      await updateDoc(doc(db, "athletes", athleteId, "technicalAssessments", entry.id), { status: "reviewed" });
+      setAssessments(prev => prev.map(a => (a.id === entry.id ? { ...a, status: "reviewed" } : a)));
+    } catch (e) {
+      console.error("Failed to mark assessment reviewed:", e);
+    }
+  };
+
   const priorityRank = { High: 2, Medium: 1, Monitor: 0 };
   const priorityColor = { High: COLORS.red, Medium: COLORS.yellow, Monitor: COLORS.accent };
 
@@ -98,9 +114,15 @@ export default function TechnicalTab({ athleteId }) {
 
   const fmtDate = d => d ? new Date(d).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" }) : "—";
 
-  // Review-due areas (reviewDueDate <= today)
+  // Review-due areas: past their date AND not already reviewed. The status
+  // check is what lets "✓ Mark Reviewed" actually clear this — without it the
+  // banner keeps nagging forever, since nothing ever moves reviewDueDate.
+  const isReviewDue = (entry) => entry?.reviewDueDate
+    && entry.reviewDueDate <= todayStr
+    && entry.status !== "reviewed";
+
   const reviewDue = Object.entries(byArea)
-    .filter(([, entries]) => entries[0]?.reviewDueDate && entries[0].reviewDueDate <= todayStr)
+    .filter(([, entries]) => isReviewDue(entries[0]))
     .map(([area, entries]) => ({ area, lastDate: entries[0].date, reviewDueDate: entries[0].reviewDueDate }));
 
   const allAreas = Object.values(STROKE_AREAS).flat();
@@ -237,7 +259,7 @@ export default function TechnicalTab({ athleteId }) {
             const entries = byArea[area] || [];
             const latest  = entries[0] || null;
             const change  = changeIndicator(entries);
-            const isDue   = latest?.reviewDueDate && latest.reviewDueDate <= todayStr;
+            const isDue   = isReviewDue(latest);
             const isExpanded = expandedHistory === area;
 
             return (
@@ -282,6 +304,15 @@ export default function TechnicalTab({ athleteId }) {
                     >
                       + Log Assessment
                     </button>
+                    {isDue && (
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        style={{ color: "#3b82f6", borderColor: "#3b82f6", fontSize: "0.76rem" }}
+                        onClick={() => markReviewed(latest)}
+                      >
+                        ✓ Mark Reviewed
+                      </button>
+                    )}
                     {entries.length >= 2 && (
                       <button
                         className="btn btn-ghost btn-sm"

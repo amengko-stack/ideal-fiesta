@@ -1,7 +1,13 @@
 import { M } from "../styles/mobileTheme.js";
 import Card from "../ui/Card.jsx";
-import { computeLoad, computeLoadHistory, acwrStatus, sessionSRPE } from "../lib/load.js";
+import TrendChart from "../ui/TrendChart.jsx";
+import { computeLoad, computeLoadHistory, acwrStatus, sessionSRPE, computeMonotonyStrain, monotonyStatus } from "../lib/load.js";
 import { getWeekBounds } from "../lib/dates.js";
+
+const fmtWeekLabel = (weekStart) => {
+  const d = new Date(weekStart);
+  return Number.isNaN(d.getTime()) ? weekStart : d.toLocaleDateString("en-AU", { day: "numeric", month: "short" });
+};
 
 const SPORT = [
   { key: "tennis",   label: "Tennis",   color: M.tennis },
@@ -32,9 +38,17 @@ export default function LoadScreen({ weekLogs }) {
   const status = acwrStatus(acwr);
   const tone = M.tone[status.tone];
 
+  const { monotony, strain } = computeMonotonyStrain(logs);
+  const monoStatus = monotonyStatus(monotony);
+  const monoTone = monoStatus ? M.tone[monoStatus.tone] : M.muted;
+
   const history = computeLoadHistory(logs, 4);
   const labels = ["3w", "2w", "1w", "Now"];
   const maxWeek = Math.max(...history.map(w => w.totalSrpe), 1);
+
+  const acwrPoints = computeLoadHistory(logs, 12)
+    .filter(w => w.acwr != null)
+    .map(w => ({ label: fmtWeekLabel(w.weekStart), value: w.acwr }));
 
   const current = history[3].srpeByType;
   const breakdown = SPORT.filter(s => current[s.key] > 0);
@@ -72,6 +86,33 @@ export default function LoadScreen({ weekLogs }) {
         }}>{TIP[status.tone]}</div>
       </Card>
 
+      {/* monotony & strain */}
+      <Card style={{ padding: "16px 16px", display: "flex", gap: 16 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 22, color: M.ink }}>
+            {monotony == null ? "—" : monotony.toFixed(2)}
+          </div>
+          <div style={{ fontSize: 10.5, color: M.sub, fontWeight: 600, marginTop: 2 }}>Monotony</div>
+          {monoStatus && (
+            <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 11.5, color: monoTone, marginTop: 4 }}>
+              {monoStatus.label}
+            </div>
+          )}
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 22, color: M.ink }}>
+            {strain == null ? "—" : strain.toLocaleString()}
+          </div>
+          <div style={{ fontSize: 10.5, color: M.sub, fontWeight: 600, marginTop: 2 }}>Strain</div>
+        </div>
+      </Card>
+      {monoStatus && (monoStatus.tone === "warn" || monoStatus.tone === "danger") && (
+        <div style={{
+          background: "#FDF3E3", borderLeft: `3px solid ${monoTone}`, borderRadius: "0 10px 10px 0",
+          padding: "9px 13px", fontSize: 12, color: "#4a5a52", marginBottom: 10, lineHeight: 1.4, fontWeight: 500,
+        }}>Mix harder and easier days — same-load days raise injury risk.</div>
+      )}
+
       {/* 4-week bars */}
       <Card style={{ padding: "18px 16px" }}>
         <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 15, color: M.ink, marginBottom: 16 }}>4-week load</div>
@@ -91,6 +132,12 @@ export default function LoadScreen({ weekLogs }) {
             </div>
           ))}
         </div>
+      </Card>
+
+      {/* 12-week ACWR trend */}
+      <Card style={{ padding: "18px 16px" }}>
+        <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 15, color: M.ink, marginBottom: 6 }}>12-week ACWR</div>
+        <TrendChart points={acwrPoints} />
       </Card>
 
       {/* breakdown */}

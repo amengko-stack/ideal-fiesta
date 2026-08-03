@@ -128,10 +128,54 @@ export function computeLoadHistory(logs, weeks = 12) {
 }
 
 // Readiness (0–100) from today's check-in: mood weighted 60%, inverse soreness 40%.
-export function readinessScore(mood, soreness) {
+// When `sleep` (hours) is a finite number, use a sleep-aware split instead:
+// mood 40% + inverse soreness 30% + sleep 30% (8h+ = full credit, ≤5h = none).
+// Leaving `sleep` out keeps the original formula so historical days are unaffected.
+export function readinessScore(mood, soreness, sleep) {
   if (mood == null || soreness == null) return null;
-  const raw = (mood / 5) * 60 + ((5 - soreness) / 5) * 40;
+  let raw;
+  if (typeof sleep === "number" && Number.isFinite(sleep)) {
+    const sleepFactor = Math.min(1, Math.max(0, (sleep - 5) / 3));
+    raw = (mood / 5) * 40 + ((5 - soreness) / 5) * 30 + sleepFactor * 30;
+  } else {
+    raw = (mood / 5) * 60 + ((5 - soreness) / 5) * 40;
+  }
   return Math.round(Math.min(100, Math.max(0, raw)));
+}
+
+// Foster-style monotony & strain over the last 7 calendar days (inclusive of
+// `ref`). Daily load = sum of sessionSRPE for that local date; rest days count
+// as 0. monotony = mean ÷ population SD of the 7 daily loads (null when SD is
+// 0, which also covers an all-zero week). strain = 7-day total × monotony.
+export function computeMonotonyStrain(logs, ref = new Date()) {
+  const days = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(ref);
+    d.setDate(ref.getDate() - i);
+    const dateStr = toLocalDateStr(d);
+    const dayLoad = (logs || [])
+      .filter(l => l.date === dateStr)
+      .reduce((sum, l) => sum + sessionSRPE(l), 0);
+    days.push(dayLoad);
+  }
+  const n = days.length;
+  const mean = days.reduce((a, b) => a + b, 0) / n;
+  const variance = days.reduce((s, v) => s + (v - mean) ** 2, 0) / n;
+  const sd = Math.sqrt(variance);
+  const monotony = sd === 0 ? null : Math.round((mean / sd) * 100) / 100;
+  const total = days.reduce((a, b) => a + b, 0);
+  const strain = monotony == null ? null : Math.round(total * monotony);
+  return { monotony, strain };
+}
+
+// UI status for a monotony value (thresholds are the standard Foster
+// guidance). Shape matches acwrStatus() so LoadScreen can style both the
+// same way.
+export function monotonyStatus(monotony) {
+  if (monotony == null) return null;
+  if (monotony >= 2.5) return { label: "Too repetitive", tone: "danger" };
+  if (monotony >= 2.0) return { label: "Getting repetitive", tone: "warn" };
+  return { label: "Good variety", tone: "success" };
 }
 
 // Human load-level label from ACWR. Shared by matchAnalysis.js and

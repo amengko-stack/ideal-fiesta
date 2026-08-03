@@ -24,13 +24,12 @@ import GrowthSheet from "./GrowthSheet.jsx";
 import BenchmarkSheet from "./BenchmarkSheet.jsx";
 import StrokeSheet from "./StrokeSheet.jsx";
 import ProfileSheet from "./ProfileSheet.jsx";
+import InjurySheet from "./InjurySheet.jsx";
 import { computeAge, chronologicalCategory } from "../lib/athleteIdentity.js";
 import { mergeWellbeingByDate } from "../lib/load.js";
 import { generateSeasonReport } from "../lib/seasonReport.js";
 import { friendlyAiError } from "../lib/aiErrors.js";
 import { generateMatchAnalysis } from "../lib/matchAnalysis.js";
-import { acwrStatus, computeLoad } from "../lib/load.js";
-import { daysUntil, nearestUpcoming } from "../lib/tournaments.js";
 import { generateSundayPlan } from "../lib/planGen.js";
 import { awardXp } from "../lib/gamificationStore.js";
 import { XP, levelFromXp, xpForSession } from "../lib/gamification.js";
@@ -39,6 +38,21 @@ import { finalizeMatch } from "../lib/liveScoring.js";
 import { BADGES, evaluateBadges } from "../lib/badges.js";
 import { resolveDeferred, mergeDuplicatePriorities, resolveMetricTargets } from "../lib/deferredPriorities.js";
 import { emptyMemory, deleteMemoryPattern } from "../lib/athleteMemory.js";
+import { dueReminders } from "../lib/reminders.js";
+import { isPushSupported, pushPermission, enablePush, disablePush, refreshPushToken, onForegroundMessage } from "../lib/push.js";
+
+// Why enabling reminders failed, in words the family can act on. Keyed by the
+// `reason` push.js returns instead of throwing.
+const PUSH_FAILURE = {
+  "dev-mode":         "Reminders only work in the installed app 📲",
+  "unsupported":      "This device can't do reminders yet 🙈",
+  "missing-vapid-key": "Push isn't set up yet — missing its key 🔑",
+  "denied":           "Notifications are blocked — turn them back on in your browser settings",
+  "dismissed":        "No worries — tap again if you change your mind",
+  "no-token":         "Couldn't register this device — try again 🙈",
+  "gesture-lost":     "Tap the toggle again — the browser needs a fresh tap to ask 👆",
+  "error":            "Couldn't turn reminders on — try again 🙈",
+};
 
 const SCREENS = {
   home:    { kicker: null,              label: "Home",    emoji: "🏠" },
@@ -48,7 +62,7 @@ const SCREENS = {
   me:      { kicker: "Profile & tools", label: "Profile", emoji: "⭐" },
 };
 
-export default function MobileApp({ athleteId, isParent, onSignOut }) {
+export default function MobileApp({ athleteId, isParent, user, onSignOut }) {
   const [screen, setScreen]     = useState("home");
   const [profile, setProfile]   = useState(null);
   const [weekLogs, setWeekLogs] = useState([]);
@@ -66,6 +80,7 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
   const [seasonError, setSeasonError] = useState(null);
   const [planError, setPlanError] = useState(null);
   const [sheet, setSheet]       = useState(null); // null | "log" | "checkin" | "tournament" | "import"
+  const [injuryTarget, setInjuryTarget] = useState(null); // open injury being edited, or null for a fresh log
   const [earnedBadges, setEarnedBadges] = useState({});
   const [badgeSheet, setBadgeSheet] = useState(null); // null | BADGES entry
   const [toast, setToast]       = useState(null);
@@ -73,10 +88,17 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
   const [priorities, setPriorities] = useState([]);
   const [benchmarks, setBenchmarks] = useState([]);
   const [technical, setTechnical] = useState([]);
+  const [injuries, setInjuries] = useState([]);
   const [memory, setMemory] = useState(emptyMemory());
   const [parentMode, setParentMode] = useState(() => {
     try { return localStorage.getItem("parentMode") !== "0"; } catch { return true; }
   });
+  // Push reminders. `supported` stays false until isPushSupported() resolves,
+  // so the settings row reads "unavailable" rather than flashing an enabled
+  // toggle on a device that can never receive a notification. The on/off flag
+  // itself is not duplicated here — it lives on the athlete doc (the scheduled
+  // function has to read it), so it is composed from `profile` at render time.
+  const [pushState, setPushState] = useState({ supported: false, permission: "unsupported" });
   const toastTimer = useRef(null);
 
   const [liveOpen, setLiveOpen] = useState(false);   // live scoring overlay
@@ -286,6 +308,35 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
     }
   };
 
+  // Turning reminders on can fail for five distinct reasons and the difference
+  // matters — "blocked in Safari" needs a different action from "not installed".
+  const toggleReminders = async () => {
+    const role = isParent ? "parent" : "athlete";
+    // Belt and braces: push.js returns reasons rather than throwing, but a
+    // toggle that silently does nothing is the worst outcome here, so anything
+    // that does escape still gets a toast.
+    try {
+      if (profile?.remindersEnabled) {
+        await disablePush({ athleteId });
+        setPushState(s => ({ ...s, permission: pushPermission() }));
+        setProfile(p => (p ? { ...p, remindersEnabled: false } : p));
+        showToast("Evening reminders off");
+        return;
+      }
+      const result = await enablePush({ athleteId, uid: user?.uid, role });
+      setPushState(s => ({ ...s, permission: pushPermission() }));
+      if (result?.ok) {
+        setProfile(p => (p ? { ...p, remindersEnabled: true } : p));
+        showToast("Reminders on — I'll nudge you each evening ✨");
+      } else {
+        showToast(PUSH_FAILURE[result?.reason] || PUSH_FAILURE.error);
+      }
+    } catch (e) {
+      console.error("toggleReminders:", e);
+      showToast(PUSH_FAILURE.error);
+    }
+  };
+
   const toggleParentMode = () => {
     setParentMode(p => {
       const next = !p;
@@ -304,6 +355,40 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
   }, []);
 
   useEffect(() => () => clearTimeout(toastTimer.current), []);
+
+  // Push setup, once per athlete/device. Re-minting the token on every open is
+  // deliberate: iOS rotates tokens aggressively (especially after a PWA
+  // reinstall), and the same call deletes a stored token when the OS permission
+  // has since been revoked, so the athlete doc can't drift out of step with
+  // what the device will actually accept.
+  useEffect(() => {
+    if (!athleteId || !user?.uid) return;
+    let cancelled = false;
+    let unsubscribe = null;
+    const role = isParent ? "parent" : "athlete";
+    (async () => {
+      let supported;
+      try { supported = await isPushSupported(); } catch { supported = false; }
+      if (cancelled) return;
+      setPushState({ supported, permission: supported ? pushPermission() : "unsupported" });
+      if (!supported) return;
+      refreshPushToken({ athleteId, uid: user.uid, role });
+      try {
+        // A push that lands while the app is open would otherwise be swallowed
+        // by the browser, so surface it as a toast instead.
+        unsubscribe = onForegroundMessage((payload) => {
+          const text = payload?.notification?.body || payload?.notification?.title;
+          if (text) showToast(text);
+        });
+      } catch (e) {
+        console.error("push foreground subscribe:", e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (typeof unsubscribe === "function") unsubscribe();
+    };
+  }, [athleteId, user?.uid, isParent, showToast]);
 
   // Focus-priority housekeeping, once per athlete. Folds away the duplicate
   // rows left behind by the old exact-label matching, then closes any priority
@@ -336,11 +421,21 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
     cutoffDate.setDate(cutoffDate.getDate() - 60);
     const cutoff = toLocalDateStr(cutoffDate);
 
+    // weekLogs reaches back further than everything else: the Load screen's
+    // 12-week ACWR chart asks computeLoadHistory for 12 weeks, which needs 15
+    // week-buckets (~105 days) so the oldest visible week still has a full
+    // 4-week chronic denominator. At 60 days those early weeks would read as
+    // partial — an inflated ACWR, which is the one number here that must never
+    // be wrong. Wellbeing and sessions stay at 60; nothing reads them deeper.
+    const loadCutoffDate = new Date();
+    loadCutoffDate.setDate(loadCutoffDate.getDate() - 126);
+    const loadCutoff = toLocalDateStr(loadCutoffDate);
+
     // allSettled: one unreachable doc (e.g. first offline launch with a cold
     // cache) degrades that slice of the UI instead of blanking the whole app.
     Promise.allSettled([
       getDoc(doc(db, "athletes", athleteId)),
-      getDocs(query(collection(db, "athletes", athleteId, "weekLogs"), where("date", ">=", cutoff))),
+      getDocs(query(collection(db, "athletes", athleteId, "weekLogs"), where("date", ">=", loadCutoff))),
       getDocs(query(collection(db, "athletes", athleteId, "wellbeing"), where("date", ">=", cutoff))),
       getDocs(query(collection(db, "athletes", athleteId, "sessions"), where("date", ">=", cutoff))),
       getDoc(doc(db, "athletes", athleteId, "gamification", "state")),
@@ -353,13 +448,14 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
       getDocs(collection(db, "athletes", athleteId, "technicalAssessments")),
       getDoc(doc(db, "athletes", athleteId, "liveMatches", "current")),
       getDoc(doc(db, "athletes", athleteId, "memory", "current")),
+      getDocs(collection(db, "athletes", athleteId, "injuries")),
     ])
       .then((results) => {
         if (cancelled) return;
         const val = (i) => (results[i].status === "fulfilled" ? results[i].value : null);
         const failed = results.filter(r => r.status === "rejected");
-        if (failed.length) console.error(`MobileApp data load: ${failed.length}/14 reads failed`, failed[0].reason);
-        const [profileSnap, logsSnap, wbSnap, sessSnap, xpSnap, matchesSnap, tournamentsSnap, seasonSnap, planSnap, prioritiesSnap, benchmarksSnap, technicalSnap, liveSnap, memorySnap] =
+        if (failed.length) console.error(`MobileApp data load: ${failed.length}/15 reads failed`, failed[0].reason);
+        const [profileSnap, logsSnap, wbSnap, sessSnap, xpSnap, matchesSnap, tournamentsSnap, seasonSnap, planSnap, prioritiesSnap, benchmarksSnap, technicalSnap, liveSnap, memorySnap, injuriesSnap] =
           results.map((_, i) => val(i));
         if (profileSnap?.exists()) setProfile({ id: profileSnap.id, ...profileSnap.data() });
         const logs = logsSnap ? logsSnap.docs.map(d => ({ id: d.id, ...d.data() })) : [];
@@ -388,6 +484,7 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
         );
         if (benchmarksSnap) setBenchmarks(benchmarksSnap.docs.map(d => ({ id: d.id, ...d.data() })));
         if (technicalSnap) setTechnical(technicalSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        if (injuriesSnap) setInjuries(injuriesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
         if (liveSnap) setLiveDraft(liveSnap.exists() ? liveSnap.data() : null);
         if (memorySnap) setMemory(memorySnap.exists() ? { ...emptyMemory(), ...memorySnap.data() } : emptyMemory());
         const dates = [
@@ -450,38 +547,16 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
     try { localStorage.setItem("dismissedAlerts", JSON.stringify(next.slice(-50))); } catch { /* ignore */ }
     return next;
   });
-  const todayStr = toLocalDateStr(new Date());
-  const alerts = [];
-  {
-    const { acwr } = computeLoad(weekLogs);
-    const st = acwrStatus(acwr);
-    if (st.tone === "danger" || st.tone === "warn") {
-      alerts.push({
-        id: `load-${st.tone}-${todayStr}`, tone: st.tone, title: "Training load is high",
-        body: st.tone === "danger" ? "ACWR is in the danger zone — make today a recovery day." : "Ease off intensity for a day or two.",
-      });
-    }
-    const nearestT = nearestUpcoming(tournaments, todayStr);
-    if (nearestT) {
-      const d = daysUntil(nearestT.date, todayStr);
-      if (d <= 14) alerts.push({
-        id: `tourney-${nearestT.id}-${d <= 7 ? "wk" : "2wk"}`, tone: "info",
-        title: d === 0 ? "Tournament today! 🏟️" : `Tournament in ${d} day${d === 1 ? "" : "s"}`,
-        body: `${nearestT.name} — Sunday plans taper automatically.`,
-      });
-    }
-    priorities.filter(p => p.status === "escalated").forEach(p => alerts.push({
-      id: `esc-${p.id}`, tone: "danger", title: "Priority needs attention",
-      body: `"${p.priority}" has been waiting ${p.weeksDeferredCount ?? "several"} weeks.`,
-    }));
-    technical
-      .filter(t => t.reviewDueDate && t.reviewDueDate <= todayStr && t.status === "active")
-      .slice(0, 2)
-      .forEach(t => alerts.push({
-        id: `rev-${t.id}`, tone: "info", title: `🎥 Review due: ${t.strokeArea}`,
-        body: `Scheduled stroke review reached (${t.reviewDueDate}).`,
-      }));
-  }
+  // Audience gate matches MeScreen's existing parent-only gating exactly:
+  // isParent is the auth role, parentMode is the per-device display toggle
+  // (so handing the phone to Valissa hides parent/medical alerts too).
+  const canSeeParentAlerts = isParent && parentMode;
+  const alerts = dueReminders(
+    { weekLogs, wellbeing, sessions: sessionHistory, tournaments, priorities, technical, benchmarks, injuries, plan: planResult, profile },
+    new Date()
+  )
+    .filter(r => r.audience === "both" || (r.audience === "athlete") || (r.audience === "parent" && canSeeParentAlerts))
+    .map(({ id, tone, title, body }) => ({ id, tone, title, body }));
   const activeAlerts = alerts.filter(a => !dismissedAlerts.includes(a.id));
 
   return (
@@ -500,6 +575,7 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
             <HomeScreen
               weekLogs={weekLogs}
               wellbeing={wellbeing}
+              injuries={injuries}
               xp={xp}
               activeThisWeek={streakInfo.activeThisWeek}
               streak={streakInfo.current}
@@ -508,6 +584,7 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
               onOpenBadge={(b) => setBadgeSheet(b)}
               alerts={activeAlerts}
               onDismissAlert={dismissAlert}
+              priorities={priorities}
             />
           ) : screen === "load" ? (
             <LoadScreen weekLogs={weekLogs} />
@@ -546,12 +623,16 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
               xp={xp}
               streak={streakInfo.current}
               sessionHistory={sessionHistory}
+              weekLogs={weekLogs}
               priorities={priorities}
               matches={matches}
               benchmarks={benchmarks}
               technical={technical}
+              injuries={injuries}
               memory={memory}
               onRemoveMemoryPattern={removeMemoryPattern}
+              pushState={{ ...pushState, enabled: !!profile?.remindersEnabled }}
+              onToggleReminders={toggleReminders}
               isParent={isParent}
               parentMode={parentMode}
               onToggleParentMode={toggleParentMode}
@@ -560,6 +641,8 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
               onLogGrowth={() => profile ? setSheet("growth") : showToast("Still loading — try again in a moment ⏳")}
               onLogBenchmark={() => setSheet("benchmark")}
               onLogStroke={() => setSheet("stroke")}
+              onLogInjury={() => { setInjuryTarget(null); setSheet("injury"); }}
+              onEditInjury={(inj) => { setInjuryTarget(inj); setSheet("injury"); }}
               onEditProfile={() => profile ? setSheet("profile") : showToast("Still loading — try again in a moment ⏳")}
               onSignOut={onSignOut}
             />
@@ -582,7 +665,7 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
       )}
 
       <BottomSheet open={sheet === "log"} onClose={() => setSheet(null)}>
-        <LogSheet athleteId={athleteId} profile={profile} onSaved={onSaved} onMotivate={showToast} onClose={() => setSheet(null)} />
+        <LogSheet athleteId={athleteId} profile={profile} priorities={priorities} onSaved={onSaved} onMotivate={showToast} onClose={() => setSheet(null)} />
       </BottomSheet>
       <BottomSheet open={sheet === "checkin"} onClose={() => setSheet(null)}>
         <CheckinSheet athleteId={athleteId} initial={todayWb} onSaved={onSaved} onClose={() => setSheet(null)} />
@@ -615,6 +698,9 @@ export default function MobileApp({ athleteId, isParent, onSignOut }) {
       </BottomSheet>
       <BottomSheet open={sheet === "profile"} onClose={() => setSheet(null)}>
         <ProfileSheet athleteId={athleteId} profile={profile} onSaved={onSaved} onClose={() => setSheet(null)} />
+      </BottomSheet>
+      <BottomSheet open={sheet === "injury"} onClose={() => setSheet(null)}>
+        <InjurySheet athleteId={athleteId} editing={injuryTarget} onSaved={onSaved} onClose={() => setSheet(null)} />
       </BottomSheet>
       <BottomSheet open={badgeSheet != null} onClose={() => setBadgeSheet(null)}>
         <BadgeSheet badge={badgeSheet} earnedDate={badgeSheet ? earnedBadges[badgeSheet.id] : null} />

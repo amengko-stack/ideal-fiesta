@@ -144,6 +144,41 @@ export function samePriority(a, b) {
   return similarity(labelA, labelB) >= SIMILARITY_THRESHOLD;
 }
 
+// ── textAddressesPriority ────────────────────────────────────────────────────
+// Pure. Does a free-text sentence (e.g. an exercise's tennisConnection) address
+// a given deferred priority? This is NOT samePriority(text, priorityDoc) — a
+// direct label-vs-label Jaccard comparison systematically fails here because a
+// full sentence carries far more tokens than a short priority label, diluting
+// the overlap below SIMILARITY_THRESHOLD even for an obviously-matching
+// rewording (verified: "Improve second serve reliability" vs "Builds a
+// heavier, more consistent 2nd serve under pressure" scores 0.5, not >= 0.6).
+// So this uses a containment measure instead of symmetric Jaccard: does the
+// text contain the priority's defining tokens, rather than do the two token
+// sets overlap proportionally to their combined size.
+export function textAddressesPriority(text, priorityDoc) {
+  if (!text || !priorityDoc) return false;
+  const textTokens = normalizeTokens(text);
+  if (textTokens.length === 0) return false;
+  const textSet = new Set(textTokens);
+
+  // A real taxonomy key is authoritative: if every token of that key's own
+  // canonical label shows up in the text, the sentence is about that area
+  // regardless of how the priority itself was worded.
+  const key = priorityDoc?.key;
+  if (isRealKey(key)) {
+    const keyDef = PRIORITY_KEYS.find(k => k.id === key);
+    const keyTokens = keyDef ? normalizeTokens(keyDef.label) : [];
+    if (keyTokens.length > 0 && keyTokens.every(t => textSet.has(t))) return true;
+  }
+
+  // Otherwise fall back to containment against the priority's own label:
+  // what fraction of the priority's tokens are present in the text.
+  const priorityTokens = normalizeTokens(priorityDoc.priority);
+  if (priorityTokens.length === 0) return false;
+  const shared = priorityTokens.filter(t => textSet.has(t)).length;
+  return shared / priorityTokens.length >= SIMILARITY_THRESHOLD;
+}
+
 // ── clusterPriorities ────────────────────────────────────────────────────────
 // Pure. Groups docs that describe the same development area. Each cluster is
 // sorted oldest → newest by `sortDate` (deferredDate, coerced by the caller),

@@ -203,14 +203,21 @@ describe("recordDivisionChange", () => {
 // VITE_FIREBASE_* vars are absent. CI passes those to the build step only, so
 // a test that transitively imports firebase passes locally (a .env supplies
 // them) and fails in CI. This guard catches that before a push does.
+// It follows static `from "..."` imports, dynamic `import("...")`, and bare
+// side-effect `import "..."` statements, relative specifiers only.
 describe("test suite stays free of Firebase", () => {
   const LIB = path.resolve("src/lib");
   const FIREBASE = path.resolve("src/firebase.js");
 
   const importsOf = (file) => {
     if (!fs.existsSync(file)) return [];
-    return [...fs.readFileSync(file, "utf8").matchAll(/froms+["']([^"']+)["']/g)]
-      .map(m => m[1]).filter(s => s.startsWith("."));
+    const src = fs.readFileSync(file, "utf8");
+    const relOnly = (matches) => matches.map(m => m[1]).filter(s => s.startsWith("."));
+    return [
+      ...relOnly([...src.matchAll(/from\s+["']([^"']+)["']/g)]),
+      ...relOnly([...src.matchAll(/import\(\s*["']([^"']+)["']\s*\)/g)]),
+      ...relOnly([...src.matchAll(/^\s*import\s+["']([^"']+)["']/gm)]),
+    ];
   };
   const resolveSpec = (from, spec) => {
     const base = path.resolve(path.dirname(from), spec);

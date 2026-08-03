@@ -12,7 +12,7 @@ const input = {
 };
 
 // Same save semantics as the classic AVGrowth: one measurements entry per day
-// (same-day re-save replaces), capped at 12, with top-level convenience fields.
+// (same-day re-save replaces), history kept in full, with top-level convenience fields.
 export default function GrowthSheet({ athleteId, measurements, onSaved, onClose }) {
   const [height, setHeight]               = useState("");
   const [weight, setWeight]               = useState("");
@@ -36,7 +36,7 @@ export default function GrowthSheet({ athleteId, measurements, onSaved, onClose 
     if (sh > 0) entry.sittingHeight = sh;
     const existing = measurements || [];
     const prev = existing.filter(m => m.date !== today);
-    const updated = [entry, ...prev].slice(0, 12);
+    const updated = [entry, ...prev];
     // Fire-and-forget: local commit is instant; syncs when online.
     setDoc(doc(db, "athletes", athleteId), {
       measurements: updated,

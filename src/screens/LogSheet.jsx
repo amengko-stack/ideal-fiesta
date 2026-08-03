@@ -9,6 +9,7 @@ import { awardXp } from "../lib/gamificationStore.js";
 import { callClaudeText } from "../lib/ai.js";
 import { shoutoutSystemPrompt } from "../lib/athleteIdentity.js";
 import { loadMemory, pushShoutout } from "../lib/athleteMemory.js";
+import { weeklyFocus, focusPracticeSuggestion } from "../lib/practiceFocus.js";
 
 const TYPES = [
   { id: "tennis",   label: "Tennis",   accent: M.tennisLight },
@@ -30,7 +31,7 @@ const chip = (sel, accent) => ({
   boxShadow: sel ? "0 4px 0 rgba(0,0,0,0.13)" : "none", transform: sel ? "translateY(-1px)" : "none",
 });
 
-export default function LogSheet({ athleteId, profile, onSaved, onMotivate, onClose }) {
+export default function LogSheet({ athleteId, profile, priorities, onSaved, onMotivate, onClose }) {
   const [type, setType]           = useState("tennis");
   const [sportName, setSportName] = useState("");
   const [dur, setDur]             = useState(60);
@@ -39,12 +40,19 @@ export default function LogSheet({ athleteId, profile, onSaved, onMotivate, onCl
   const [win, setWin]             = useState(true);
   const [date, setDate]           = useState(toLocalDateStr(new Date()));
   const [focusList, setFocusList] = useState([]);
+  const [workedOnFocus, setWorkedOnFocus] = useState(null); // null | true | false
   const [saving, setSaving]       = useState(false);
 
   const focusOptions = type === "tennis" ? TENNIS_FOCUS : type === "other" ? OTHER_FOCUS : null;
+  const weekFocus = type === "tennis" ? weeklyFocus(priorities) : null;
   // Stored as a comma-joined string so every downstream reader (AI prompts,
   // history lists) keeps treating `focus` as text, same as historical logs.
-  const focus = focusList.join(", ");
+  // When she confirms she worked on this week's priority, its own label is
+  // appended to that same string — no new field needed, and it's exactly the
+  // text `sessionAddressedPriority` (practiceFocus.js) already scans via
+  // `textAddressesPriority`, so the practice-evidence trail picks it up for
+  // free the next time the priority card or Home focus card reads it back.
+  const focus = [...focusList, (workedOnFocus && weekFocus) ? weekFocus.priority : null].filter(Boolean).join(", ");
   const toggleFocus = (f) => setFocusList(prev => prev.includes(f) ? prev.filter(x => x !== f) : [...prev, f]);
 
   const save = () => {
@@ -90,7 +98,7 @@ export default function LogSheet({ athleteId, profile, onSaved, onMotivate, onCl
       <div style={label}>Type</div>
       <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
         {TYPES.map(t => (
-          <div key={t.id} onClick={() => { setType(t.id); setFocusList([]); }} style={chip(type === t.id, t.accent)}>{t.label}</div>
+          <div key={t.id} onClick={() => { setType(t.id); setFocusList([]); setWorkedOnFocus(null); }} style={chip(type === t.id, t.accent)}>{t.label}</div>
         ))}
       </div>
 
@@ -144,6 +152,19 @@ export default function LogSheet({ athleteId, profile, onSaved, onMotivate, onCl
                 }}>{f}</div>
               );
             })}
+          </div>
+        </>
+      )}
+
+      {type === "tennis" && weekFocus && (
+        <>
+          <div style={label}>Did you work on {weekFocus.priority}?</div>
+          <div style={{ fontSize: 12, color: M.sub, marginBottom: 9, lineHeight: 1.45 }}>
+            {focusPracticeSuggestion(weekFocus)}
+          </div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+            <div onClick={() => setWorkedOnFocus(true)} style={chip(workedOnFocus === true, M.tennisLight)}>Yes 🎯</div>
+            <div onClick={() => setWorkedOnFocus(false)} style={chip(workedOnFocus === false, M.fillAlt)}>Not this time</div>
           </div>
         </>
       )}

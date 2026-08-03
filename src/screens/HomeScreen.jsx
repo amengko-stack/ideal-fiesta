@@ -4,6 +4,8 @@ import { computeLoad, readinessScore, acwrStatus, mergeWellbeingByDate } from ".
 import { levelFromXp, XP_PER_LEVEL } from "../lib/gamification.js";
 import { toLocalDateStr } from "../lib/dates.js";
 import { BADGES } from "../lib/badges.js";
+import { openInjuries, injuryLoadFlag, injuryDuration } from "../lib/injuries.js";
+import { weeklyFocus, focusPracticeSuggestion, practiceEvidence, focusStreakText } from "../lib/practiceFocus.js";
 
 const SPORT = {
   tennis:   { label: "Tennis",   color: M.tennisLight },
@@ -15,13 +17,16 @@ const SPORT = {
 
 const ALERT_TONE = (tone) => tone === "danger" ? M.danger : tone === "warn" ? M.warn : M.parentBlue;
 
-export default function HomeScreen({ weekLogs, wellbeing, xp, activeThisWeek, streak, onOpenCheckin, earnedBadges, onOpenBadge, alerts, onDismissAlert }) {
+export default function HomeScreen({ weekLogs, wellbeing, xp, activeThisWeek, streak, onOpenCheckin, earnedBadges, onOpenBadge, alerts, onDismissAlert, injuries, priorities }) {
   const today = toLocalDateStr(new Date());
   const todayWb = mergeWellbeingByDate(wellbeing || [])[today];
-  const readiness = readinessScore(todayWb?.mood, todayWb?.soreness);
+  const readiness = readinessScore(todayWb?.mood, todayWb?.soreness, todayWb?.sleep);
   const { thisWeekSRPE, acwr } = computeLoad(weekLogs || []);
   const status = acwrStatus(acwr);
   const lv = levelFromXp(xp);
+  const openInj = openInjuries(injuries);
+  const injFlag = injuryLoadFlag(injuries);
+  const focusPriority = weeklyFocus(priorities);
 
   const c = 2 * Math.PI * 50;
   const off = readiness == null ? c : c * (1 - readiness / 100);
@@ -56,6 +61,26 @@ export default function HomeScreen({ weekLogs, wellbeing, xp, activeThisWeek, st
           </div>
         );
       })}
+
+      {/* open injury — nothing renders when there's none */}
+      {injFlag && (
+        <Card style={{ borderRadius: 18, padding: 16, borderLeft: `3px solid ${ALERT_TONE(injFlag.tone)}` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+            <span style={{ fontSize: 18 }}>🩹</span>
+            <span style={{ fontFamily: M.display, fontWeight: 700, fontSize: 14, color: ALERT_TONE(injFlag.tone) }}>
+              {openInj.map(i => i.bodyArea).join(", ")}
+            </span>
+          </div>
+          <div style={{ display: "flex", gap: 14, marginBottom: 6 }}>
+            {openInj.map(i => (
+              <span key={i.id} style={{ fontSize: 11.5, color: M.sub, fontWeight: 600 }}>
+                Severity {i.severity}/5 · {injuryDuration(i) ?? "?"} day{injuryDuration(i) === 1 ? "" : "s"} open
+              </span>
+            ))}
+          </div>
+          <div style={{ fontSize: 12, color: "#4a5a52", lineHeight: 1.4 }}>{injFlag.guidance}</div>
+        </Card>
+      )}
 
       {/* energy hero */}
       <Card style={{ borderRadius: 26, padding: 20, display: "flex", alignItems: "center", gap: 16, boxShadow: M.dropLg }}>
@@ -95,6 +120,24 @@ export default function HomeScreen({ weekLogs, wellbeing, xp, activeThisWeek, st
         </div>
         <div style={{ fontSize: 11, color: M.sub, fontWeight: 600, marginTop: 7 }}>{lv.intoLevel} / {XP_PER_LEVEL} XP</div>
       </Card>
+
+      {/* this week's on-court focus — nothing renders when there's no open priority */}
+      {focusPriority && (
+        <Card style={{ borderRadius: 22, padding: 17 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+            <span style={{ fontSize: 16 }}>🎯</span>
+            <span style={{ fontFamily: M.display, fontWeight: 700, fontSize: 14, color: M.ink }}>This week's focus</span>
+            {focusPriority.status === "escalated" && (
+              <span style={{ fontSize: 9.5, fontWeight: 700, color: M.danger, background: `${M.danger}18`, padding: "2px 8px", borderRadius: 20 }}>ESCALATED</span>
+            )}
+          </div>
+          <div style={{ fontFamily: M.display, fontWeight: 600, fontSize: 15, color: M.ink, marginBottom: 6 }}>{focusPriority.priority}</div>
+          <div style={{ fontSize: 12.5, color: "#4a5a52", lineHeight: 1.45, marginBottom: 8 }}>{focusPracticeSuggestion(focusPriority)}</div>
+          <div style={{ fontSize: 11.5, color: M.sub, fontWeight: 600 }}>
+            {focusStreakText(practiceEvidence(weekLogs, focusPriority))}
+          </div>
+        </Card>
+      )}
 
       {/* trophy case */}
       <div style={{ marginBottom: 14 }}>

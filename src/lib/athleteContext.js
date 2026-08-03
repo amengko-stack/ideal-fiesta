@@ -6,7 +6,9 @@ import { sessionSRPE, computeLoad } from "./load.js";
 import { toLocalDateStr } from "./dates.js";
 import { nearestUpcoming, daysUntil } from "./tournaments.js";
 import { computeAge, identityBlock, resolveIdentity } from "./athleteIdentity.js";
+import { maturityOffset, stageInfo } from "./maturity.js";
 import { loadMemory, memoryBlock } from "./athleteMemory.js";
+import { openInjuries, injuryLoadFlag, injuryDuration, recurringAreas } from "./injuries.js";
 
 // ─── ATHLETE CONTEXT BUILDER ─────────────────────────────────────────────────
 // Assembles a unified context object from Firestore before every AI analysis.
@@ -148,6 +150,24 @@ export async function buildAthleteContext(athleteUid) {
   if (profileSnap.exists()) {
     const p        = profileSnap.data();
     const identity  = resolveIdentity(p, now);
+
+    // Maturation line for the AI: uses the latest measurement carrying a
+    // sitting-height reading (measurements are stored newest-first), falling
+    // back to the top-level profile fields when that entry omits height/weight.
+    const latestWithSittingHeight = (p.measurements ?? []).find(m => m.sittingHeight != null);
+    const maturity = latestWithSittingHeight
+      ? maturityOffset({
+          dob:             p.dob,
+          heightCm:        latestWithSittingHeight.height ?? p.height,
+          sittingHeightCm: latestWithSittingHeight.sittingHeight ?? p.sittingHeight,
+          weightKg:        latestWithSittingHeight.weight ?? p.weight,
+          date:            now,
+        })
+      : null;
+    const maturityLine = maturity
+      ? `Maturation: ${maturity.stage} (≈${Math.abs(maturity.offset).toFixed(1)} yrs ${maturity.offset < 0 ? "from" : "past"} peak height velocity) — ${stageInfo(maturity.stage)?.implication ?? ""}`
+      : null;
+
     athleteProfile = {
       name:                p.name ?? null,
       age:                 computeAge(p.dob, now),
@@ -158,7 +178,8 @@ export async function buildAthleteContext(athleteUid) {
       isPlayingUp:         identity.isPlayingUp,
       gaps:                p.gaps ?? [],
       phvStage:            p.phvStage ?? null,
-      identityText:        identityBlock(p, now),
+      maturityLine,
+      identityText:        identityBlock(p, now) + (maturityLine ? `\n${maturityLine}` : ""),
     };
   }
 
@@ -250,6 +271,32 @@ export async function buildAthleteContext(athleteUid) {
     }
   } catch { /* absent or unreadable — degrade to the default above */ }
 
+  // ── 11. Open injuries — closes the load-alert-vs-body-outcome gap ─────────
+  // Omit the whole section when there's nothing to say; never render an empty
+  // heading. This is what lets match analysis stop attributing a movement
+  // problem to technique when her ankle is hurt.
+  let injuryText = "";
+  let injurySummary = null;
+  try {
+    const injSnap = await getDocs(collection(db, "athletes", athleteUid, "injuries"));
+    const allInjuries = injSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const open = openInjuries(allInjuries);
+    const flag = injuryLoadFlag(allInjuries);
+    const recurring = recurringAreas(allInjuries);
+    if (open.length > 0 || recurring.length > 0) {
+      const lines = ["OPEN INJURIES:"];
+      for (const i of open) {
+        lines.push(`- ${i.bodyArea}${i.side && i.side !== "N/A" ? ` (${i.side})` : ""}: severity ${i.severity}/5, open ${injuryDuration(i, now) ?? "?"} days`);
+      }
+      if (flag) lines.push(`- Guidance: ${flag.guidance}`);
+      if (recurring.length > 0) {
+        lines.push(`- Recurring: ${recurring.map(r => `${r.bodyArea} (${r.count}x)`).join(", ")}`);
+      }
+      injuryText = lines.join("\n");
+      injurySummary = { open, flag, recurring };
+    }
+  } catch { /* absent or unreadable — degrade to the default above */ }
+
   const context = {
     generatedAt:         now.toISOString(),
     athleteUid,
@@ -265,6 +312,8 @@ export async function buildAthleteContext(athleteUid) {
     memory,
     memoryText,
     standingSeasonPriority,
+    injuries: injurySummary,
+    injuryText,
   };
 
   return context;

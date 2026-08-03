@@ -82,7 +82,7 @@ export default function AVGrowth({ athleteId }) {
     if (h  > 0) entry.height        = h;
     if (sh > 0) entry.sittingHeight = sh;
     const prev = measurements.filter(m => m.date !== today);
-    const updated = [entry, ...prev].slice(0, 12);
+    const updated = [entry, ...prev];
     await setDoc(doc(db, "athletes", athleteId), {
       measurements: updated,
       weight:        w  > 0 ? w  : (measurements[0]?.weight        || null),

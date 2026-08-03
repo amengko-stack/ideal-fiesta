@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { sessionSRPE, computeLoad, computeLoadHistory, mergeWellbeingByDate, calculateMetrics, readinessScore, acwrStatus, loadLevelFromAcwr } from "./load.js";
+import { sessionSRPE, computeLoad, computeLoadHistory, mergeWellbeingByDate, calculateMetrics, readinessScore, acwrStatus, loadLevelFromAcwr, computeMonotonyStrain, monotonyStatus } from "./load.js";
 import { getWeekBounds, toLocalDateStr } from "./dates.js";
 
 describe("sessionSRPE", () => {
@@ -154,6 +154,69 @@ describe("readinessScore", () => {
   });
   it("clamps to 0..100", () => {
     expect(readinessScore(5, 0)).toBe(100);  // 60 + 40 = 100
+  });
+});
+
+describe("computeMonotonyStrain", () => {
+  const ref = new Date(2026, 6, 15, 12, 0, 0); // Wed 2026-07-15, noon local
+
+  const dayStr = (daysAgo) => {
+    const d = new Date(ref);
+    d.setDate(ref.getDate() - daysAgo);
+    return toLocalDateStr(d);
+  };
+
+  it("computes monotony (mean/SD) and strain (total × monotony) for a known week", () => {
+    // Daily loads 100..700 (oldest → newest): mean 400, population SD 200.
+    const logs = [6, 5, 4, 3, 2, 1, 0].map((daysAgo, i) => ({
+      type: "tennis", rpe: i + 1, duration: 100, date: dayStr(daysAgo),
+    }));
+    const { monotony, strain } = computeMonotonyStrain(logs, ref);
+    expect(monotony).toBe(2.00);
+    expect(strain).toBe(5600); // total 2800 × monotony 2
+  });
+
+  it("returns nulls for an all-zero week (no logs)", () => {
+    expect(computeMonotonyStrain([], ref)).toEqual({ monotony: null, strain: null });
+  });
+
+  it("returns null monotony/strain when every day has the same load (SD = 0)", () => {
+    const logs = [0, 1, 2, 3, 4, 5, 6].map(daysAgo => ({
+      type: "tennis", rpe: 2, duration: 100, date: dayStr(daysAgo),
+    }));
+    expect(computeMonotonyStrain(logs, ref)).toEqual({ monotony: null, strain: null });
+  });
+});
+
+describe("monotonyStatus", () => {
+  it("returns null when monotony is null", () => {
+    expect(monotonyStatus(null)).toBeNull();
+  });
+  it("flags danger at 2.5+", () => {
+    expect(monotonyStatus(2.6)).toEqual({ label: "Too repetitive", tone: "danger" });
+  });
+  it("flags warn between 2.0 and 2.5", () => {
+    expect(monotonyStatus(2.2)).toEqual({ label: "Getting repetitive", tone: "warn" });
+  });
+  it("is fine below 2.0", () => {
+    expect(monotonyStatus(1.0)).toEqual({ label: "Good variety", tone: "success" });
+  });
+});
+
+describe("readinessScore with sleep", () => {
+  it("gives full sleep credit at 8h+", () => {
+    expect(readinessScore(5, 0, 8)).toBe(100); // 40 + 30 + 30
+  });
+  it("gives zero sleep credit at 5h or less", () => {
+    expect(readinessScore(5, 0, 5)).toBe(70); // 40 + 30 + 0
+  });
+  it("gives partial sleep credit in between", () => {
+    expect(readinessScore(5, 0, 6.5)).toBe(85); // 40 + 30 + 15 (sleepFactor 0.5)
+  });
+  it("falls back to the original mood/soreness-only formula when sleep is omitted", () => {
+    expect(readinessScore(5, 1)).toBe(92);
+    expect(readinessScore(5, 1, undefined)).toBe(92);
+    expect(readinessScore(5, 1, null)).toBe(92);
   });
 });
 

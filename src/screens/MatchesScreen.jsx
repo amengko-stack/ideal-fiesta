@@ -1,8 +1,14 @@
 /* eslint-disable react-refresh/only-export-components */
+import { useState } from "react";
 import { M } from "../styles/mobileTheme.js";
 import Card from "../ui/Card.jsx";
+import TrendChart from "../ui/TrendChart.jsx";
 import { daysUntil } from "../lib/tournaments.js";
 import { toLocalDateStr } from "../lib/dates.js";
+import { TREND_METRICS, metricSeries, trendSummary, describeTrend } from "../lib/matchTrends.js";
+
+const DIRECTION_TONE = { improving: M.success, declining: M.danger, flat: M.muted };
+const DIRECTION_LABEL = { improving: "Improving", declining: "Declining", flat: "Holding steady" };
 
 const LEVEL_COLOR = { Fun: M.cheer, Club: M.success, Regional: M.parentBlue, National: M.warn };
 
@@ -34,6 +40,72 @@ function ErrorNote({ text }) {
       <div style={{ fontSize: 12.5, color: "#f2dedd", lineHeight: 1.5 }}>{text}</div>
     </div>
   );
+}
+
+// Which metric to open on: prefer the first with a real (4+ point) trend,
+// fall back to the first with any data at all, else null (no data anywhere).
+function defaultMetricId(matches) {
+  let anyData = null;
+  for (const id of TREND_METRICS) {
+    const series = metricSeries(matches, id);
+    if (series.length >= 4) return id;
+    if (series.length > 0 && anyData == null) anyData = id;
+  }
+  return anyData;
+}
+
+function TrendsCard({ matches }) {
+  const [metricId, setMetricId] = useState(() => defaultMetricId(matches));
+
+  const chips = TREND_METRICS.map(id => ({ id, series: metricSeries(matches, id) }))
+    .filter(c => c.series.length > 0);
+
+  if (chips.length === 0) {
+    return (
+      <Card>
+        <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 15, color: M.ink, marginBottom: 6 }}>Performance trends 📈</div>
+        <div style={{ fontSize: 12.5, color: M.sub, textAlign: "center", padding: "10px 0" }}>
+          Score or import a few matches to see trends.
+        </div>
+      </Card>
+    );
+  }
+
+  const active = chips.find(c => c.id === metricId) || chips[0];
+  const summary = trendSummary(active.series, active.id);
+  const tone = summary?.direction ? DIRECTION_TONE[summary.direction] : M.muted;
+  const chartPoints = active.series.map(p => ({ label: p.date, value: p.value }));
+
+  return (
+    <Card>
+      <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 15, color: M.ink, marginBottom: 12 }}>Performance trends 📈</div>
+      <div style={{ display: "flex", gap: 7, overflowX: "auto", marginBottom: 14, paddingBottom: 2 }}>
+        {chips.map(c => {
+          const isActive = c.id === active.id;
+          return (
+            <span key={c.id} onClick={() => setMetricId(c.id)} style={{
+              cursor: "pointer", flexShrink: 0, fontFamily: M.display, fontWeight: 700, fontSize: 11.5,
+              padding: "6px 12px", borderRadius: 999,
+              background: isActive ? M.gradient : M.fillAlt, color: isActive ? M.deepGreen : M.sub,
+            }}>{summaryLabel(c)}</span>
+          );
+        })}
+      </div>
+      <TrendChart points={chartPoints} unit={summary?.unit} higherIsBetter={summary?.higherIsBetter} />
+      {summary?.direction && (
+        <div style={{
+          display: "inline-block", marginTop: 10, fontFamily: M.display, fontWeight: 700, fontSize: 11,
+          padding: "4px 11px", borderRadius: 999, background: `${tone}1f`, color: tone,
+        }}>{DIRECTION_LABEL[summary.direction]}</div>
+      )}
+      <div style={{ fontSize: 12.5, color: M.sub, lineHeight: 1.5, marginTop: 8 }}>{describeTrend(summary)}</div>
+    </Card>
+  );
+}
+
+function summaryLabel(chip) {
+  const s = trendSummary(chip.series, chip.id);
+  return s?.label || chip.id;
 }
 
 export default function MatchesScreen({ matches, tournaments, seasonReport, seasonLoading, seasonError, showParentNotes, liveDraft, onStartLive, onResumeLive, onDiscardLive, onOpenMatch, onOpenImport, onAddTournament, onGenerateSeason }) {
@@ -105,6 +177,9 @@ export default function MatchesScreen({ matches, tournaments, seasonReport, seas
           </div>
         </div>
       </Card>
+
+      {/* performance trends */}
+      <TrendsCard matches={matches} />
 
       {/* upcoming tournaments */}
       <Card>

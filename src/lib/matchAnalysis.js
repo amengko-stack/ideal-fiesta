@@ -62,10 +62,11 @@ export async function generateMatchAnalysis(athleteId, match) {
   const seasonPrioritySection = context.standingSeasonPriority
     ? `\nSTANDING SEASON PRIORITY:\n${context.standingSeasonPriority.nextMonthPriority ? `- Next month priority: ${context.standingSeasonPriority.nextMonthPriority}\n` : ""}${context.standingSeasonPriority.longTermOutlook ? `- Long-term outlook: ${context.standingSeasonPriority.longTermOutlook}\n` : ""}`
     : "";
+  const injurySection = context.injuryText ? `\n${context.injuryText}\n` : "";
 
   const userPrompt =
 `${context.athleteProfile?.identityText || identityBlock({})}
-${memorySection}${seasonPrioritySection}
+${memorySection}${seasonPrioritySection}${injurySection}
 MATCH (${divisionLabel}): ${match.whoWonMatch === 1 ? "WIN" : "LOSS"} vs ${match.opponentName || "Opponent"} on ${match.matchStartTime ? new Date(match.matchStartTime).toLocaleDateString() : "unknown date"}
 Score: ${scoreStr}
 
@@ -111,6 +112,7 @@ ${renderExistingPriorities(dp)}
 ${deferredPrioritySchemaBlock()}
 
 In "matchSummary" and "parentNote", explicitly frame the result against the division she played (${divisionLabel}) — do not report an expected physical or power deficit against older opponents as a technical fault.
+${context.injuryText ? "An open injury in a relevant area must be considered before attributing a movement or shot problem to technique — a girl playing with a sore ankle is not a girl with a footwork flaw. Check the OPEN INJURIES section above before assigning any technical fault to a body area it lists." : ""}
 
 Respond with exactly this JSON structure:
 {
