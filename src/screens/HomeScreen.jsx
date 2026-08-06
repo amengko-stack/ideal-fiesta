@@ -2,7 +2,7 @@ import { M } from "../styles/mobileTheme.js";
 import Card from "../ui/Card.jsx";
 import { computeLoad, readinessScore, acwrStatus, mergeWellbeingByDate } from "../lib/load.js";
 import { levelFromXp, XP_PER_LEVEL } from "../lib/gamification.js";
-import { toLocalDateStr } from "../lib/dates.js";
+import { toLocalDateStr, isDigestFresh } from "../lib/dates.js";
 import { BADGES } from "../lib/badges.js";
 import { openInjuries, injuryLoadFlag, injuryDuration } from "../lib/injuries.js";
 import { weeklyFocus, focusPracticeSuggestion, practiceEvidence, focusStreakText } from "../lib/practiceFocus.js";
@@ -17,7 +17,81 @@ const SPORT = {
 
 const ALERT_TONE = (tone) => tone === "danger" ? M.danger : tone === "warn" ? M.warn : M.parentBlue;
 
-export default function HomeScreen({ weekLogs, wellbeing, xp, activeThisWeek, streak, onOpenCheckin, earnedBadges, onOpenBadge, alerts, onDismissAlert, injuries, priorities }) {
+// "2026-07-06" → "Jul 6". Parsed at local midnight like everything else here,
+// never through toISOString.
+const shortDate = (dateStr) => {
+  if (!dateStr) return "";
+  const d = new Date(`${dateStr}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? dateStr
+    : d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+};
+
+// ─── WEEKLY REVIEW DIGEST ────────────────────────────────────────────────────
+// What the Sunday orchestrator wrote to athletes/{id}/digests/{weekKey}. Renders
+// nothing at all unless there's a digest from this week or last — an older one
+// is history, and a stale summary is worse than none.
+//
+// Every number is read straight off the digest rather than recomputed: the whole
+// point of digestCore.buildDigestData is that the card and the note the AI wrote
+// can never disagree about the same week.
+function WeeklyDigestCard({ digest, showParentNotes, onOpenPlan }) {
+  if (!digest || !isDigestFresh(digest.weekKey, new Date())) return null;
+
+  const load = digest.load || {};
+  const status = load.acwrStatus || { label: "No data", tone: "muted" };
+  const wins = (digest.matches || []).filter(m => m.won).length;
+  const losses = (digest.matches || []).length - wins;
+  // The athlete gets the note written to her; the parent gets the coach's one.
+  // Same audience split MatchesScreen / MatchDetailSheet use for parent notes.
+  const note = showParentNotes ? digest.parentNote : digest.athleteNote;
+  const escalated = digest.priorities?.escalatedThisRun || [];
+
+  const stats = [
+    { val: load.thisWeekSRPE == null ? "—" : Math.round(load.thisWeekSRPE).toLocaleString(), label: "load", color: M.ink },
+    { val: load.acwr == null ? "—" : load.acwr.toFixed(2), label: status.label, color: M.tone[status.tone] || M.muted },
+    { val: digest.wellbeing?.checkinCount ?? 0, label: "check-ins", color: M.success },
+    ...((digest.matches || []).length > 0
+      ? [{ val: `${wins}-${losses}`, label: losses === 0 ? "unbeaten" : "W-L", color: M.match }]
+      : []),
+  ];
+
+  return (
+    <Card style={{ borderRadius: 22, padding: 17, cursor: "pointer" }}>
+      <div onClick={onOpenPlan}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+          <span style={{ fontSize: 16 }}>🗞️</span>
+          <span style={{ fontFamily: M.display, fontWeight: 700, fontSize: 14, color: M.ink }}>Weekly review</span>
+          <span style={{ marginLeft: "auto", fontSize: 11.5, fontWeight: 700, color: "#5c7a0a" }}>see the plan →</span>
+        </div>
+        <div style={{ fontSize: 11.5, color: M.sub, fontWeight: 600, marginBottom: 12 }}>
+          {shortDate(digest.weekStart)} – {shortDate(digest.weekEnd)}
+        </div>
+
+        <div style={{ display: "flex", marginBottom: note || escalated.length > 0 ? 12 : 0 }}>
+          {stats.map((s, i) => (
+            <div key={s.label} style={{ flex: 1, textAlign: "center", borderLeft: i ? `1px solid ${M.dividerAlt}` : "none" }}>
+              <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 20, color: s.color, lineHeight: 1 }}>{s.val}</div>
+              <div style={{ fontSize: 10, color: s.color === M.ink || s.color === M.success || s.color === M.match ? M.sub : s.color, fontWeight: 600, marginTop: 4 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* No paragraph when the notes call failed — the stats above still stand on their own. */}
+        {note && (
+          <div style={{ fontSize: 12.5, color: "#4a5a52", lineHeight: 1.5 }}>{note}</div>
+        )}
+
+        {escalated.length > 0 && (
+          <div style={{ fontSize: 11.5, color: M.warn, fontWeight: 600, marginTop: note ? 10 : 0 }}>
+            ⚠ Escalated this week: {escalated.join(", ")}
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+export default function HomeScreen({ weekLogs, wellbeing, xp, activeThisWeek, streak, onOpenCheckin, earnedBadges, onOpenBadge, alerts, onDismissAlert, injuries, priorities, digest, showParentNotes, onOpenPlan }) {
   const today = toLocalDateStr(new Date());
   const todayWb = mergeWellbeingByDate(wellbeing || [])[today];
   const readiness = readinessScore(todayWb?.mood, todayWb?.soreness, todayWb?.sleep);
@@ -120,6 +194,9 @@ export default function HomeScreen({ weekLogs, wellbeing, xp, activeThisWeek, st
         </div>
         <div style={{ fontSize: 11, color: M.sub, fontWeight: 600, marginTop: 7 }}>{lv.intoLevel} / {XP_PER_LEVEL} XP</div>
       </Card>
+
+      {/* the Sunday orchestrator's week in review — nothing renders without a fresh digest */}
+      <WeeklyDigestCard digest={digest} showParentNotes={showParentNotes} onOpenPlan={onOpenPlan} />
 
       {/* this week's on-court focus — nothing renders when there's no open priority */}
       {focusPriority && (

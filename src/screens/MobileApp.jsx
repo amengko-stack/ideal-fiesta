@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { collection, getDocs, query, where, doc, getDoc, setDoc, addDoc, deleteDoc } from "firebase/firestore";
+import { collection, getDocs, query, where, orderBy, limit, documentId, doc, getDoc, setDoc, addDoc, deleteDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { M, mobileCss } from "../styles/mobileTheme.js";
 import { computeStreak } from "../lib/streak.js";
@@ -40,6 +40,7 @@ import { resolveDeferred, mergeDuplicatePriorities, resolveMetricTargets } from 
 import { emptyMemory, deleteMemoryPattern } from "../lib/athleteMemory.js";
 import { dueReminders } from "../lib/reminders.js";
 import { isPushSupported, pushPermission, enablePush, disablePush, refreshPushToken, onForegroundMessage } from "../lib/push.js";
+import { runWeeklyReviewNow } from "../lib/orchestrator.js";
 
 // Why enabling reminders failed, in words the family can act on. Keyed by the
 // `reason` push.js returns instead of throwing.
@@ -90,6 +91,10 @@ export default function MobileApp({ athleteId, isParent, user, onSignOut }) {
   const [technical, setTechnical] = useState([]);
   const [injuries, setInjuries] = useState([]);
   const [memory, setMemory] = useState(emptyMemory());
+  // Newest weekly-review digest, or null. HomeScreen decides whether it is
+  // still fresh enough to show (dates.isDigestFresh).
+  const [digest, setDigest] = useState(null);
+  const [weeklyReviewRunning, setWeeklyReviewRunning] = useState(false);
   const [parentMode, setParentMode] = useState(() => {
     try { return localStorage.getItem("parentMode") !== "0"; } catch { return true; }
   });
@@ -337,6 +342,38 @@ export default function MobileApp({ athleteId, isParent, user, onSignOut }) {
     }
   };
 
+  // The Sunday orchestrator's opt-in flag lives on the athlete doc because the
+  // scheduled function is what reads it — same reasoning (and same merge-set) as
+  // remindersEnabled in push.js.
+  const toggleWeeklyReview = () => {
+    setProfile(prev => {
+      if (!prev) return prev;
+      const next = !prev.weeklyReviewEnabled;
+      setDoc(doc(db, "athletes", athleteId), { weeklyReviewEnabled: next }, { merge: true })
+        .catch(err => console.error("weeklyReviewEnabled save:", err));
+      showToast(next ? "Weekly review on — every Sunday evening 🗞️" : "Weekly review off");
+      return { ...prev, weeklyReviewEnabled: next };
+    });
+  };
+
+  // The full pipeline takes a couple of minutes; the running flag both blocks a
+  // double-tap and gives the button something honest to say meanwhile.
+  const runWeeklyReview = async () => {
+    if (weeklyReviewRunning) return;
+    setWeeklyReviewRunning(true);
+    try {
+      await runWeeklyReviewNow(athleteId);
+      showToast("Weekly review complete 🗞️");
+      refresh();
+    } catch (e) {
+      console.error("runWeeklyReview:", e);
+      // orchestrator.js has already turned the callable error into a sentence.
+      showToast(`Couldn't run the review — ${e.message}`);
+    } finally {
+      setWeeklyReviewRunning(false);
+    }
+  };
+
   const toggleParentMode = () => {
     setParentMode(p => {
       const next = !p;
@@ -449,13 +486,16 @@ export default function MobileApp({ athleteId, isParent, user, onSignOut }) {
       getDoc(doc(db, "athletes", athleteId, "liveMatches", "current")),
       getDoc(doc(db, "athletes", athleteId, "memory", "current")),
       getDocs(collection(db, "athletes", athleteId, "injuries")),
+      // Weekly digests are keyed by their Monday (YYYY-MM-DD), so document-id
+      // order is chronological order — the newest one is a single-doc read.
+      getDocs(query(collection(db, "athletes", athleteId, "digests"), orderBy(documentId(), "desc"), limit(1))),
     ])
       .then((results) => {
         if (cancelled) return;
         const val = (i) => (results[i].status === "fulfilled" ? results[i].value : null);
         const failed = results.filter(r => r.status === "rejected");
-        if (failed.length) console.error(`MobileApp data load: ${failed.length}/15 reads failed`, failed[0].reason);
-        const [profileSnap, logsSnap, wbSnap, sessSnap, xpSnap, matchesSnap, tournamentsSnap, seasonSnap, planSnap, prioritiesSnap, benchmarksSnap, technicalSnap, liveSnap, memorySnap, injuriesSnap] =
+        if (failed.length) console.error(`MobileApp data load: ${failed.length}/${results.length} reads failed`, failed[0].reason);
+        const [profileSnap, logsSnap, wbSnap, sessSnap, xpSnap, matchesSnap, tournamentsSnap, seasonSnap, planSnap, prioritiesSnap, benchmarksSnap, technicalSnap, liveSnap, memorySnap, injuriesSnap, digestSnap] =
           results.map((_, i) => val(i));
         if (profileSnap?.exists()) setProfile({ id: profileSnap.id, ...profileSnap.data() });
         const logs = logsSnap ? logsSnap.docs.map(d => ({ id: d.id, ...d.data() })) : [];
@@ -487,6 +527,7 @@ export default function MobileApp({ athleteId, isParent, user, onSignOut }) {
         if (injuriesSnap) setInjuries(injuriesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
         if (liveSnap) setLiveDraft(liveSnap.exists() ? liveSnap.data() : null);
         if (memorySnap) setMemory(memorySnap.exists() ? { ...emptyMemory(), ...memorySnap.data() } : emptyMemory());
+        if (digestSnap) setDigest(digestSnap.docs[0] ? { id: digestSnap.docs[0].id, ...digestSnap.docs[0].data() } : null);
         const dates = [
           ...logs.map(l => l.date),
           ...wb.map(w => w.date),
@@ -585,6 +626,9 @@ export default function MobileApp({ athleteId, isParent, user, onSignOut }) {
               alerts={activeAlerts}
               onDismissAlert={dismissAlert}
               priorities={priorities}
+              digest={digest}
+              showParentNotes={isParent && parentMode}
+              onOpenPlan={() => setScreen("plan")}
             />
           ) : screen === "load" ? (
             <LoadScreen weekLogs={weekLogs} />
@@ -633,6 +677,10 @@ export default function MobileApp({ athleteId, isParent, user, onSignOut }) {
               onRemoveMemoryPattern={removeMemoryPattern}
               pushState={{ ...pushState, enabled: !!profile?.remindersEnabled }}
               onToggleReminders={toggleReminders}
+              weeklyReviewEnabled={!!profile?.weeklyReviewEnabled}
+              weeklyReviewRunning={weeklyReviewRunning}
+              onToggleWeeklyReview={toggleWeeklyReview}
+              onRunWeeklyReview={runWeeklyReview}
               isParent={isParent}
               parentMode={parentMode}
               onToggleParentMode={toggleParentMode}

@@ -29,7 +29,7 @@ const previousFor = (rows, key, latest) =>
 
 const PATTERN_STATUS_COLOR = { active: M.danger, improving: M.warn, resolved: M.success };
 
-export default function MeScreen({ profile, xp, streak, sessionHistory, weekLogs, priorities, matches, benchmarks, technical, injuries, memory, onRemoveMemoryPattern, isParent, parentMode, onToggleParentMode, onToggleGap, onResolvePriority, onLogGrowth, onLogBenchmark, onLogStroke, onLogInjury, onEditInjury, onEditProfile, onSignOut, pushState, onToggleReminders }) {
+export default function MeScreen({ profile, xp, streak, sessionHistory, weekLogs, priorities, matches, benchmarks, technical, injuries, memory, onRemoveMemoryPattern, isParent, parentMode, onToggleParentMode, onToggleGap, onResolvePriority, onLogGrowth, onLogBenchmark, onLogStroke, onLogInjury, onEditInjury, onEditProfile, onSignOut, pushState, onToggleReminders, weeklyReviewEnabled, weeklyReviewRunning, onToggleWeeklyReview, onRunWeeklyReview }) {
   const firstName = (profile?.name || "Athlete").split(" ")[0];
   const lv = levelFromXp(xp);
   const gaps = profile?.gaps || [];
@@ -411,6 +411,36 @@ export default function MeScreen({ profile, xp, streak, sessionHistory, weekLogs
             </div>
           );
         })()}
+        {isParent && parentMode && (
+          <>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 0", borderBottom: `1px solid ${M.divider}` }}>
+              <div style={{ paddingRight: 12 }}>
+                <span style={{ fontSize: 13.5, color: M.ink, fontWeight: 600 }}>Weekly review</span>
+                <div style={{ fontSize: 11, color: M.muted, marginTop: 1 }}>
+                  Sunday 6pm: the AI reviews the week, tidies the priorities, builds the plan and sends you the digest
+                </div>
+              </div>
+              <div onClick={onToggleWeeklyReview} style={{
+                cursor: "pointer", width: 42, height: 24, borderRadius: 99, position: "relative",
+                background: weeklyReviewEnabled ? M.strength : "#D6E2DB", transition: "background .15s", flexShrink: 0,
+              }}>
+                <div style={{ position: "absolute", top: 2, left: weeklyReviewEnabled ? 20 : 2, width: 20, height: 20, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
+              </div>
+            </div>
+            {/* Deliberately shown whether or not the schedule is on — this is how
+                you try the thing before committing to it running every week. */}
+            <div
+              onClick={weeklyReviewRunning ? undefined : onRunWeeklyReview}
+              style={{
+                cursor: weeklyReviewRunning ? "default" : "pointer", textAlign: "center", padding: 10,
+                margin: "13px 0", borderRadius: 11, background: M.gradient, color: M.deepGreen,
+                fontFamily: M.display, fontWeight: 700, fontSize: 12.5, opacity: weeklyReviewRunning ? .55 : 1,
+              }}
+            >
+              {weeklyReviewRunning ? "Running the review… (a minute or two)" : "Run weekly review now"}
+            </div>
+          </>
+        )}
         <div style={{ fontSize: 11, color: M.muted, padding: "13px 0", borderBottom: `1px solid ${M.divider}` }}>
           The classic app is still available — add <b>?classic</b> to the address to open it.
         </div>

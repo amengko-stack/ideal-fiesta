@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { toLocalDateStr, getWeekBounds, currentWeekKey, weekStartOf } from "./dates.js";
+import { toLocalDateStr, getWeekBounds, currentWeekKey, weekStartOf, previousWeekKey, isDigestFresh } from "./dates.js";
 
 describe("toLocalDateStr", () => {
   it("formats local date parts as YYYY-MM-DD", () => {
@@ -42,5 +42,48 @@ describe("weekStartOf", () => {
   });
   it("maps Monday to itself", () => {
     expect(weekStartOf("2026-07-06")).toBe("2026-07-06");
+  });
+});
+
+describe("previousWeekKey", () => {
+  it("steps back exactly one Monday", () => {
+    expect(previousWeekKey("2026-07-06")).toBe("2026-06-29");
+  });
+  it("crosses a month boundary", () => {
+    expect(previousWeekKey("2026-08-03")).toBe("2026-07-27");
+  });
+  it("crosses a DST-style year boundary without drifting", () => {
+    expect(previousWeekKey("2026-01-05")).toBe("2025-12-29");
+  });
+  it("returns null for missing or unparseable input", () => {
+    expect(previousWeekKey(null)).toBe(null);
+    expect(previousWeekKey("not-a-date")).toBe(null);
+  });
+});
+
+describe("isDigestFresh", () => {
+  // Wednesday 2026-07-08 → this week's Monday is 2026-07-06.
+  const wed = new Date(2026, 6, 8, 9, 0);
+
+  it("accepts the current week", () => {
+    expect(isDigestFresh("2026-07-06", wed)).toBe(true);
+  });
+  it("accepts last week — the Sunday-evening run means Monday still shows it", () => {
+    expect(isDigestFresh("2026-06-29", wed)).toBe(true);
+  });
+  it("rejects a two-week-old digest", () => {
+    expect(isDigestFresh("2026-06-22", wed)).toBe(false);
+  });
+  it("rejects a future week", () => {
+    expect(isDigestFresh("2026-07-13", wed)).toBe(false);
+  });
+  it("rejects a missing weekKey", () => {
+    expect(isDigestFresh(null, wed)).toBe(false);
+    expect(isDigestFresh(undefined, wed)).toBe(false);
+  });
+  it("still counts the previous week late on a Sunday, before the new run", () => {
+    const sun = new Date(2026, 6, 12, 17, 0); // Sunday of the 2026-07-06 week
+    expect(isDigestFresh("2026-06-29", sun)).toBe(true);
+    expect(isDigestFresh("2026-07-06", sun)).toBe(true);
   });
 });

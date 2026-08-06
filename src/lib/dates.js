@@ -39,3 +39,22 @@ export function weekStartOf(dateStr) {
   mon.setDate(d.getDate() - daysToMonday);
   return toLocalDateStr(mon);
 }
+
+// The Monday before the one at `weekKey` (YYYY-MM-DD), or null if unparseable.
+export function previousWeekKey(weekKey) {
+  if (!weekKey) return null;
+  const d = new Date(`${weekKey}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setDate(d.getDate() - 7);
+  return toLocalDateStr(d);
+}
+
+// Is a weekly digest still worth showing? The orchestrator runs on Sunday
+// evening, so for most of Monday–Sunday the newest digest is last week's — the
+// card would blink out of existence every Monday morning if only the current
+// week counted. Anything older than that is stale history, not news.
+export function isDigestFresh(weekKey, now = new Date()) {
+  if (!weekKey) return false;
+  const current = weekStartOf(toLocalDateStr(now));
+  return weekKey === current || weekKey === previousWeekKey(current);
+}
