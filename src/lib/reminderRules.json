@@ -9,5 +9,6 @@
   "moodDeclineDays": 3,
   "sleepDeficitHours": 7,
   "sleepDeficitDays": 5,
-  "technicalReviewCap": 2
+  "technicalReviewCap": 2,
+  "escalatedAlertCap": 2
 }

@@ -1,6 +1,5 @@
 import { computeLoad, acwrStatus, computeMonotonyStrain, monotonyStatus, calculateMetrics } from "./load.js";
 import { daysUntil, nearestUpcoming } from "./tournaments.js";
-import { injuryLoadFlag } from "./injuries.js";
 import { weeklyFocus } from "./practiceFocus.js";
 import { toLocalDateStr } from "./dates.js";
 import { FITNESS_TESTS } from "./fitnessTests.js";
@@ -33,8 +32,9 @@ import RULES from "./reminderRules.json";
 //                          days out ("pre") — a 14-day reminder window lines up
 //                          with the day taper behavior actually begins,
 //                          instead of only warning once she's already in it.
-//   highLoadSRPE/highLoadWeeks — extended-high-load fires when sRPE exceeds
-//                          highLoadSRPE for highLoadWeeks consecutive weeks.
+//   highLoadSRPE/highLoadWeeks — the sustained-volume driver of the load
+//                          reminder fires when sRPE exceeds highLoadSRPE for
+//                          highLoadWeeks consecutive weeks.
 //   escalationWeeks      — documentation only; the actual escalation flag
 //                          lives on the priority doc's `status` field, set by
 //                          deferredPriorities.js's checkEscalations using this
@@ -53,6 +53,12 @@ import RULES from "./reminderRules.json";
 //   technicalReviewCap   — MobileApp capped displayed review reminders at 2 so
 //                          the home screen doesn't flood with review nags;
 //                          kept here so both engines behave identically.
+//   escalatedAlertCap    — same idea, for escalated priorities, and it matters
+//                          more: those are danger-tone, so they sort above
+//                          everything else on the home screen and an unbounded
+//                          run of them would bury the rest. 2 matches
+//                          technicalReviewCap — a parent can act on two
+//                          neglected priorities in a week, not five.
 //
 // `dueReminders(state, today)` → array of { id, kind, tone, title, body,
 // audience }, sorted most-urgent-first (tone: danger > warn > info, then
@@ -69,7 +75,6 @@ export function dueReminders(state, today) {
   const priorities  = Array.isArray(state.priorities)  ? state.priorities  : [];
   const technical   = Array.isArray(state.technical)   ? state.technical   : [];
   const benchmarks  = Array.isArray(state.benchmarks)  ? state.benchmarks  : [];
-  const injuries    = Array.isArray(state.injuries)    ? state.injuries    : [];
   const plan        = state.plan && typeof state.plan === "object" ? state.plan : null;
 
   const reminders = [];
@@ -105,40 +110,65 @@ export function dueReminders(state, today) {
     }
   }
 
-  // 3. Training load high + high monotony.
+  // 3. Training load — one reminder for the whole family. An acute spike, high
+  // monotony and a sustained-volume run are three readings of the same
+  // weekLogs and, in practice, of the same week of training; emitting one card
+  // each taught the reader that load cards are noise and could be swiped away
+  // together. So the sub-signals are collected as *drivers* and at most one
+  // reminder goes out, carrying the worst tone and naming every driver that
+  // fired — the reader still has to be able to tell an acute spike from
+  // repetitiveness from sustained volume, because the response differs.
   const { acwr, weekSRPEs } = computeLoad(weekLogs);
-  const loadSt = acwrStatus(acwr);
-  if (loadSt && (loadSt.tone === "danger" || loadSt.tone === "warn")) {
-    push({
-      id: `load-${loadSt.tone}-${todayStr}`, kind: "load", tone: loadSt.tone,
+  const loadDrivers = [];
+
+  // 3a. Acute:chronic workload ratio.
+  const acwrSt = acwrStatus(acwr);
+  if (acwrSt && (acwrSt.tone === "danger" || acwrSt.tone === "warn")) {
+    loadDrivers.push({
+      tone: acwrSt.tone,
       title: "Training load is high",
-      body: loadSt.tone === "danger" ? "ACWR is in the danger zone — make today a recovery day." : "Ease off intensity for a day or two.",
-      audience: "parent",
+      body: acwrSt.tone === "danger" ? "ACWR is in the danger zone — make today a recovery day." : "Ease off intensity for a day or two.",
     });
   }
+
+  // 3b. Monotony — same load every day, regardless of how much of it there is.
   const { monotony } = computeMonotonyStrain(weekLogs, now);
   const monoSt = monotonyStatus(monotony);
   if (monoSt && (monoSt.tone === "danger" || monoSt.tone === "warn")) {
-    push({
-      id: `monotony-${monoSt.tone}-${todayStr}`, kind: "monotony", tone: monoSt.tone,
-      title: monoSt.label, body: "Training is repetitive this week — vary intensity across sessions.",
-      audience: "parent",
+    loadDrivers.push({
+      tone: monoSt.tone,
+      title: monoSt.label,
+      body: "Training is repetitive this week — vary intensity across sessions.",
     });
   }
 
-  // 4. Extended high load — sRPE > highLoadSRPE for highLoadWeeks consecutive
+  // 3c. Extended high load — sRPE > highLoadSRPE for highLoadWeeks consecutive
   // weeks. weekSRPEs is [thisWeek, 1wk ago, 2wk ago, 3wk ago].
   const highWeeks = weekSRPEs.slice(0, RULES.highLoadWeeks);
   if (highWeeks.length === RULES.highLoadWeeks && highWeeks.every(s => s > RULES.highLoadSRPE)) {
-    push({
-      id: `high-load-${RULES.highLoadWeeks}wk-${todayStr}`, kind: "high-load", tone: "warn",
+    loadDrivers.push({
+      tone: "warn",
       title: "Extended high training load",
       body: `sRPE has exceeded ${RULES.highLoadSRPE} for ${RULES.highLoadWeeks} consecutive weeks. Consider a deload week.`,
+    });
+  }
+
+  if (loadDrivers.length > 0) {
+    // Worst tone wins; the title comes from the most severe driver, and ties
+    // fall to declaration order (spike → repetitiveness → sustained volume),
+    // which is the most-acute-first ordering a parent should act on. The id
+    // keeps the original date-stamped `load-<tone>-<date>` shape so alerts
+    // dismissed under the old three-rule engine stay dismissed.
+    const tone = loadDrivers.some(d => d.tone === "danger") ? "danger" : "warn";
+    push({
+      id: `load-${tone}-${todayStr}`, kind: "load", tone,
+      title: loadDrivers.find(d => d.tone === tone).title,
+      body: loadDrivers.map(d => d.body).join(" "),
       audience: "parent",
     });
   }
 
-  // 5. Mood decline / sleep deficit (see header comment for the fidelity note).
+  // 4. Mood decline / sleep deficit (see header comment for the fidelity note).
   const metrics = calculateMetrics(weekLogs, wellbeing);
   if (metrics.avgMood != null && metrics.wellbeingDays >= RULES.moodDeclineDays && Number(metrics.avgMood) < RULES.moodDeclineThreshold) {
     push({
@@ -157,7 +187,7 @@ export function dueReminders(state, today) {
     });
   }
 
-  // 6. Tournament approaching — window chosen as tournamentWindowDays (see
+  // 5. Tournament approaching — window chosen as tournamentWindowDays (see
   // header comment). Relevant to both the athlete (she plays it) and parents
   // (they plan around it), so audience is "both".
   const nearestT = nearestUpcoming(tournaments, todayStr);
@@ -173,16 +203,24 @@ export function dueReminders(state, today) {
     }
   }
 
-  // 7. Escalated priorities. `priorities` is already-loaded plain data — never
-  // call deferredPriorities.js from here.
-  priorities.filter(p => p && p.status === "escalated").forEach(p => push({
-    id: `esc-${p.id}`, kind: "priority-escalated", tone: "danger",
-    title: "Priority needs attention",
-    body: `"${p.priority}" has been waiting ${p.weeksDeferredCount ?? "several"} weeks.`,
-    audience: "parent",
-  }));
+  // 6. Escalated priorities. `priorities` is already-loaded plain data — never
+  // call deferredPriorities.js from here. Capped at escalatedAlertCap: this is
+  // the only danger-tone rule with no natural bound, and danger sorts to the
+  // very top of the home screen, so an unlucky week of deferrals could push
+  // every other reminder off the first screen. Sorted most-deferred first so
+  // the cap keeps the ones that have waited longest, not an arbitrary two.
+  priorities
+    .filter(p => p && p.status === "escalated")
+    .sort((a, b) => (b.weeksDeferredCount ?? 0) - (a.weeksDeferredCount ?? 0))
+    .slice(0, RULES.escalatedAlertCap)
+    .forEach(p => push({
+      id: `esc-${p.id}`, kind: "priority-escalated", tone: "danger",
+      title: "Priority needs attention",
+      body: `"${p.priority}" has been waiting ${p.weeksDeferredCount ?? "several"} weeks.`,
+      audience: "parent",
+    }));
 
-  // 7b. Weekly practice focus (NEW-ish — surfaces the same pick weeklyFocus
+  // 6b. Weekly practice focus (NEW-ish — surfaces the same pick weeklyFocus
   // already makes for the on-court focus loop, so it isn't reimplemented).
   // Athlete-facing: it's the thing she does on court, not a medical/coach flag.
   const focus = weeklyFocus(priorities);
@@ -195,7 +233,7 @@ export function dueReminders(state, today) {
     });
   }
 
-  // 8. Technical review due — latest entry per strokeArea, status "active"
+  // 7. Technical review due — latest entry per strokeArea, status "active"
   // only (a resolved/"reviewed" entry must stop nagging), capped so the list
   // can't flood.
   const latestByArea = {};
@@ -215,7 +253,7 @@ export function dueReminders(state, today) {
       audience: "parent",
     }));
 
-  // 9. Fitness retest overdue — per test (not a single global "latest of
+  // 8. Fitness retest overdue — per test (not a single global "latest of
   // anything" date), using FITNESS_TESTS as the canonical test list.
   const retestCutoff = new Date(now);
   retestCutoff.setDate(retestCutoff.getDate() - RULES.fitnessRetestDays);
@@ -243,15 +281,12 @@ export function dueReminders(state, today) {
     });
   }
 
-  // 10. Open injury.
-  const injFlag = injuryLoadFlag(injuries);
-  if (injFlag) {
-    push({
-      id: `injury-${injFlag.tone}-${todayStr}`, kind: "injury", tone: injFlag.tone,
-      title: "🩹 " + injFlag.headline, body: injFlag.guidance,
-      audience: "parent",
-    });
-  }
+  // There is deliberately no open-injury rule here. HomeScreen renders its own
+  // injury Card off the same injuryLoadFlag(injuries) source, unconditionally
+  // and with strictly more detail (body area, severity, days open, *and* the
+  // guidance this alert carried), so a parent in parentMode was reading the
+  // same injury twice on one screen. AlertsBanner passes `injuries: []`, so it
+  // never showed the alert either — nothing loses coverage.
 
   // Dedupe by id, then sort most-urgent-first: tone rank primary, original
   // (check-declaration) order as a stable secondary key.
