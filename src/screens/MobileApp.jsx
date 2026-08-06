@@ -351,7 +351,7 @@ export default function MobileApp({ athleteId, isParent, user, onSignOut }) {
       const next = !prev.weeklyReviewEnabled;
       setDoc(doc(db, "athletes", athleteId), { weeklyReviewEnabled: next }, { merge: true })
         .catch(err => console.error("weeklyReviewEnabled save:", err));
-      showToast(next ? "Weekly review on — every Sunday evening 🗞️" : "Weekly review off");
+      showToast(next ? "Weekly review on — every Sunday morning 🗞️" : "Weekly review off");
       return { ...prev, weeklyReviewEnabled: next };
     });
   };

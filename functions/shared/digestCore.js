@@ -171,7 +171,7 @@ export function buildDigestNotesPrompt(digestData, athleteName) {
   const num = (x, suffix = "") => (x == null ? "—" : `${x}${suffix}`);
 
   const system =
-    "You are an expert youth tennis coach writing the weekly summary a parent reads on a Sunday evening. " +
+    "You are an expert youth tennis coach writing the weekly summary a parent reads on a Sunday morning. " +
     "Be constructive, specific and age-appropriate. Work only from the numbers given — never invent an event, " +
     "a result or a statistic that is not below. " +
     "Return ONLY a raw JSON object. Do NOT wrap in markdown code fences. Do NOT include ```json or ``` anywhere in your response. Start your response with { and end with }.";

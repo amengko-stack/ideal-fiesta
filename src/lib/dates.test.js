@@ -68,7 +68,7 @@ describe("isDigestFresh", () => {
   it("accepts the current week", () => {
     expect(isDigestFresh("2026-07-06", wed)).toBe(true);
   });
-  it("accepts last week — the Sunday-evening run means Monday still shows it", () => {
+  it("accepts last week — Sunday morning's digest is still the newest one on Monday", () => {
     expect(isDigestFresh("2026-06-29", wed)).toBe(true);
   });
   it("rejects a two-week-old digest", () => {

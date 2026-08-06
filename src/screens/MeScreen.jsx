@@ -417,7 +417,7 @@ export default function MeScreen({ profile, xp, streak, sessionHistory, weekLogs
               <div style={{ paddingRight: 12 }}>
                 <span style={{ fontSize: 13.5, color: M.ink, fontWeight: 600 }}>Weekly review</span>
                 <div style={{ fontSize: 11, color: M.muted, marginTop: 1 }}>
-                  Sunday 6pm: the AI reviews the week, tidies the priorities, builds the plan and sends you the digest
+                  Sunday 9am: the AI reviews the week, tidies the priorities, builds the plan and sends you the digest before training
                 </div>
               </div>
               <div onClick={onToggleWeeklyReview} style={{

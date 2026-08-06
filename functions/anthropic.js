@@ -23,7 +23,7 @@ const API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
 
 // The client (ai.js) has no retry at all: a human is watching and can press the
-// button again. Nobody is watching a Sunday-evening scheduled run, so retry the
+// button again. Nobody is watching a Sunday-morning scheduled run, so retry the
 // failures that are purely transient — rate limits, overload and 5xx — with a
 // short exponential backoff. Everything else (400 bad request, 401 bad key,
 // truncated/unparseable JSON) is deterministic and fails immediately.

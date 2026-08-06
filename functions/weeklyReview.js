@@ -1,8 +1,10 @@
 // Cloud Functions run with TZ unset (UTC). Every stored `date` in this app is a
 // Jakarta local calendar day and every week key is a Jakarta Monday, so the
 // process timezone is pinned BEFORE any Date is constructed — dates.js and the
-// shared cores all read local date parts, and at UTC they would silently roll
-// the week back by a day for most of the Sunday evening run.
+// shared cores all read local date parts. The 09:00 scheduled run is still the
+// same weekday in UTC, but the Run-now callable fires whenever a parent presses
+// it, and anything before 07:00 Jakarta is the previous day in UTC: that run
+// would key itself to the wrong week and read "today" as yesterday.
 process.env.TZ = process.env.TZ || 'Asia/Jakarta';
 
 import functions from 'firebase-functions';
@@ -27,7 +29,7 @@ import {
 } from './adminData.js';
 
 // ─── WEEKLY REVIEW ORCHESTRATOR ──────────────────────────────────────────────
-// Sunday 18:00 Asia/Jakarta (before the 19:30 check-in reminder). A fixed,
+// Sunday 09:00 Asia/Jakarta, ahead of the morning session. A fixed,
 // strictly ordered pipeline — gather → hygiene → plan → memory → digest → push —
 // with three one-shot LLM calls (Sonnet for the plan, Haiku for the memory
 // update and the digest notes). Not a tool loop: the steps never vary, which is
@@ -39,6 +41,9 @@ import {
 
 const PLAN_MODEL = 'claude-sonnet-4-5';
 const SMALL_MODEL = 'claude-haiku-4-5-20251001';
+// The session the plan is written for. Training is in the morning, and the run
+// fires at 09:00 — an hour of lead time. Matches the client's default
+// (MobileApp.jsx) so a scheduled plan and a hand-triggered one agree.
 const SESSION_TIME = '10:00';
 
 // A run left 'running' for longer than this is presumed dead (crash, timeout,
@@ -444,14 +449,15 @@ async function runForAllAthletes(db, { force }) {
   return { results, failures };
 }
 
-// ─── SCHEDULED: Sunday 18:00 Asia/Jakarta ────────────────────────────────────
-// Ninety minutes before the 19:30 check-in reminder, so the digest push and the
-// nudge never land together. Retries twice with a 5-minute floor: the per-step
-// checkpoints make a retry cheap (it resumes at the failed step), which is why
-// this rethrows instead of swallowing.
+// ─── SCHEDULED: Sunday 09:00 Asia/Jakarta ────────────────────────────────────
+// Training happens in the morning, so the plan has to exist before it — this
+// runs an hour ahead of the 10:00 session the prompt is written for, and well
+// clear of the 19:30 check-in reminder. Retries twice with a 5-minute floor:
+// the per-step checkpoints make a retry cheap (it resumes at the failed step),
+// which is why this rethrows instead of swallowing.
 export const weeklyReview = functions
   .runWith({ timeoutSeconds: 540, memory: '512MB' })
-  .pubsub.schedule('0 18 * * 0')
+  .pubsub.schedule('0 9 * * 0')
   .timeZone('Asia/Jakarta')
   .retryConfig({ retryCount: 2, minBackoffDuration: '300s' })
   .onRun(async () => {
