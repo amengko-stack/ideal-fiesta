@@ -1,5 +1,10 @@
 import functions from 'firebase-functions';
 import admin from 'firebase-admin';
+// The FCM send/prune block this file's reminder pioneered now lives in
+// adminData.js as sendPushToRole, so the weekly digest push uses the identical
+// token lookup, multicast and dead-token pruning (only the three codes that
+// mean the token itself is dead are ever pruned).
+import { sendPushToRole } from './adminData.js';
 // Node 20 provides a global `fetch` — no node-fetch dependency needed.
 
 if (!admin.apps.length) {
@@ -7,6 +12,11 @@ if (!admin.apps.length) {
   // serviceAccountKey.json; Cloud Functions supplies ADC automatically.
   admin.initializeApp();
 }
+
+// The Sunday orchestrator lives in its own module (it pins process.env.TZ and
+// pulls in the shared pure cores); re-exported here because firebase deploys
+// what index.js exports.
+export { weeklyReview, runWeeklyReviewNow } from './weeklyReview.js';
 
 export const api = functions.https.onRequest(async (req, res) => {
   res.set('Access-Control-Allow-Origin', '*');
@@ -61,18 +71,8 @@ export const api = functions.https.onRequest(async (req, res) => {
   }
 });
 
-// Prune push tokens only on these codes — they mean the token itself is dead.
-// Never prune on internal-error/unavailable/quota codes: those are transient
-// outages, and pruning on them would silently destroy push for that device.
-const PRUNABLE_FCM_ERROR_CODES = new Set([
-  'messaging/registration-token-not-registered',
-  'messaging/invalid-registration-token',
-  'messaging/invalid-argument'
-]);
-
 const REMINDER_TITLE = 'Evening check-in';
 const REMINDER_BODY = "Don't forget your evening check-in!";
-const APP_URL = 'https://athlete-os-15c3b.web.app';
 
 /**
  * Runs the evening check-in nudge for a single athlete document.
@@ -118,67 +118,42 @@ async function sendCheckinReminderForAthlete(db, athleteDoc, summary) {
     return 'already-checked-in';
   }
 
-  // Check for athlete tokens BEFORE taking the idempotency claim: if there's
-  // nowhere to send today, we must not burn the claim, or a token registered
-  // later that same day would find the day already "claimed" and stay silent.
-  const tokensSnap = await athleteDoc.ref
-    .collection('pushTokens')
-    .where('role', '==', 'athlete')
-    .get();
-
-  if (tokensSnap.empty) {
-    return 'no-athlete-tokens';
-  }
-
-  const tokenDocs = tokensSnap.docs;
-  const tokens = tokenDocs.map((d) => d.data().token || d.id);
-
   // Idempotency: gen-1 pubsub is at-least-once and executions can overlap.
   // .create() throws ALREADY_EXISTS on a duplicate run for the same local day.
   // claimedAt is set first and sentAt only after a successful send, so a
   // claimed-but-never-sent doc (e.g. crash mid-send) is recoverable — deleting
   // that claim doc lets the next run retry instead of being blocked forever.
+  //
+  // The claim is taken from sendPushToRole's `beforeSend` hook, which runs AFTER
+  // the token lookup and only when there is somewhere to send: if there's
+  // nowhere to send today we must not burn the claim, or a token registered
+  // later that same day would find the day already "claimed" and stay silent.
   const claimRef = athleteDoc.ref.collection('reminderSends').doc(`${todayStr}_checkin`);
-  try {
-    await claimRef.create({ claimedAt: admin.firestore.FieldValue.serverTimestamp() });
-  } catch (err) {
-    if (err.code === 6 || /ALREADY_EXISTS/i.test(err.message || '')) {
-      return 'duplicate-run';
-    }
-    throw err;
-  }
 
-  // sendEachForMulticast throws on an empty tokens array; guarded above.
-  const response = await admin.messaging().sendEachForMulticast({
-    tokens,
-    notification: {
-      title: REMINDER_TITLE,
-      body: REMINDER_BODY
-    },
-    webpush: {
-      notification: {
-        title: REMINDER_TITLE,
-        body: REMINDER_BODY,
-        icon: '/icons/apple-touch-icon.png'
-        // No badge: there is no monochrome asset for it.
-      },
-      fcmOptions: { link: APP_URL }
-    }
-  });
-
-  let pruned = 0;
-  await Promise.all(
-    response.responses.map(async (resp, i) => {
-      if (resp.success) return;
-      const code = resp.error && resp.error.code;
-      if (PRUNABLE_FCM_ERROR_CODES.has(code)) {
-        pruned++;
-        // Delete by doc.ref — never reconstruct the path from the token string.
-        await tokenDocs[i].ref.delete();
+  const result = await sendPushToRole(
+    db,
+    athleteDoc.ref,
+    'athlete',
+    { title: REMINDER_TITLE, body: REMINDER_BODY },
+    {
+      beforeSend: async () => {
+        try {
+          await claimRef.create({ claimedAt: admin.firestore.FieldValue.serverTimestamp() });
+        } catch (err) {
+          if (err.code === 6 || /ALREADY_EXISTS/i.test(err.message || '')) {
+            return 'duplicate-run';
+          }
+          throw err;
+        }
+        return null;
       }
-    })
+    }
   );
-  summary.pruned += pruned;
+
+  summary.pruned += result.pruned;
+
+  if (result.status === 'no-tokens') return 'no-athlete-tokens';
+  if (result.status !== 'sent') return result.status;
 
   await claimRef.update({ sentAt: admin.firestore.FieldValue.serverTimestamp() });
   summary.sent++;
