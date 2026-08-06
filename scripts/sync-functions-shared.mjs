@@ -34,7 +34,9 @@ export const SHARED_MODULES = [
   'athleteContextCore.js',
   'planGenCore.js',
   'deferredPrioritiesCore.js',
-  'digestCore.js'
+  'digestCore.js',
+  'growth.js',
+  'guardianCore.js'
 ];
 
 const SRC_DIR = path.join(repoRoot, 'src', 'lib');

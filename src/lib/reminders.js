@@ -60,11 +60,20 @@ import RULES from "./reminderRules.json";
 //                          technicalReviewCap — a parent can act on two
 //                          neglected priorities in a week, not five.
 //
-// `dueReminders(state, today)` → array of { id, kind, tone, title, body,
+// `dueReminders(state, today, opts)` → array of { id, kind, tone, title, body,
 // audience }, sorted most-urgent-first (tone: danger > warn > info, then
 // check order) and deduped by id. `today` is a Date. Never throws — malformed
 // or empty `state` yields [].
-export function dueReminders(state, today) {
+//
+// `opts.suppressKinds` drops whole kinds from the finished list. It exists for
+// the Load & Health Guardian: when the Guardian has an open alert it is already
+// telling the parent a richer version of the same story, and the reminders it
+// supersedes (guardianCore.supersededReminderKinds) would repeat it in less
+// detail on the same screen. It filters the FINAL deduped list rather than
+// skipping the checks, so suppression can never change which reminders are
+// generated, only which survive — and an absent or empty list is byte-identical
+// to not passing the argument at all.
+export function dueReminders(state, today, { suppressKinds = [] } = {}) {
   if (!state || typeof state !== "object") return [];
   const now = today instanceof Date && !Number.isNaN(today.getTime()) ? today : new Date();
   const todayStr = toLocalDateStr(now);
@@ -296,8 +305,10 @@ export function dueReminders(state, today) {
     seen.add(r.id);
     return true;
   });
+  const suppressed = new Set(Array.isArray(suppressKinds) ? suppressKinds : []);
   const toneRank = { danger: 0, warn: 1, info: 2 };
   return deduped
+    .filter(r => !suppressed.has(r.kind))
     .map((r, i) => ({ r, i }))
     .sort((a, b) => (toneRank[a.r.tone] ?? 9) - (toneRank[b.r.tone] ?? 9) || a.i - b.i)
     .map(({ r }) => r);

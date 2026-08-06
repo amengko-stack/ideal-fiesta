@@ -489,6 +489,53 @@ describe("dedupe and sort order", () => {
   });
 });
 
+// The third argument the Load & Health Guardian passes in: when it has an open
+// alert it is already telling a richer version of the same story, so the
+// reminders it supersedes (guardianCore.supersededReminderKinds) must not
+// repeat it in less detail on the same screen.
+describe("suppressKinds", () => {
+  const stateWithMoodAndSleep = () => {
+    const wellbeing = [];
+    for (let i = 0; i < 5; i++) {
+      const d = new Date(TODAY); d.setDate(d.getDate() - i);
+      wellbeing.push({ date: toLocalDateStr(d), mood: 2, sleep: 5 });
+    }
+    return { weekLogs: [], wellbeing, benchmarks: [] };
+  };
+
+  it("is byte-identical to not passing the argument when absent or empty", () => {
+    const state = stateWithMoodAndSleep();
+    const base = dueReminders(state, TODAY);
+    expect(dueReminders(state, TODAY, {})).toEqual(base);
+    expect(dueReminders(state, TODAY, { suppressKinds: [] })).toEqual(base);
+    expect(dueReminders(state, TODAY, undefined)).toEqual(base);
+  });
+
+  it("drops exactly the named kinds and nothing else", () => {
+    const state = stateWithMoodAndSleep();
+    const kinds = kindsOf(dueReminders(state, TODAY, { suppressKinds: ["mood", "sleep"] }));
+    expect(kinds).not.toContain("mood");
+    expect(kinds).not.toContain("sleep");
+    // The rules the Guardian says nothing about survive untouched.
+    expect(kinds).toContain("checkin");
+    expect(kinds).toContain("fitness-retest");
+  });
+
+  it("preserves the urgency ordering of whatever survives", () => {
+    const state = { ...stateWithMoodAndSleep(), priorities: [{ id: "p1", status: "escalated", priority: "Second serve" }] };
+    const r = dueReminders(state, TODAY, { suppressKinds: ["mood"] });
+    const tones = r.map(x => x.tone);
+    expect(tones).toEqual([...tones].sort((a, b) => ({ danger: 0, warn: 1, info: 2 })[a] - ({ danger: 0, warn: 1, info: 2 })[b]));
+  });
+
+  it("ignores an unknown kind, and tolerates a non-array", () => {
+    const state = stateWithMoodAndSleep();
+    const base = dueReminders(state, TODAY);
+    expect(dueReminders(state, TODAY, { suppressKinds: ["not-a-kind"] })).toEqual(base);
+    expect(dueReminders(state, TODAY, { suppressKinds: "mood" })).toEqual(base);
+  });
+});
+
 describe("audience routing — full matrix sanity", () => {
   it("tags every emitted reminder with a valid audience", () => {
     const state = {
