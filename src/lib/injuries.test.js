@@ -45,7 +45,13 @@ describe("injuryDuration", () => {
 
 describe("describeInjury", () => {
   it("formats side, area, severity word and duration", () => {
-    const injury = { bodyArea: "Knee", side: "Left", severity: 2, status: "open", onsetDate: "2026-07-28" };
+    // Derived from today, not hardcoded: describeInjury measures an open injury
+    // against the current date, so a literal onsetDate makes this pass only on
+    // the day it was written.
+    const d = new Date();
+    d.setDate(d.getDate() - 6);
+    const onsetDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const injury = { bodyArea: "Knee", side: "Left", severity: 2, status: "open", onsetDate };
     expect(describeInjury(injury)).toBe("Left Knee · mild (2/5) · 6 days");
   });
   it("omits side when N/A", () => {
