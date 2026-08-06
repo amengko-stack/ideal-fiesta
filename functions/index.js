@@ -1,6 +1,6 @@
-const functions = require('firebase-functions');
-const fetch = require('node-fetch');
-const admin = require('firebase-admin');
+import functions from 'firebase-functions';
+import admin from 'firebase-admin';
+// Node 20 provides a global `fetch` — no node-fetch dependency needed.
 
 if (!admin.apps.length) {
   // Ambient Application Default Credentials — do NOT reference the gitignored
@@ -8,7 +8,7 @@ if (!admin.apps.length) {
   admin.initializeApp();
 }
 
-exports.api = functions.https.onRequest(async (req, res) => {
+export const api = functions.https.onRequest(async (req, res) => {
   res.set('Access-Control-Allow-Origin', '*');
   res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.set('Access-Control-Allow-Headers', 'Content-Type');
@@ -189,7 +189,7 @@ async function sendCheckinReminderForAthlete(db, athleteDoc, summary) {
 // parents) to do her evening check-in if she hasn't already. Deliberately
 // the only push in this phase — see task notes on why a broader digest is
 // out of scope (no resolution path in the data model yet).
-exports.sendCheckinReminder = functions.pubsub
+export const sendCheckinReminder = functions.pubsub
   .schedule('30 19 * * *')
   .timeZone('Asia/Jakarta')
   .onRun(async () => {

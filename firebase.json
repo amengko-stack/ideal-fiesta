@@ -47,7 +47,8 @@
     {
       "source": "functions",
       "codebase": "default",
-      "ignore": ["node_modules", ".git", "firebase-debug.log"]
+      "ignore": ["node_modules", ".git", "firebase-debug.log"],
+      "predeploy": ["node ./scripts/sync-functions-shared.mjs"]
     }
   ]
 }

@@ -7,10 +7,13 @@ import { defineConfig, globalIgnores } from 'eslint/config'
 export default defineConfig([
   globalIgnores(['dist']),
   {
-    // Node, not the browser: the Cloud Functions codebase and the local dev
-    // proxy use require/exports/process. Without this they report no-undef on
-    // every one of those, which is why `npm run lint` has always been noisy
-    // here and is marked continue-on-error in CI.
+    // Node, not the browser: the Cloud Functions codebase (ESM, Node 20) and
+    // the local dev proxy use process/console/etc. Without this they report
+    // no-undef on every one of those, which is why `npm run lint` has always
+    // been noisy here and is marked continue-on-error in CI. Flat config's
+    // default sourceType ("module") already parses both import/export and
+    // any lingering require()/module.exports, so no sourceType override is
+    // needed here.
     files: ['functions/**/*.js', 'server.js', 'vite.config.js'],
     languageOptions: {
       globals: globals.node,
