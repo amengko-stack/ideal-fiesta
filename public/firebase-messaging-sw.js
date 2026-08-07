@@ -44,9 +44,14 @@ messaging.onBackgroundMessage((payload) => {
     // tag: "guardian") replace its own earlier notification instead of
     // stacking a fresh one every morning. `renotify` keeps the replacement
     // audible — a silent swap would mean a genuine escalation went unnoticed.
-    // Untagged pushes are unaffected: an undefined tag never collapses.
-    tag: payload.notification?.tag,
-    renotify: true,
+    //
+    // Both are spread together and ONLY when a tag is present: the spec makes
+    // renotify-without-tag a TypeError, which would take down the untagged
+    // pushes — the evening check-in nudge and the Sunday digest — rather than
+    // just skipping the collapse.
+    ...(payload.notification?.tag
+      ? { tag: payload.notification.tag, renotify: true }
+      : {}),
     data: payload.data || {},
   });
 });
