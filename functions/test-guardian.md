@@ -101,7 +101,7 @@ Re-run §3. Now expect `status: "fired"` and assert:
 | Path | Expect |
 |---|---|
 | `guardianAlerts/{today}_g1-…` | `families` has ≥2 entries, one of them a trigger family; `severity`; `headline`; every `factors[].evidence` populated; `actions.athlete` **non-empty**; `dismissedAt` and `resolvedAt` null |
-| `guardianState/cooldowns` | `stories["g1:…"]` with `lastFiredAt`, `lastSeverity`, `lastWeight`, `lastFamilies` |
+| `guardianState/cooldowns` | a single `current` record — `storyKey`, `families`, `severity`, `totalWeight`, `firstFiredDate`, `lastFiredDate`, `fireCount`, `cleared: false` |
 | `guardianRuns/{today}` | `outcome: "fired"`, `pushClaimedAt` set, `pushSentAt` set when severity is above `watch` |
 
 `pushSentAt` will be absent with no registered push tokens — `sendPushToRole`
@@ -152,9 +152,15 @@ import("firebase-admin").then(async ({default: admin}) => {
 ```
 
 Re-run §3. Expect a **new** alert doc with a different `storyKey` (now including
-`tissue`), a higher `severity`, and the cooldown entry updated rather than
-replaced — other stories keep their own windows. The previous alert must now
-carry `resolvedAt` with reason `superseded`: there is only ever one live card.
+`tissue`) and a higher `severity`, and `current` overwritten with the new story —
+there is exactly one cooldown record, not one per story, which is what makes
+`escalation-new-family` reachable at all. Check `current.reason` names which
+escalation let it through (`escalation-severity` or `escalation-new-family`).
+The previous alert must now carry `resolvedAt` with reason `superseded`: there
+is only ever one live card.
+
+Then re-run once more with nothing changed and confirm it goes back to
+`suppressed` — escalating breaks the window once, it does not disarm it.
 
 ## 7. Failure paths
 

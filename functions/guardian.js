@@ -16,6 +16,7 @@ import { toLocalDateStr } from './shared/dates.js';
 import {
   assessGuardian,
   cooldownDecision,
+  clearedCooldown,
   buildGuardianNotesPrompt,
   buildGuardianAlert,
   guardianPushPayload,
@@ -42,8 +43,11 @@ import { FAMILY_UIDS, STALE_RUN_MS, toMillis } from './weeklyReview.js';
 // A QUIET DAY — which is almost every day, by design — costs 4 Firestore data
 // queries (weekLogs, wellbeing, injuries, cooldowns; issued in parallel), the
 // claim-doc read inside the transaction, one open-alert sweep, two small claim
-// writes, and ZERO TOKENS. The LLM sits below both early returns and nothing
-// else in this file can move it above them.
+// writes, and ZERO TOKENS. (Plus, on the FIRST quiet day after an alert only,
+// one write to mark the cooldown record cleared — clearedCooldown returns null
+// on every quiet day after that, so a run of them costs nothing extra.) The LLM
+// sits below both early returns and nothing else in this file can move it above
+// them.
 //
 // A FIRING DAY adds one Haiku call (~600 output tokens), about three writes (the
 // alert, the cooldown entry, the push bookkeeping) and one push. The combination
@@ -252,11 +256,33 @@ export async function runGuardianForAthlete(db, athleteId, { force = false, athl
     // whose output nobody would ever read.
     if (!assessment.fires) {
       const resolved = await resolveOpenAlerts(athleteRef, 'cleared');
-      await complete({ outcome: 'quiet', assessment: assessmentRecord(assessment), resolvedAlerts: resolved });
+
+      // The card clearing is only half of it. Leaving the cooldown record
+      // untouched would keep suppressing the SAME story for the rest of its ten
+      // days, so a situation that resolved on Tuesday and came back on Thursday
+      // would write no card at all. Mark it cleared instead — cooldownDecision
+      // then lets it speak again as `resumed-after-clear`. The shape belongs to
+      // guardianCore; this file only writes what it hands back, and null means
+      // there was nothing to clear.
+      const cleared = clearedCooldown(raw.cooldowns, now);
+      if (cleared) {
+        await athleteRef.collection('guardianState').doc('cooldowns').set({
+          current: cleared,
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+      }
+
+      await complete({
+        outcome: 'quiet',
+        assessment: assessmentRecord(assessment),
+        resolvedAlerts: resolved,
+        cooldownCleared: cleared != null,
+      });
       return {
         athleteId, date, status: 'quiet',
         reason: assessment.reason,
         resolvedAlerts: resolved.length,
+        cooldownCleared: cleared != null,
       };
     }
 
@@ -315,16 +341,7 @@ export async function runGuardianForAthlete(db, athleteId, { force = false, athl
     // Any older alert is now history — there is one live Guardian card.
     const resolved = await resolveOpenAlerts(athleteRef, 'superseded', alert.alertId);
 
-    // ── i. COOLDOWN ──────────────────────────────────────────────────────────
-    // Merged, never replaced: other storyKeys keep their own windows. The key is
-    // `g{version}:{families}` — letters, digits, ':' and '+', no dots — so it is
-    // safe as a Firestore map key.
-    await athleteRef.collection('guardianState').doc('cooldowns').set({
-      stories: { [assessment.storyKey]: decision.nextEntry },
-      updatedAt: FieldValue.serverTimestamp(),
-    }, { merge: true });
-
-    // ── j. PUSH (the only non-idempotent step) ───────────────────────────────
+    // ── i. PUSH (the only non-idempotent step) ───────────────────────────────
     // Parents only, and only above `watch` — a 6am buzz IS risk framing however
     // it is worded, and sendCheckinReminder already owns the athlete's one
     // gentle push. Her note reaches her in-app, on Home, before training.
@@ -360,6 +377,29 @@ export async function runGuardianForAthlete(db, athleteId, { force = false, athl
         },
       }, { merge: true });
     }
+
+    // ── j. COOLDOWN — AFTER THE PUSH, DELIBERATELY ───────────────────────────
+    // Ordering, not style. Writing the window before the push meant a push that
+    // threw took the alert down with it: the gen-1 retry re-assesses, finds the
+    // record this run just wrote, suppresses, and the parent is never told —
+    // while the claim doc says `outcome: 'suppressed'` for a day that actually
+    // alerted. Writing it here inverts the failure: if the push throws, no
+    // window is recorded and the retry (or tomorrow's run) sends it properly.
+    //
+    // If the cooldown write itself then fails, the worst case is one duplicate
+    // alert tomorrow. That is strictly better than a silent miss — a warning
+    // said twice is a nuisance, a warning never said is the bug this whole
+    // feature exists to prevent.
+    //
+    // One `current` record, replaced wholesale rather than a map keyed by
+    // storyKey — see cooldownDecision for why keying it defeated the window.
+    // Merged at the document level so `updatedAt` and any legacy field sit
+    // alongside it; `current` itself is written complete, every field, every
+    // time.
+    await athleteRef.collection('guardianState').doc('cooldowns').set({
+      current: decision.nextEntry,
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
 
     // ── k. Done ──────────────────────────────────────────────────────────────
     await complete({

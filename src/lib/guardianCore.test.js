@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import {
   GUARDIAN_THRESHOLDS, GUARDIAN_ENGINE_VERSION, TRIGGER_FAMILIES, MODIFIER_FAMILIES,
-  dailyWellbeing, seriesTrend, evaluateGate, assessGuardian, cooldownDecision,
+  dailyWellbeing, seriesTrend, evaluateGate, assessGuardian, cooldownDecision, clearedCooldown,
   athleteActions, buildGuardianNotesPrompt, buildGuardianAlert, guardianPushPayload,
   supersededReminderKinds,
 } from "./guardianCore.js";
@@ -157,6 +157,8 @@ describe("assessGuardian — malformed/empty input", () => {
   it("never throws on any of the other exported entry points given junk", () => {
     expect(() => cooldownDecision(null, null, TODAY)).not.toThrow();
     expect(() => cooldownDecision("x", "y", "z")).not.toThrow();
+    expect(() => clearedCooldown(null, TODAY)).not.toThrow();
+    expect(() => clearedCooldown("x", "y")).not.toThrow();
     expect(() => athleteActions(null, null)).not.toThrow();
     expect(() => buildGuardianNotesPrompt(null, null)).not.toThrow();
     expect(() => buildGuardianAlert()).not.toThrow();
@@ -821,23 +823,48 @@ describe("storyKey / factorKey stability", () => {
 
 // ─── COOLDOWN ────────────────────────────────────────────────────────────────
 
+// The window is compared against ONE current record, not a map keyed by
+// storyKey. Keying it on storyKey was the bug: storyKey names the family set, so
+// any change to the set minted a fresh key with no prior entry and the Guardian
+// spoke again the next morning.
+//
+// Everything below runs on the injected clock. The chained cases build their
+// prior record by running cooldownDecision for real, and the two that need
+// genuine family sets build those with assessGuardian — recovery, tissue and
+// growth only, so no realMonday and no frozen system clock are involved.
 describe("cooldownDecision", () => {
   const FIRED_ON = "2026-08-01";
   const assessment = (over = {}) => ({
     fires: true, storyKey: "g1:recovery+tissue", factorKey: "g1:mood-decline+open-injury-moderate",
     families: ["recovery", "tissue"], severity: "watch", totalWeight: 4, ...over,
   });
-  const doc = (over = {}) => ({
-    stories: {
-      "g1:recovery+tissue": {
-        storyKey: "g1:recovery+tissue", families: ["recovery", "tissue"],
-        severity: "watch", totalWeight: 4,
-        firstFiredDate: FIRED_ON, lastFiredDate: FIRED_ON, firstSeenDate: FIRED_ON, fireCount: 1,
-        ...over,
-      },
-    },
-  });
   const at = (dateStr) => new Date(`${dateStr}T06:00:00`);
+
+  // The doc as cooldownDecision itself would have left it after firing on
+  // FIRED_ON — a record the engine can genuinely produce, not a hand-written
+  // one. `over` patches the record afterwards for the malformed-input cases.
+  const doc = (over = {}) => {
+    const first = cooldownDecision(null, assessment(), at(FIRED_ON));
+    return { current: { ...first.nextEntry, ...over } };
+  };
+
+  // Real assessments, so the family sets are ones the engine actually mints.
+  const lowMood = (base) => wbDays([{ mood: 2 }, { mood: 2 }, { mood: 2 }], base);
+  const openKnee = (base) => [
+    { id: "i1", bodyArea: "Knee", severity: 3, status: "open", onsetDate: dayStr(base, -3) },
+  ];
+  //  recovery + tissue          — weight 4, watch
+  const recoveryTissue = (day) =>
+    assessGuardian({ wellbeing: lowMood(at(day)), injuries: openKnee(at(day)) }, at(day));
+  //  growth + recovery + tissue — weight 6, urgent
+  const withGrowth = (day) =>
+    assessGuardian(
+      { wellbeing: lowMood(at(day)), injuries: openKnee(at(day)), athlete: MID_PHV_ATHLETE },
+      at(day),
+    );
+  //  growth + recovery          — weight 4, watch (tissue gone, growth new)
+  const recoveryGrowth = (day) =>
+    assessGuardian({ wellbeing: lowMood(at(day)), athlete: MID_PHV_ATHLETE }, at(day));
 
   it("fires when the cooldown doc is empty", () => {
     const d = cooldownDecision({}, assessment(), at("2026-08-05"));
@@ -845,10 +872,22 @@ describe("cooldownDecision", () => {
     expect(d.reason).toBe("first-fire");
     expect(d.nextEntry.firstFiredDate).toBe("2026-08-05");
     expect(d.nextEntry.fireCount).toBe(1);
+    expect(d.nextEntry.cleared).toBe(false);
   });
 
   it("fires when the doc is missing entirely", () => {
     expect(cooldownDecision(null, assessment(), at("2026-08-05")).suppressed).toBe(false);
+  });
+
+  it("treats a doc with no readable `current` as no prior and fires", () => {
+    // Includes the pre-rewrite `{ stories: {…} }` shape. Nothing is deployed, so
+    // there is no real data behind it — this only has to not crash or suppress.
+    const legacy = { stories: { "g1:recovery+tissue": { lastFiredDate: FIRED_ON, severity: "watch" } } };
+    for (const junk of [legacy, { current: null }, { current: "nope" }, { current: [] }]) {
+      const d = cooldownDecision(junk, assessment(), at("2026-08-02"));
+      expect(d.suppressed).toBe(false);
+      expect(d.reason).toBe("first-fire");
+    }
   });
 
   it("suppresses inside the 10-day window", () => {
@@ -860,6 +899,25 @@ describe("cooldownDecision", () => {
     }
   });
 
+  // ── THE REGRESSION ────────────────────────────────────────────────────────
+  // The case the storyKey-keyed lookup got silently wrong. Two consecutive
+  // mornings, two DIFFERENT family sets, therefore two different storyKeys —
+  // under the old model the second found no entry under its own key and fired
+  // as `first-fire`, which is precisely the nagging the window exists to stop.
+  it("suppresses a DIFFERENT family set the very next day", () => {
+    const mon = withGrowth("2026-08-01");         // growth+recovery+tissue
+    const tue = recoveryTissue("2026-08-02");     // recovery+tissue — the knee story alone
+    expect(mon.storyKey).not.toBe(tue.storyKey);
+
+    const first = cooldownDecision(null, mon, at("2026-08-01"));
+    expect(first.suppressed).toBe(false);
+
+    const second = cooldownDecision({ current: first.nextEntry }, tue, at("2026-08-02"));
+    expect(second.suppressed).toBe(true);
+    expect(second.reason).toBe("cooldown");
+    expect(second.nextEntry).toBeNull();
+  });
+
   it("fires again on day 11", () => {
     const d = cooldownDecision(doc(), assessment(), at("2026-08-11"));
     expect(d.suppressed).toBe(false);
@@ -869,6 +927,14 @@ describe("cooldownDecision", () => {
     expect(d.nextEntry.fireCount).toBe(2);
   });
 
+  it("restarts the episode history when the story that returns is a different one", () => {
+    const other = assessment({ storyKey: "g1:growth+recovery", families: ["growth", "recovery"] });
+    const d = cooldownDecision(doc(), other, at("2026-08-11"));
+    expect(d.reason).toBe("cooldown-expired");
+    expect(d.nextEntry.firstSeenDate).toBe("2026-08-11");
+    expect(d.nextEntry.fireCount).toBe(1);
+  });
+
   it("breaks the window when severity rises", () => {
     const d = cooldownDecision(doc(), assessment({ severity: "concern", totalWeight: 5 }), at("2026-08-03"));
     expect(d.suppressed).toBe(false);
@@ -876,11 +942,19 @@ describe("cooldownDecision", () => {
   });
 
   it("breaks the window when a NEW family joins", () => {
-    const a = assessment({ storyKey: "g1:load+recovery+tissue", families: ["load", "recovery", "tissue"], totalWeight: 4 });
-    // Same stored story key, so this is genuinely the same story growing.
-    const stored = doc();
-    stored.stories["g1:load+recovery+tissue"] = { ...stored.stories["g1:recovery+tissue"], storyKey: "g1:load+recovery+tissue" };
-    const d = cooldownDecision(stored, a, at("2026-08-03"));
+    // Both records come from the engine: recovery+tissue on the 1st, then
+    // growth+recovery on the 3rd. Same weight (4) and same severity (watch), so
+    // `growth` arriving is the only thing that can break the window — which is
+    // what makes this branch reachable at all now that the lookup is not keyed
+    // by storyKey.
+    const first = recoveryTissue("2026-08-01");
+    const later = recoveryGrowth("2026-08-03");
+    expect(later.totalWeight).toBe(first.totalWeight);
+    expect(later.severity).toBe(first.severity);
+    expect(later.families).toContain("growth");
+
+    const prior = cooldownDecision(null, first, at("2026-08-01"));
+    const d = cooldownDecision({ current: prior.nextEntry }, later, at("2026-08-03"));
     expect(d.suppressed).toBe(false);
     expect(d.reason).toBe("escalation-new-family");
   });
@@ -908,9 +982,27 @@ describe("cooldownDecision", () => {
     expect(d.reason).toBe("cooldown");
   });
 
-  it("keys per story — a different story is not suppressed by this one's window", () => {
-    const other = assessment({ storyKey: "g1:load+recovery", families: ["load", "recovery"] });
-    expect(cooldownDecision(doc(), other, at("2026-08-03")).suppressed).toBe(false);
+  // ── A CLEARED STORY THAT COMES BACK ───────────────────────────────────────
+  it("fires again inside the window when the story cleared and returned", () => {
+    const a = assessment();
+    const fired = cooldownDecision(null, a, at("2026-08-01"));
+
+    // A quiet day: the gate does not fire, the card resolves, and the record is
+    // marked cleared.
+    const cleared = clearedCooldown({ current: fired.nextEntry }, at("2026-08-02"));
+    expect(cleared.cleared).toBe(true);
+
+    // It comes back on the 4th — day 4 of 10, so the old model held it silent
+    // for another week.
+    const back = cooldownDecision({ current: cleared }, a, at("2026-08-04"));
+    expect(back.suppressed).toBe(false);
+    expect(back.reason).toBe("resumed-after-clear");
+    expect(back.nextEntry.firstSeenDate).toBe("2026-08-01");  // same story, still recurring
+    expect(back.nextEntry.fireCount).toBe(2);
+    // And the new record is NOT itself cleared, or the window would never bite.
+    expect(back.nextEntry.cleared).toBe(false);
+    expect(back.nextEntry.clearedDate).toBeNull();
+    expect(cooldownDecision({ current: back.nextEntry }, a, at("2026-08-05")).suppressed).toBe(true);
   });
 
   it("suppresses a non-firing assessment and writes nothing", () => {
@@ -923,6 +1015,49 @@ describe("cooldownDecision", () => {
   it("fires rather than sulking when the stored date is unreadable", () => {
     const d = cooldownDecision(doc({ lastFiredDate: "garbage" }), assessment(), at("2026-08-03"));
     expect(d.suppressed).toBe(false);
+  });
+});
+
+describe("clearedCooldown", () => {
+  const at = (dateStr) => new Date(`${dateStr}T06:00:00`);
+  const record = {
+    storyKey: "g1:recovery+tissue", families: ["recovery", "tissue"],
+    severity: "watch", totalWeight: 4,
+    firstFiredDate: "2026-08-01", lastFiredDate: "2026-08-01",
+    firstSeenDate: "2026-08-01", fireCount: 1, cleared: false, clearedDate: null,
+    reason: "first-fire",
+  };
+
+  it("marks the current record cleared and dates it, keeping everything else", () => {
+    const out = clearedCooldown({ current: record }, at("2026-08-02"));
+    expect(out.cleared).toBe(true);
+    expect(out.clearedDate).toBe("2026-08-02");
+    expect(out.storyKey).toBe(record.storyKey);
+    expect(out.lastFiredDate).toBe("2026-08-01");   // the window's anchor does not move
+    expect(out.fireCount).toBe(1);
+  });
+
+  it("does not mutate the record it was given", () => {
+    const current = { ...record };
+    clearedCooldown({ current }, at("2026-08-02"));
+    expect(current.cleared).toBe(false);
+    expect(current.clearedDate).toBeNull();
+  });
+
+  it("returns null when there is nothing to clear, so a quiet day writes nothing", () => {
+    for (const doc of [null, undefined, {}, "junk", { current: null }, { stories: {} }]) {
+      expect(clearedCooldown(doc, at("2026-08-02"))).toBeNull();
+    }
+  });
+
+  it("returns null for an already-cleared record — a run of quiet days writes once", () => {
+    const once = clearedCooldown({ current: record }, at("2026-08-02"));
+    expect(clearedCooldown({ current: once }, at("2026-08-03"))).toBeNull();
+  });
+
+  it("never throws on malformed input", () => {
+    expect(() => clearedCooldown({ current: record }, "not a date")).not.toThrow();
+    expect(() => clearedCooldown({ current: { cleared: "yes" } }, at("2026-08-02"))).not.toThrow();
   });
 });
 

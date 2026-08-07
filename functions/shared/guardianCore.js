@@ -662,10 +662,13 @@ function guardianHeadline(families, factors, severity) {
 const slug = (key) => String(key).replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "");
 
 // storyKey is deliberately COARSE and not date-stamped: it names the families
-// only. Cooldown keys on it, and keying on factors instead would let monotony
-// ticking over 2.0 mint a fresh key and re-tell a story the parent read
-// yesterday. factorKey is the fine-grained sibling, used for escalation
-// diagnostics and never for suppression.
+// only. It is the alert's IDENTITY — it slugs into alertId and tells a human
+// reading the doc which story this was — and it is deliberately NOT what the
+// cooldown looks up: see cooldownDecision, where keying suppression on this
+// string meant any change in the family set minted a fresh key with no prior
+// entry and re-told a story the parent read yesterday. factorKey is the
+// fine-grained sibling, used for escalation diagnostics and never for
+// suppression.
 const storyKeyFor  = (families) => `g${GUARDIAN_ENGINE_VERSION}:${families.join("+")}`;
 const factorKeyFor = (factors)  => `g${GUARDIAN_ENGINE_VERSION}:${factors.map(f => f.id).sort().join("+")}`;
 
@@ -748,18 +751,43 @@ export function assessGuardian(raw, now = new Date()) {
 
 // ─── cooldownDecision ────────────────────────────────────────────────────────
 // The anti-repeat mechanism. Given the stored cooldown doc and today's
-// assessment, decide whether this story is allowed to speak.
+// assessment, decide whether the Guardian is allowed to speak at all.
 //
-//   cooldowns — athletes/{id}/guardianState/cooldowns, shape { stories: { [storyKey]: entry } }
+//   cooldowns — athletes/{id}/guardianState/cooldowns, shape { current: record }
 //   returns   — { suppressed, reason, nextEntry }
 //
-// `nextEntry` is the cooldown entry to merge-write when the alert goes out, and
-// is null whenever nothing is sent — so the caller never has to decide.
+// ONE CURRENT STORY, NOT A MAP. The doc holds a single `current` record and the
+// window is compared against whatever fired last, WHATEVER its storyKey. An
+// earlier design keyed the lookup on storyKey, which quietly defeated the whole
+// mechanism: storyKey names the family set, so load+growth on Monday and
+// load+recovery+growth on Tuesday were two different keys, neither had a prior
+// entry, and both fired — two pushes on consecutive mornings, which is exactly
+// the nagging the 10-day window exists to prevent. It also made the
+// escalation-new-family branch unreachable, because a matching key means the
+// families are identical by construction. Comparing against the last alert
+// regardless of key makes all three escalation branches real, and matches
+// resolveOpenAlerts, which already enforces exactly one live card.
 //
 // Escalation breaks the window when the story got materially worse: severity
 // rose, a NEW family joined, or weight jumped by escalationWeightJump. Adding a
 // factor *inside* an already-firing family does not break it — that is the same
 // story with more evidence, and the parent already has the point.
+//
+// `cleared` breaks it too: a quiet day marks the current record cleared (see
+// clearedCooldown), and a story that resolved and then came back is news, not a
+// repeat.
+//
+// `nextEntry` is the cooldown record to write when the alert goes out, and is
+// null whenever nothing is sent — so the caller never has to decide.
+//
+// Reasons, in full: first-fire, cooldown-expired, resumed-after-clear,
+// escalation-severity, escalation-new-family, escalation-weight, cooldown,
+// not-firing.
+//
+// Defensive by contract: junk input (null, a string, an old `{stories:{…}}` doc
+// written before this rewrite) must never throw. A doc with no readable
+// `current` simply counts as no prior — the Guardian fires. Nothing is
+// deployed, so there is no old data to migrate; this only has to not crash.
 const SEVERITY_RANK = { watch: 1, concern: 2, urgent: 3 };
 
 export function cooldownDecision(cooldowns, assessment, now = new Date()) {
@@ -771,8 +799,10 @@ export function cooldownDecision(cooldowns, assessment, now = new Date()) {
     return { suppressed: true, reason: "not-firing", nextEntry: null };
   }
 
-  const stories = isObj(cooldowns) && isObj(cooldowns.stories) ? cooldowns.stories : {};
-  const prior = isObj(stories[a.storyKey]) ? stories[a.storyKey] : null;
+  const prior = isObj(cooldowns) && isObj(cooldowns.current) ? cooldowns.current : null;
+  // "The same story recurring" is a storyKey match, and only that: a different
+  // family set is a different story, so its episode history starts over.
+  const sameStory = prior != null && prior.storyKey === a.storyKey;
 
   const entryFor = (reason) => ({
     storyKey: a.storyKey,
@@ -785,10 +815,15 @@ export function cooldownDecision(cooldowns, assessment, now = new Date()) {
     // what makes buildGuardianAlert's alertId stable across a same-day re-run.
     firstFiredDate: todayStr,
     lastFiredDate: todayStr,
-    // First time this story ever spoke, kept across episodes purely so a human
+    // First time THIS story ever spoke, kept across episodes purely so a human
     // reading the doc can see how long it has been recurring.
-    firstSeenDate: prior?.firstSeenDate ?? todayStr,
-    fireCount: (num(prior?.fireCount) ?? 0) + 1,
+    firstSeenDate: sameStory ? (prior.firstSeenDate ?? todayStr) : todayStr,
+    fireCount: sameStory ? (num(prior.fireCount) ?? 0) + 1 : 1,
+    // Written explicitly rather than left absent: the caller merge-writes this
+    // record, so an omitted key would leave yesterday's `cleared: true` in
+    // place and let the next story bypass its window for free.
+    cleared: false,
+    clearedDate: null,
     reason,
   });
 
@@ -797,6 +832,19 @@ export function cooldownDecision(cooldowns, assessment, now = new Date()) {
   const elapsed = daysBetween(prior.lastFiredDate, todayStr);
   if (elapsed == null || elapsed >= T.cooldownDays || elapsed < 0) {
     return { suppressed: false, reason: "cooldown-expired", nextEntry: entryFor("cooldown-expired") };
+  }
+
+  // Checked after the window so this reason means precisely "inside the window,
+  // but the situation had cleared in between".
+  //
+  // Accepted trade-off: a genuinely flapping signal — one that crosses the line,
+  // drops back under it, and crosses again — can now alert more than once inside
+  // a single window. The two-family, weight-4 gate makes that rare, and a signal
+  // that keeps crossing back over the line is information worth having. The
+  // alternative is worse: a story that cleared on Tuesday and returned on
+  // Thursday would be silently held for the remaining eight days.
+  if (prior.cleared === true) {
+    return { suppressed: false, reason: "resumed-after-clear", nextEntry: entryFor("resumed-after-clear") };
   }
 
   const priorRank = SEVERITY_RANK[prior.severity] ?? 0;
@@ -810,6 +858,23 @@ export function cooldownDecision(cooldowns, assessment, now = new Date()) {
   if (weightJump >= T.escalationWeightJump)          return { suppressed: false, reason: "escalation-weight", nextEntry: entryFor("escalation-weight") };
 
   return { suppressed: true, reason: "cooldown", nextEntry: null };
+}
+
+// ─── clearedCooldown ─────────────────────────────────────────────────────────
+// The other half of the window, and the reason a resolved story is not held
+// hostage by it. On a day the gate does NOT fire, the situation is over: the
+// card auto-resolves, and the current cooldown record is marked cleared so that
+// if the same story returns two days later cooldownDecision lets it speak
+// (reason `resumed-after-clear`) instead of sitting on it for the rest of the
+// ten days.
+//
+// Returns the updated `current` record to write, or null when there is nothing
+// to do — no readable record, or one that is already cleared. Exported so the
+// Cloud Function never hand-builds a Firestore shape this module owns.
+export function clearedCooldown(cooldowns, now = new Date()) {
+  const current = isObj(cooldowns) && isObj(cooldowns.current) ? cooldowns.current : null;
+  if (!current || current.cleared === true) return null;
+  return { ...current, cleared: true, clearedDate: toLocalDateStr(validDate(now)) };
 }
 
 // ─── athleteActions ──────────────────────────────────────────────────────────
