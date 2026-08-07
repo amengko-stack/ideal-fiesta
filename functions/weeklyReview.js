@@ -49,7 +49,9 @@ const SESSION_TIME = '10:00';
 // A run left 'running' for longer than this is presumed dead (crash, timeout,
 // container recycled) and may be taken over. Comfortably longer than the 540s
 // function timeout, so a live run is never stolen from underneath itself.
-const STALE_RUN_MS = 15 * 60 * 1000;
+// Exported because guardian.js claims its own daily doc with the same rule —
+// one definition of "presumed dead", not two that can drift apart.
+export const STALE_RUN_MS = 15 * 60 * 1000;
 
 // The three family accounts. Mirrors ALLOWED_USERS in src/App.jsx and
 // isFamilyMember() in firestore.rules — update all three together.
@@ -64,7 +66,9 @@ const STEPS = ['hygiene', 'plan', 'memory', 'digest', 'push'];
 const FieldValue = admin.firestore.FieldValue;
 
 // Firestore Timestamp | Date | millis → millis (null when unreadable).
-function toMillis(ts) {
+// Exported for the same reason as STALE_RUN_MS: guardian.js reads claim
+// timestamps with the identical rules rather than keeping its own copy.
+export function toMillis(ts) {
   if (!ts) return null;
   if (typeof ts.toMillis === 'function') return ts.toMillis();
   if (typeof ts.seconds === 'number') return ts.seconds * 1000;

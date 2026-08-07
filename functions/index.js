@@ -18,6 +18,9 @@ if (!admin.apps.length) {
 // what index.js exports.
 export { weeklyReview, runWeeklyReviewNow } from './weeklyReview.js';
 
+// The daily load & health guardian, same arrangement.
+export { guardian, runGuardianNow } from './guardian.js';
+
 export const api = functions.https.onRequest(async (req, res) => {
   res.set('Access-Control-Allow-Origin', '*');
   res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');

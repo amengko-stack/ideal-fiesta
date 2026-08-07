@@ -230,7 +230,16 @@ describe("training load family — one reminder for ACWR, monotony and sustained
   });
 });
 
+// These rules read calculateMetrics, whose 7-day wellbeing window is measured
+// against the REAL clock rather than the injected `today` — the same leak the
+// load block above works around. Fixtures dated back from TODAY drift out of
+// that window as the real date moves, so the sleep rule (which needs 5 days on
+// record) silently loses a day and stops firing. Freezing the clock to TODAY
+// makes the two agree, exactly as the load block does.
 describe("mood decline / sleep deficit reminders", () => {
+  beforeAll(() => { vi.useFakeTimers(); vi.setSystemTime(TODAY); });
+  afterAll(() => vi.useRealTimers());
+
   const wb = (date, mood, sleep) => ({ date, mood, sleep });
 
   it("fires mood decline when the 7-day average is below threshold with enough days", () => {

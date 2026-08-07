@@ -261,9 +261,17 @@ export const APP_URL = 'https://athlete-os-15c3b.web.app';
 // already "claimed" and stay silent. Return a reason string from `beforeSend` to
 // abort without sending.
 //
+// `tag` is optional and collapses repeats: a notification replaces any earlier
+// one carrying the same tag instead of stacking beside it (the Guardian sends
+// tag: 'guardian'). `renotify` keeps the replacement audible, so a genuine
+// escalation still announces itself. Callers that pass no tag are unaffected —
+// an undefined tag never collapses. The service worker forwards both
+// (public/firebase-messaging-sw.js), so changing one without the other is a
+// no-op.
+//
 // Returns { status, sent, pruned }, where status is 'sent' | 'no-tokens' | the
 // reason `beforeSend` returned.
-export async function sendPushToRole(db, athleteRef, role, { title, body }, { beforeSend } = {}) {
+export async function sendPushToRole(db, athleteRef, role, { title, body, tag }, { beforeSend } = {}) {
   const tokensSnap = await athleteRef.collection('pushTokens').where('role', '==', role).get();
 
   if (tokensSnap.empty) {
@@ -288,6 +296,7 @@ export async function sendPushToRole(db, athleteRef, role, { title, body }, { be
         body,
         icon: '/icons/apple-touch-icon.png',
         // No badge: there is no monochrome asset for it.
+        ...(tag ? { tag, renotify: true } : {}),
       },
       fcmOptions: { link: APP_URL },
     },

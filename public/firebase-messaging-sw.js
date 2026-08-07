@@ -40,6 +40,13 @@ messaging.onBackgroundMessage((payload) => {
     // 180px/20KB — the only other icon asset is 512px/123KB, too heavy for
     // a notification. No monochrome asset exists, so no `badge`.
     icon: "/icons/apple-touch-icon.png",
+    // Forwarding `tag` is what lets a repeating story (the Guardian sends
+    // tag: "guardian") replace its own earlier notification instead of
+    // stacking a fresh one every morning. `renotify` keeps the replacement
+    // audible — a silent swap would mean a genuine escalation went unnoticed.
+    // Untagged pushes are unaffected: an undefined tag never collapses.
+    tag: payload.notification?.tag,
+    renotify: true,
     data: payload.data || {},
   });
 });
