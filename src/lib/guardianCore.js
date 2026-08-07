@@ -98,9 +98,13 @@ export const GUARDIAN_THRESHOLDS = Object.freeze({
   // actually answers at; anything smaller is mood, not soreness.
   sorenessNoiseFloor: 0.5,
   // Hours, and matching reminderRules.sleepDeficitHours so the two engines
-  // agree on "short sleep". The Guardian's stricter half is the window, not
-  // the number: 3 recent readings rather than the reminder's 5-day count, so
-  // an acute run of bad nights registers while it is still actionable.
+  // agree on "short sleep" — including the comparison, which is strict `<` in
+  // both (reminders.js:190). At exactly 7.0h neither fires, so the Guardian can
+  // never print "averaged 7h (7h+ is the target)" and contradict itself. This
+  // boundary is reachable: sleepMean is a mean over 3 nights, so 6+7+8 lands on
+  // it exactly. The Guardian's stricter half is the window, not the number: 3
+  // recent readings rather than the reminder's 5-day count, so an acute run of
+  // bad nights registers while it is still actionable.
   sleepDeficitHours: 7,
   sleepReadings: 3,
   // Mood is 1-5 and higher is BETTER. Same threshold as
@@ -108,8 +112,23 @@ export const GUARDIAN_THRESHOLDS = Object.freeze({
   // test AlertsBanner originally used and the reminder engine had to drop
   // (calculateMetrics only exposes a 7-day average). Three days in a row under
   // it is a trend; one bad day is a bad day.
+  //
+  // Compared with `<=` where sleep uses `<`, and the two cannot disagree here:
+  // mood is read per-day rather than averaged (mergeWellbeingByDate keeps the
+  // latest non-null value, it does not blend them) and both check-in controls
+  // emit whole numbers — a 5-emoji row in AVWellbeing, a 5-star row in
+  // CheckinSheet — so a mood of exactly 2.5 never reaches this test. The
+  // boundary is unreachable, not merely untested.
   moodLow: 2.5,
   moodLowDays: 3,
+  // Days. How stale the newest reading may be and still describe *now*. The
+  // check-in is split across a morning doc (sleep) and a night doc (mood), and
+  // the Guardian assesses at ~6am — so at assessment time the newest complete
+  // reading is normally YESTERDAY's, which is why this cannot be zero. One
+  // further day of slack absorbs a single missed check-in without letting a
+  // fortnight-old dip speak for this morning. Used by the two factors that
+  // claim to describe the present: mood-decline's run and readiness-low.
+  recentReadingDays: 2,
   // Evidence only — readiness is a blend of the three signals already scored
   // above, so counting it would let one bad morning pay twice. 50 is the
   // midpoint of readinessScore's 0-100 range.
@@ -128,11 +147,15 @@ export const GUARDIAN_THRESHOLDS = Object.freeze({
   // exactly like one reported this morning. Two weeks is long enough that
   // "it'll settle" has been disproven.
   injuryLingeringDays: 14,
-  // recurringAreas' own defaults, restated here so the number is visible next
-  // to the others rather than hidden in a call site. A third strain in the same
-  // calf within six months is not bad luck.
+  // Six months, matching recurringAreas' own default window. The count does
+  // NOT match its default of 2: a third strain in the same calf within six
+  // months is not bad luck, but a second one very often is — a 12-year-old who
+  // logs honestly reports the same ankle twice a season without anything being
+  // wrong. Same pattern as acwrSpike sitting above the dashboard's 1.3 chip:
+  // MeScreen listing repeat areas is a glanceable summary, the Guardian buzzes
+  // a phone at 6am, so it takes the stricter of the two numbers.
   recurringWithinDays: 180,
-  recurringMinCount: 2,
+  recurringMinCount: 3,
 
   // ── growth ─────────────────────────────────────────────────────────────────
   // cm/year. growthVelocity annualises from only the last TWO height readings,
@@ -350,8 +373,16 @@ function loadFactors(weekLogs, ref) {
 }
 
 // Recovery factors — everything here reads the merged daily series.
-function recoveryFactors(days) {
+//
+// `ref` is today. It is only used by the two factors that assert something
+// about the PRESENT (mood-decline's run and readiness-low): the daily series
+// spans wellbeingWindowDays, so "the last readings in the series" and "recent
+// readings" are not the same thing once the athlete stops checking in.
+function recoveryFactors(days, ref) {
   const out = [];
+  const todayStr = toLocalDateStr(ref);
+  // Whole days between a reading's date and today; null if unparseable.
+  const ageOf = (dateStr) => daysBetween(dateStr, todayStr);
 
   const sorenessAll = seriesOf(days, "soreness");
   const sleepAll    = seriesOf(days, "sleep");
@@ -379,7 +410,9 @@ function recoveryFactors(days) {
 
   const recentSleep = sleepAll.slice(-T.sleepReadings);
   const sleepMean = recentSleep.length >= T.sleepReadings ? round1(mean(recentSleep)) : null;
-  if (sleepMean != null && sleepMean <= T.sleepDeficitHours) {
+  // Strict `<`, exactly as reminders.js:190 compares its own average. At 7.0h
+  // — reachable, since this is a mean over 3 nights — neither engine speaks.
+  if (sleepMean != null && sleepMean < T.sleepDeficitHours) {
     out.push(factor({
       id: "sleep-deficit", family: "recovery", weight: 2,
       label: "Not enough sleep",
@@ -391,18 +424,34 @@ function recoveryFactors(days) {
   // Consecutive *entries* in the daily series, matching athleteContextCore's
   // lowMoodFlag: a day with no check-in neither breaks nor extends the run,
   // because a missing day is missing data, not a good day.
-  let streak = 0, maxStreak = 0, streakEnd = null;
-  for (const d of days) {
-    if (d.mood == null) continue;
-    if (d.mood <= T.moodLow) { streak += 1; if (streak >= maxStreak) { maxStreak = streak; streakEnd = d.date; } }
-    else streak = 0;
+  //
+  // The run is walked BACKWARDS from the newest check-in and stops at the first
+  // mood above the line, so only the run that is still open counts. Scanning
+  // the whole window for the longest run anywhere in it meant a three-day dip
+  // that recovered eleven days ago still carried weight 2 today — and could be
+  // the second family that tipped the gate — while every sibling recovery
+  // factor (soreness-high, sleep-deficit) reads the most recent readings only.
+  //
+  // Being the newest run is necessary but not sufficient: an athlete who
+  // stopped checking in mid-dip would otherwise keep the factor alive for the
+  // rest of the 14-day window. So the run's last low day must also be within
+  // recentReadingDays of today.
+  let moodLowStreak = 0, streakEnd = null;
+  for (let i = days.length - 1; i >= 0; i -= 1) {
+    const d = days[i];
+    if (d.mood == null) continue;          // missing data, neither breaks nor extends
+    if (d.mood > T.moodLow) break;         // recovered — the run ended here
+    moodLowStreak += 1;
+    if (streakEnd == null) streakEnd = d.date;
   }
-  if (maxStreak >= T.moodLowDays) {
+  const moodStreakAge = streakEnd == null ? null : ageOf(streakEnd);
+  const moodStreakCurrent = moodStreakAge != null && moodStreakAge <= T.recentReadingDays;
+  if (moodLowStreak >= T.moodLowDays && moodStreakCurrent) {
     out.push(factor({
       id: "mood-decline", family: "recovery", weight: 2,
       label: "Flat mood several days running",
-      evidence: `Mood has been at or under ${T.moodLow}/5 for ${maxStreak} check-ins in a row (through ${streakEnd}).`,
-      metrics: { moodLowStreak: maxStreak },
+      evidence: `Mood has been at or under ${T.moodLow}/5 for the last ${moodLowStreak} check-ins in a row, most recently on ${streakEnd}.`,
+      metrics: { moodLowStreak, moodStreakThrough: streakEnd },
     }));
   }
 
@@ -411,14 +460,26 @@ function recoveryFactors(days) {
   // for itself two or three times over. It rides along because it is the one
   // number the athlete herself sees on Home, and a parent reading the card
   // should see the same figure she does.
+  //
+  // The reading must be RECENT. `days` spans wellbeingWindowDays, so the newest
+  // complete reading can be a fortnight old — and this string used to call that
+  // "Today's readiness score" and hand it verbatim to the model under a system
+  // instruction never to contradict a factor. Since the factor is evidence-only
+  // it has nothing to lose by dropping out: a stale score adds noise to the
+  // prompt and no weight to the gate. The label and evidence below name the
+  // check-in's own date rather than asserting "today", because with
+  // recentReadingDays of slack the reading is usually yesterday's — the mood
+  // half of the check-in is written at night and the Guardian assesses at 6am.
   const latest = [...days].reverse().find(d => d.mood != null && d.soreness != null) || null;
+  const latestAge = latest ? ageOf(latest.date) : null;
+  const latestIsRecent = latestAge != null && latestAge <= T.recentReadingDays;
   const readiness = latest ? readinessScore(latest.mood, latest.soreness, latest.sleep ?? undefined) : null;
-  if (readiness != null && readiness < T.readinessLow) {
+  if (readiness != null && readiness < T.readinessLow && latestIsRecent) {
     out.push(factor({
       id: "readiness-low", family: "recovery", weight: 0, counts: false,
-      label: "Low readiness this morning",
-      evidence: `Today's readiness score is ${readiness}/100 (${latest.date}).`,
-      metrics: { readiness },
+      label: "Low readiness at her last check-in",
+      evidence: `Her readiness score was ${readiness}/100 at her most recent check-in, on ${latest.date}.`,
+      metrics: { readiness, readinessDate: latest.date },
     }));
   }
 
@@ -428,7 +489,7 @@ function recoveryFactors(days) {
       wellbeingDays: days.length,
       sorenessMean,
       sleepMean,
-      moodLowStreak: maxStreak,
+      moodLowStreak,
       readiness,
     },
   };
@@ -476,13 +537,25 @@ function tissueFactors(injuries, ref) {
   }
 
   // NOTE: recurringAreas reads new Date() internally and ignores `ref`.
-  const recurring = recurringAreas(injuries, { withinDays: T.recurringWithinDays, minCount: T.recurringMinCount });
+  //
+  // Its count deliberately includes RESOLVED episodes — that is what recurrence
+  // means. A calf strained in March and again in June is a pattern precisely
+  // because the first two healed; requiring every episode to be open would make
+  // the factor unreachable, since the app resolves a niggle before the next one
+  // starts. What history alone must NOT do is speak on its own: two long-healed
+  // niggles and nothing wrong today kept a weight-2 tissue factor alive for the
+  // full 180 days. So the pattern is counted across the window but only
+  // reported when the area is flaring RIGHT NOW, i.e. it has an open injury.
+  // The evidence names both halves so the parent reads the true claim.
+  const openAreas = new Set(open.map(i => i.bodyArea).filter(Boolean));
+  const recurring = recurringAreas(injuries, { withinDays: T.recurringWithinDays, minCount: T.recurringMinCount })
+    .filter(r => openAreas.has(r.bodyArea));
   if (recurring.length > 0) {
     const worst = recurring[0];
     out.push(factor({
       id: "recurring-area", family: "tissue", weight: 2,
       label: "Same spot keeps flaring up",
-      evidence: `${worst.bodyArea} has been reported ${worst.count} times in the last ${T.recurringWithinDays} days (most recently ${worst.mostRecentOnset}).`,
+      evidence: `${worst.bodyArea} has been reported ${worst.count} times in the last ${T.recurringWithinDays} days, including one that is open now (most recent onset ${worst.mostRecentOnset}).`,
       metrics: { recurringArea: worst.bodyArea, recurringCount: worst.count },
     }));
   }
@@ -716,7 +789,7 @@ export function assessGuardian(raw, now = new Date()) {
   const days = dailyWellbeing(wellbeing, ref);
 
   const load     = loadFactors(weekLogs, ref);
-  const recovery = recoveryFactors(days);
+  const recovery = recoveryFactors(days, ref);
   const tissue   = tissueFactors(injuries, ref);
   const growth   = growthFactors(athlete, ref);
 
@@ -1070,7 +1143,13 @@ export function supersededReminderKinds(alert) {
   const a = isObj(alert) ? alert : null;
   if (!a) return [];
   if (a.dismissedAt || a.resolvedAt) return [];
-  if (a.engineVersion != null && a.engineVersion !== GUARDIAN_ENGINE_VERSION) return [];
+  // Fail closed, and fail closed the SAME way GuardianCard does: it renders
+  // only on `alert.engineVersion === GUARDIAN_ENGINE_VERSION`. Skipping this
+  // check when the field is missing gave the worst of both — the card hidden
+  // and the load/mood/sleep reminders suppressed anyway, so the parent saw
+  // nothing at all. buildGuardianAlert always stamps the field, so this is a
+  // guard against a hand-written or half-migrated doc, not a live path.
+  if (a.engineVersion !== GUARDIAN_ENGINE_VERSION) return [];
 
   const out = [];
   for (const fam of Array.isArray(a.families) ? a.families : []) {

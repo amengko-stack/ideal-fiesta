@@ -466,8 +466,24 @@ describe("recovery family", () => {
     it("fires on three short nights", () => {
       expect(ids(wbDays([{ sleep: 6 }, { sleep: 6.5 }, { sleep: 7 }]))).toContain("sleep-deficit");
     });
-    it("fires at exactly the 7h line", () => {
-      expect(ids(wbDays([{ sleep: 7 }, { sleep: 7 }, { sleep: 7 }]))).toContain("sleep-deficit");
+    // The boundary reminders.js:190 owns: `Number(avgSleep) < sleepDeficitHours`.
+    // A `<=` here would fire at exactly the target and print "averaged 7h (7h+
+    // is the target)" — an alert contradicting itself, and this is a mean over
+    // three nights so 6+7+8 reaches it for real.
+    it("does not fire at exactly the 7h line — 7h IS the target, and reminders.js uses <", () => {
+      const w = wbDays([{ sleep: 7 }, { sleep: 7 }, { sleep: 7 }]);
+      expect(assessGuardian({ wellbeing: w }, TODAY).metrics.sleepMean).toBe(7);
+      expect(ids(w)).not.toContain("sleep-deficit");
+    });
+    it("does not fire when three uneven nights average to exactly 7.0", () => {
+      const w = wbDays([{ sleep: 6 }, { sleep: 7 }, { sleep: 8 }]);
+      expect(assessGuardian({ wellbeing: w }, TODAY).metrics.sleepMean).toBe(7);
+      expect(ids(w)).not.toContain("sleep-deficit");
+    });
+    it("fires at 6.9 — one tenth under the line is under the line", () => {
+      const w = wbDays([{ sleep: 6.9 }, { sleep: 6.9 }, { sleep: 6.9 }]);
+      expect(assessGuardian({ wellbeing: w }, TODAY).metrics.sleepMean).toBe(6.9);
+      expect(ids(w)).toContain("sleep-deficit");
     });
     it("does not fire on healthy sleep", () => {
       expect(ids(wbDays([{ sleep: 8 }, { sleep: 9 }, { sleep: 8.5 }]))).not.toContain("sleep-deficit");
@@ -498,6 +514,55 @@ describe("recovery family", () => {
       ];
       expect(ids(w)).toContain("mood-decline");
     });
+
+    // The recency anchor. Without it the loop kept the LONGEST low run anywhere
+    // in the 14-day window, so a dip that recovered a week and a half ago still
+    // carried weight 2 today — and weight 2 in a second family is exactly what
+    // tips the gate.
+    describe("recency anchor — only the run that is still open counts", () => {
+      it("does not fire on a dip that recovered eleven days ago", () => {
+        const w = wbDays([
+          { mood: 2 }, { mood: 2 }, { mood: 2 },                        // -13..-11
+          { mood: 4 }, { mood: 4 }, { mood: 4 }, { mood: 4 },
+          { mood: 4 }, { mood: 4 }, { mood: 4 }, { mood: 4 },
+          { mood: 4 }, { mood: 4 }, { mood: 4 },                        // recovered through today
+        ]);
+        expect(ids(w)).not.toContain("mood-decline");
+      });
+      it("still fires on a current run even when a LONGER stale run sits behind it", () => {
+        // 4 low days that recovered, then 3 low days ending today. The old
+        // max-run scan would have reported the stale 4 and rejected nothing;
+        // the current run is what matters.
+        const w = wbDays([
+          { mood: 2 }, { mood: 2 }, { mood: 2 }, { mood: 2 },
+          { mood: 5 }, { mood: 5 }, { mood: 5 }, { mood: 5 }, { mood: 5 }, { mood: 5 }, { mood: 5 },
+          { mood: 2 }, { mood: 2 }, { mood: 2 },
+        ]);
+        expect(ids(w)).toContain("mood-decline");
+        const f = factorsFor(w).find(x => x.id === "mood-decline");
+        expect(f.metrics.moodLowStreak).toBe(3);
+        expect(f.metrics.moodStreakThrough).toBe(TODAY_STR);
+        expect(f.evidence).toContain(TODAY_STR);
+      });
+      it("survives a one-day gap at the end — a missed check-in is not a recovery", () => {
+        const w = [
+          { date: dayStr(TODAY, -3), type: "checkin", mood: 2 },
+          { date: dayStr(TODAY, -2), type: "checkin", mood: 2 },
+          { date: dayStr(TODAY, -1), type: "checkin", mood: 2 },
+        ];
+        expect(ids(w)).toContain("mood-decline");
+      });
+      it("goes quiet once the newest low reading is older than recentReadingDays", () => {
+        // Same three low days, but she stopped checking in four days ago. The
+        // run never closed; it simply stopped describing now.
+        const w = [
+          { date: dayStr(TODAY, -6), type: "checkin", mood: 2 },
+          { date: dayStr(TODAY, -5), type: "checkin", mood: 2 },
+          { date: dayStr(TODAY, -4), type: "checkin", mood: 2 },
+        ];
+        expect(ids(w)).not.toContain("mood-decline");
+      });
+    });
   });
 
   describe("readiness-low", () => {
@@ -514,6 +579,27 @@ describe("recovery family", () => {
     });
     it("does not appear on a good morning", () => {
       expect(ids(wbDays([{ mood: 5, soreness: 1, sleep: 9 }]))).not.toContain("readiness-low");
+    });
+
+    // This string goes verbatim into the model prompt under "never contradict a
+    // factor", so it has to be true for every input that reaches it. The newest
+    // COMPLETE reading (mood and soreness both present) can be a fortnight old.
+    it("drops out entirely when the newest complete reading is stale", () => {
+      const w = [{ date: dayStr(TODAY, -9), type: "checkin", mood: 1, soreness: 5, sleep: 4 }];
+      expect(ids(w)).not.toContain("readiness-low");
+    });
+    it("still speaks for yesterday's check-in — mood is logged at night, the Guardian assesses at 6am", () => {
+      const w = [{ date: dayStr(TODAY, -1), type: "checkin", mood: 1, soreness: 5, sleep: 4 }];
+      expect(ids(w)).toContain("readiness-low");
+    });
+    it("names the check-in's own date instead of claiming 'today'", () => {
+      const yesterday = dayStr(TODAY, -1);
+      const w = [{ date: yesterday, type: "checkin", mood: 1, soreness: 5, sleep: 4 }];
+      const f = factorsFor(w).find(x => x.id === "readiness-low");
+      expect(f.evidence).toContain(yesterday);
+      expect(f.evidence).not.toMatch(/today/i);
+      expect(f.label).not.toMatch(/this morning|today/i);
+      expect(f.metrics.readinessDate).toBe(yesterday);
     });
   });
 });
@@ -565,24 +651,59 @@ describe("tissue family", () => {
     beforeAll(() => { vi.useFakeTimers(); vi.setSystemTime(TODAY); });
     afterAll(() => vi.useRealTimers());
 
-    it("fires on a second flare in the same area inside the window", () => {
-      const injuries = [
-        inj({ id: "a", bodyArea: "Ankle", severity: 2, status: "resolved", onsetDate: dayStr(TODAY, -100), resolvedDate: dayStr(TODAY, -80) }),
-        inj({ id: "b", bodyArea: "Ankle", severity: 2, onsetDate: dayStr(TODAY, -3) }),
-      ];
-      expect(ids(injuries)).toContain("recurring-area");
+    // Healed episodes, used to build a history the current flare sits on top of.
+    const healed = (id, area, onsetOffset) => inj({
+      id, bodyArea: area, severity: 2, status: "resolved",
+      onsetDate: dayStr(TODAY, onsetOffset), resolvedDate: dayStr(TODAY, onsetOffset + 20),
     });
-    it("does not fire on two flares in different areas", () => {
+
+    it("does not fire on a SECOND flare — twice in six months is often just a season", () => {
       const injuries = [
-        inj({ id: "a", bodyArea: "Ankle", severity: 2, status: "resolved", onsetDate: dayStr(TODAY, -100), resolvedDate: dayStr(TODAY, -80) }),
-        inj({ id: "b", bodyArea: "Wrist", severity: 2, onsetDate: dayStr(TODAY, -3) }),
+        healed("a", "Ankle", -100),
+        inj({ id: "b", bodyArea: "Ankle", severity: 2, onsetDate: dayStr(TODAY, -3) }),
       ];
       expect(ids(injuries)).not.toContain("recurring-area");
     });
-    it("does not fire when the earlier flare is outside the 180-day window", () => {
+    it("fires on the THIRD flare in the same area, counting the two that healed", () => {
       const injuries = [
-        inj({ id: "a", bodyArea: "Ankle", severity: 2, status: "resolved", onsetDate: dayStr(TODAY, -400), resolvedDate: dayStr(TODAY, -380) }),
-        inj({ id: "b", bodyArea: "Ankle", severity: 2, onsetDate: dayStr(TODAY, -3) }),
+        healed("a", "Ankle", -150),
+        healed("b", "Ankle", -80),
+        inj({ id: "c", bodyArea: "Ankle", severity: 2, onsetDate: dayStr(TODAY, -3) }),
+      ];
+      expect(ids(injuries)).toContain("recurring-area");
+      const f = factorsFor(injuries).find(x => x.id === "recurring-area");
+      expect(f.metrics.recurringCount).toBe(3);
+      expect(f.evidence).toContain("3 times");
+      expect(f.evidence).toContain("open now");
+    });
+    it("goes quiet when all three have healed — history alone is not a flare-up today", () => {
+      const injuries = [healed("a", "Ankle", -150), healed("b", "Ankle", -80), healed("c", "Ankle", -20)];
+      expect(ids(injuries)).not.toContain("recurring-area");
+    });
+    it("does not fire on three flares spread across different areas", () => {
+      const injuries = [
+        healed("a", "Ankle", -150),
+        healed("b", "Wrist", -80),
+        inj({ id: "c", bodyArea: "Knee", severity: 2, onsetDate: dayStr(TODAY, -3) }),
+      ];
+      expect(ids(injuries)).not.toContain("recurring-area");
+    });
+    it("does not count a flare that fell outside the 180-day window", () => {
+      const injuries = [
+        healed("a", "Ankle", -400),
+        healed("b", "Ankle", -80),
+        inj({ id: "c", bodyArea: "Ankle", severity: 2, onsetDate: dayStr(TODAY, -3) }),
+      ];
+      expect(ids(injuries)).not.toContain("recurring-area");
+    });
+    it("counts the open episode against the area it is open in, not another one", () => {
+      // Three Ankle records inside the window, but the only OPEN injury is a
+      // Knee — the ankle is history, so it does not speak.
+      const injuries = [
+        healed("a", "Ankle", -150),
+        healed("b", "Ankle", -100),
+        healed("c", "Ankle", -50),
+        inj({ id: "d", bodyArea: "Knee", severity: 2, onsetDate: dayStr(TODAY, -3) }),
       ];
       expect(ids(injuries)).not.toContain("recurring-area");
     });
@@ -1324,5 +1445,14 @@ describe("supersededReminderKinds", () => {
   });
   it("returns [] for an alert written by a different engine version", () => {
     expect(supersededReminderKinds(alert(["load"], { engineVersion: 99 }))).toEqual([]);
+  });
+  // Fails closed the same way GuardianCard does. Skipping the check on a
+  // missing field gave the worst of both worlds: the card refused to render
+  // (it compares strictly) while the reminders it was standing in for stayed
+  // suppressed, so the parent saw nothing at all.
+  it("returns [] for an alert with no engineVersion at all — the card would not render it either", () => {
+    expect(supersededReminderKinds(alert(["load", "recovery"], { engineVersion: undefined }))).toEqual([]);
+    expect(supersededReminderKinds(alert(["load", "recovery"], { engineVersion: null }))).toEqual([]);
+    expect(supersededReminderKinds({ families: ["load", "recovery"] })).toEqual([]);
   });
 });
