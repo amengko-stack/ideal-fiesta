@@ -6,6 +6,7 @@ import { toLocalDateStr, isDigestFresh } from "../lib/dates.js";
 import { BADGES } from "../lib/badges.js";
 import { openInjuries, injuryLoadFlag, injuryDuration } from "../lib/injuries.js";
 import { weeklyFocus, focusPracticeSuggestion, practiceEvidence, focusStreakText } from "../lib/practiceFocus.js";
+import { GUARDIAN_ENGINE_VERSION } from "../lib/guardianCore.js";
 
 const SPORT = {
   tennis:   { label: "Tennis",   color: M.tennisLight },
@@ -91,7 +92,101 @@ function WeeklyDigestCard({ digest, showParentNotes, onOpenPlan }) {
   );
 }
 
-export default function HomeScreen({ weekLogs, wellbeing, xp, activeThisWeek, streak, onOpenCheckin, earnedBadges, onOpenBadge, alerts, onDismissAlert, injuries, priorities, digest, showParentNotes, onOpenPlan }) {
+// ─── LOAD & HEALTH GUARDIAN ──────────────────────────────────────────────────
+// The daily agent's alert doc: athletes/{id}/guardianAlerts/{alertId}. It only
+// exists at all when signals from two different families stacked up, so the
+// card is rare by construction — but it is still the loudest thing on Home
+// when it appears, which is why the audience split below is not cosmetic.
+//
+// PARENT sees the candid assessment: tone border, headline, the evidence each
+// counting factor found, the AI's note, and which families made it fire.
+// ATHLETE sees a neutral, risk-free game plan — no colour, no factors, no
+// numbers, no severity. She is 12; a red card about her body is the harm this
+// feature exists to avoid. The two branches share no styling on purpose.
+
+// Family ids → words a parent would actually use. Presentational only: the
+// engine's own wording lives in factors[].evidence, which this never rewrites.
+const GUARDIAN_FAMILY_WORDS = {
+  load:      "training load",
+  recovery:  "how she's recovering",
+  tissue:    "a sore spot that's still open",
+  growth:    "growth phase",
+  asymmetry: "left/right imbalance",
+};
+
+function GuardianCard({ alert, showParentNotes, onDismissGuardian }) {
+  // Fail closed on a schema bump: a v2 alert rendered by a v1 card is garbage
+  // dressed up as an assessment, which is worse than showing nothing.
+  if (!alert || alert.dismissedAt || alert.resolvedAt) return null;
+  if (alert.engineVersion !== GUARDIAN_ENGINE_VERSION) return null;
+
+  const dismiss = (
+    <div
+      onClick={() => onDismissGuardian?.(alert.alertId)}
+      style={{ cursor: "pointer", color: M.muted, fontSize: 16, lineHeight: 1, flexShrink: 0, padding: "0 2px" }}
+    >×</div>
+  );
+
+  // ── athlete: the softened version, and structurally incapable of showing
+  // risk framing — actions.athlete is written deterministically, so even when
+  // the notes call failed there is something warm and useful here.
+  if (!showParentNotes) {
+    const note = alert.notesError ? null : alert.athleteNote;
+    const actions = alert.actions?.athlete || [];
+    if (!note && actions.length === 0) return null;
+
+    return (
+      <Card style={{ borderRadius: 22, padding: 17 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+          <span style={{ fontFamily: M.display, fontWeight: 700, fontSize: 14, color: M.ink }}>Today's game plan 🎯</span>
+          <span style={{ marginLeft: "auto" }}>{dismiss}</span>
+        </div>
+        {note ? (
+          <div style={{ fontSize: 12.5, color: "#4a5a52", lineHeight: 1.5 }}>{note}</div>
+        ) : (
+          actions.map((a, i) => (
+            <div key={a} style={{ fontSize: 12.5, color: "#4a5a52", lineHeight: 1.5, marginTop: i ? 5 : 0 }}>• {a}</div>
+          ))
+        )}
+      </Card>
+    );
+  }
+
+  // ── parent: the candid one.
+  const tone = ALERT_TONE(alert.tone);
+  const counting = (alert.factors || []).filter(f => f.counts);
+  const why = (alert.families || []).map(f => GUARDIAN_FAMILY_WORDS[f]).filter(Boolean);
+
+  return (
+    <Card style={{ borderRadius: 22, padding: 17, borderLeft: `3px solid ${tone}` }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+        <span style={{ fontSize: 16 }}>🛡️</span>
+        <span style={{ fontFamily: M.display, fontWeight: 700, fontSize: 14, color: tone }}>{alert.headline}</span>
+        <span style={{ marginLeft: "auto" }}>{dismiss}</span>
+      </div>
+
+      {counting.map(f => (
+        <div key={f.id} style={{ fontSize: 11.5, color: M.sub, fontWeight: 600, lineHeight: 1.45, marginBottom: 3 }}>
+          • {f.evidence || f.label}
+        </div>
+      ))}
+
+      {/* No paragraph when the notes call failed — the evidence above already
+          carries the substance, which is the whole point of it being deterministic. */}
+      {!alert.notesError && alert.parentNote && (
+        <div style={{ fontSize: 12.5, color: "#4a5a52", lineHeight: 1.5, marginTop: 10 }}>{alert.parentNote}</div>
+      )}
+
+      {why.length > 0 && (
+        <div style={{ fontSize: 11, color: M.muted, fontWeight: 600, marginTop: 10 }}>
+          why now: {why.join(" + ")}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+export default function HomeScreen({ weekLogs, wellbeing, xp, activeThisWeek, streak, onOpenCheckin, earnedBadges, onOpenBadge, alerts, onDismissAlert, injuries, priorities, digest, showParentNotes, onOpenPlan, guardianAlert, onDismissGuardian }) {
   const today = toLocalDateStr(new Date());
   const todayWb = mergeWellbeingByDate(wellbeing || [])[today];
   const readiness = readinessScore(todayWb?.mood, todayWb?.soreness, todayWb?.sleep);
@@ -119,6 +214,10 @@ export default function HomeScreen({ weekLogs, wellbeing, xp, activeThisWeek, st
 
   return (
     <>
+      {/* the daily guardian — above the reminders it supersedes, and nothing at
+          all on a quiet day (which is most days) */}
+      <GuardianCard alert={guardianAlert} showParentNotes={showParentNotes} onDismissGuardian={onDismissGuardian} />
+
       {/* alerts */}
       {(alerts || []).map(a => {
         const tone = ALERT_TONE(a.tone);

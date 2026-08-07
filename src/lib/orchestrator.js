@@ -1,30 +1,32 @@
 import { getFunctions, httpsCallable } from "firebase/functions";
 import { app } from "../firebase.js";
 
-// ─── WEEKLY REVIEW ORCHESTRATOR — CLIENT HELPER ──────────────────────────────
-// Thin wrapper over the `runWeeklyReviewNow` callable in functions/weeklyReview.js
-// (gen-1, default region us-central1 — no .region() anywhere in functions/index.js,
-// so none is pinned here either).
+// ─── ORCHESTRATOR CALLABLES — CLIENT HELPERS ─────────────────────────────────
+// Thin wrappers over the scheduled pipelines' "run it now" callables:
+// `runWeeklyReviewNow` (functions/weeklyReview.js) and `runGuardianNow`
+// (functions/guardian.js) — both gen-1, default region us-central1 (no
+// .region() anywhere in functions/index.js, so none is pinned here either).
 //
-// The callable is allowlisted to the three family UIDs, takes ~1-3 minutes (it
-// runs the whole Sunday pipeline with force: true) and returns the per-athlete
-// summary { athleteId, weekKey, status, steps }.
+// Both are allowlisted to the three family UIDs and return the per-athlete
+// summary the function itself built.
 //
 // Impure by design: this module talks to Firebase, so it must never be imported
 // by a pure core (the import-graph guard in athleteMemoryCore.test.js enforces
 // that from the other direction).
 
 // A callable failure reaches the UI as a code plus whatever the function threw.
-// The codes below are the ones this pipeline can realistically produce; the
+// The codes below are the ones these pipelines can realistically produce; the
 // tone matches aiErrors.js — specific, actionable, never a generic shrug.
+// Worded without naming a pipeline because both callables share this table and
+// every call site already prefixes its own context ("Couldn't run the review —").
 const CODE_MESSAGE = {
-  "functions/permission-denied": "Only the family accounts can run the weekly review.",
+  "functions/permission-denied": "Only the family accounts can run this.",
   "functions/unauthenticated":   "You're signed out — sign in again and retry.",
-  "functions/not-found":         "The weekly review function isn't deployed yet.",
-  "functions/unavailable":       "Couldn't reach the weekly review — check your connection.",
-  "functions/deadline-exceeded": "The review took too long and was cut off. It resumes where it stopped — try again.",
-  "functions/resource-exhausted": "The weekly review hit a rate limit. Wait a minute and try again.",
-  "functions/cancelled":         "The review was cancelled before it finished.",
+  "functions/not-found":         "That function isn't deployed yet.",
+  "functions/unavailable":       "Couldn't reach the server — check your connection.",
+  "functions/deadline-exceeded": "It took too long and was cut off — try again.",
+  "functions/resource-exhausted": "The server hit a rate limit. Wait a minute and try again.",
+  "functions/cancelled":         "It was cancelled before it finished.",
 };
 
 const MAX_LEN = 140;
@@ -56,6 +58,30 @@ export async function runWeeklyReviewNow(athleteId) {
     return data;
   } catch (e) {
     console.error("runWeeklyReviewNow:", e);
+    const err = new Error(friendlyCallableError(e));
+    err.cause = e;
+    throw err;
+  }
+}
+
+// Runs the Load & Health Guardian's daily assessment now, bypassing both the
+// 6am schedule and the guardianEnabled flag. Resolves with the callable's
+// summary — which, because the assessment is written to Firestore in full,
+// says exactly why it fired or stayed silent ({ status, suppressed, ... }).
+// Throws an Error whose message is already readable.
+export async function runGuardianNow(athleteId) {
+  const callable = httpsCallable(getFunctions(app), "runGuardianNow", {
+    // 30s past the function's own 120s budget, for the same reason the weekly
+    // helper allows 570s against a 540s function: a client timeout at or below
+    // the server's would report a failure for a run still on its way to
+    // succeeding, and the round trip itself needs room.
+    timeout: 150000,
+  });
+  try {
+    const { data } = await callable(athleteId ? { athleteId } : {});
+    return data;
+  } catch (e) {
+    console.error("runGuardianNow:", e);
     const err = new Error(friendlyCallableError(e));
     err.cause = e;
     throw err;

@@ -29,7 +29,7 @@ const previousFor = (rows, key, latest) =>
 
 const PATTERN_STATUS_COLOR = { active: M.danger, improving: M.warn, resolved: M.success };
 
-export default function MeScreen({ profile, xp, streak, sessionHistory, weekLogs, priorities, matches, benchmarks, technical, injuries, memory, onRemoveMemoryPattern, isParent, parentMode, onToggleParentMode, onToggleGap, onResolvePriority, onLogGrowth, onLogBenchmark, onLogStroke, onLogInjury, onEditInjury, onEditProfile, onSignOut, pushState, onToggleReminders, weeklyReviewEnabled, weeklyReviewRunning, onToggleWeeklyReview, onRunWeeklyReview }) {
+export default function MeScreen({ profile, xp, streak, sessionHistory, weekLogs, priorities, matches, benchmarks, technical, injuries, memory, onRemoveMemoryPattern, isParent, parentMode, onToggleParentMode, onToggleGap, onResolvePriority, onLogGrowth, onLogBenchmark, onLogStroke, onLogInjury, onEditInjury, onEditProfile, onSignOut, pushState, onToggleReminders, weeklyReviewEnabled, weeklyReviewRunning, onToggleWeeklyReview, onRunWeeklyReview, guardianEnabled, guardianRunning, onToggleGuardian, onRunGuardian }) {
   const firstName = (profile?.name || "Athlete").split(" ")[0];
   const lv = levelFromXp(xp);
   const gaps = profile?.gaps || [];
@@ -438,6 +438,32 @@ export default function MeScreen({ profile, xp, streak, sessionHistory, weekLogs
               }}
             >
               {weeklyReviewRunning ? "Running the review… (a minute or two)" : "Run weekly review now"}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 0", borderBottom: `1px solid ${M.divider}` }}>
+              <div style={{ paddingRight: 12 }}>
+                <span style={{ fontSize: 13.5, color: M.ink, fontWeight: 600 }}>Load &amp; health guardian</span>
+                <div style={{ fontSize: 11, color: M.muted, marginTop: 1 }}>
+                  Checks her training load, recovery, injuries and growth every morning at 6am. Stays quiet unless two things stack up
+                </div>
+              </div>
+              <div onClick={onToggleGuardian} style={{
+                cursor: "pointer", width: 42, height: 24, borderRadius: 99, position: "relative",
+                background: guardianEnabled ? M.strength : "#D6E2DB", transition: "background .15s", flexShrink: 0,
+              }}>
+                <div style={{ position: "absolute", top: 2, left: guardianEnabled ? 20 : 2, width: 20, height: 20, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
+              </div>
+            </div>
+            {/* Same reasoning as the review's button above: this is how you see
+                what it would have said before letting it run every morning. */}
+            <div
+              onClick={guardianRunning ? undefined : onRunGuardian}
+              style={{
+                cursor: guardianRunning ? "default" : "pointer", textAlign: "center", padding: 10,
+                margin: "13px 0", borderRadius: 11, background: M.gradient, color: M.deepGreen,
+                fontFamily: M.display, fontWeight: 700, fontSize: 12.5, opacity: guardianRunning ? .55 : 1,
+              }}
+            >
+              {guardianRunning ? "Checking…" : "Check now"}
             </div>
           </>
         )}
