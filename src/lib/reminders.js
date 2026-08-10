@@ -139,7 +139,7 @@ export function dueReminders(state, today) {
   }
 
   // 5. Mood decline / sleep deficit (see header comment for the fidelity note).
-  const metrics = calculateMetrics(weekLogs, wellbeing);
+  const metrics = calculateMetrics(weekLogs, wellbeing, now);
   if (metrics.avgMood != null && metrics.wellbeingDays >= RULES.moodDeclineDays && Number(metrics.avgMood) < RULES.moodDeclineThreshold) {
     push({
       id: `mood-decline-${todayStr}`, kind: "mood", tone: "warn",
