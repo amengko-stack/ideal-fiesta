@@ -72,23 +72,38 @@ justify the run.
 Update these numbers in the same PR that changes them, so the next run compares
 against the truth.
 
-**Known-failing tests (2)** — both are the same underlying bug, not flaky
-tests. `calculateMetrics` in `src/lib/load.js:48` builds its 7-day window from
-`new Date()` instead of the date its caller was given, so fixtures pinned to a
-literal date drift out of the window as real time passes:
+**Known-failing tests: none.** All 21 files / 418 tests pass.
 
-- `src/lib/injuries.test.js` — "formats side, area, severity word and
-  duration". `describeInjury` has the same wall-clock dependency; the test
-  directly above it shows the correct pattern (pass an explicit `new
-  Date(...)`).
-- `src/lib/reminders.test.js` — "fires sleep deficit when average sleep is
-  under threshold for enough days". Needs 5 days inside the window and now sees
-  4. The neighbouring mood test survives only because its threshold is 3 days —
-  it will fail too, without any code change, once the calendar moves far
-  enough.
+The suite is also clock-independent, which is worth preserving deliberately.
+`calculateMetrics`, `describeInjury` and `recurringAreas` used to read
+`new Date()` internally, so fixtures pinned to literal dates silently rotted as
+the calendar advanced — five tests were failing or armed to fail on a day
+nobody had touched the code. Each now takes an optional trailing reference date
+(`ref` / `today`) that defaults to the clock for app callers, and the tests pass
+one explicitly.
 
-This decay is silent and time-triggered, so treat any *new* date-shaped failure
-as the same root cause spreading rather than as an unrelated break.
+To check this property has held, run the suite against a future clock:
+
+```sh
+cat > tmp-clock-setup.js <<'EOF'
+import { vi, beforeAll, afterAll } from "vitest";
+beforeAll(() => { vi.useFakeTimers({ shouldAdvanceTime: true }); vi.setSystemTime(new Date("2031-11-20T09:00:00")); });
+afterAll(() => { vi.useRealTimers(); });
+EOF
+cat > tmp-clock.config.js <<'EOF'
+import { defineConfig } from "vitest/config";
+export default defineConfig({ test: { setupFiles: ["./tmp-clock-setup.js"] } });
+EOF
+npx vitest run --config ./tmp-clock.config.js   # expect 418 passed
+rm tmp-clock-setup.js tmp-clock.config.js
+```
+
+A test that passes today and fails under that clock is a time bomb, not a
+flake — report it as one. Note that `getWeekBounds` (`src/lib/dates.js:11`)
+still reads the clock internally, so `computeLoad`, ACWR and
+`computeLoadHistory` retain the dependency; nothing currently tests them
+against a fixed date, and threading a reference through reaches every load
+caller.
 
 **Lint: 24 problems (17 errors, 7 warnings).** Mostly `no-unused-vars` and
 `react-hooks/set-state-in-effect`. `deploy.yml` marks lint `continue-on-error`
