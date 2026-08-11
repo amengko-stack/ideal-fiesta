@@ -4,20 +4,25 @@ import {
 } from "firebase/firestore";
 import { db } from "../firebase.js";
 import { currentWeekKey } from "./dates.js";
-import { samePriority, clusterPriorities } from "./priorityKeys.js";
-import { isMetricTarget, matchesSince, streakMet, toISO } from "./priorityMetrics.js";
+import { isMetricTarget } from "./priorityMetrics.js";
+import {
+  OPEN_STATUSES, isServerTimestamp,
+  planPriorityUpserts, planMergeDuplicates, planMetricResolutions,
+  planEscalations, planLabelResolutions,
+} from "./deferredPrioritiesCore.js";
+
+// ─── DEFERRED PRIORITIES — FIRESTORE WIRING ──────────────────────────────────
+// Reads the open docs, asks deferredPrioritiesCore.js what should change, and
+// applies the ops with the client SDK. No decision logic lives here: the
+// wording-vs-area matching, the escalation clock carryover, the once-per-week
+// `lastCountedWeek` guard and the metric-target cleaning are all in the core so
+// a Cloud Function can run them against the admin SDK.
 
 const col = (athleteUid) =>
   collection(db, "athletes", athleteUid, "deferredPriorities");
 
 const ref = (athleteUid, id) =>
   doc(db, "athletes", athleteUid, "deferredPriorities", id);
-
-// A priority is "open" while it still needs work. `superseded` docs are the
-// older wording of a priority that was re-raised — they are history, and every
-// reader (this module, athleteContext, PrioritiesTab, MeScreen) filters on
-// active/escalated, so they never surface again.
-const OPEN_STATUSES = ["active", "escalated"];
 
 async function loadOpen(athleteUid) {
   const snap = await getDocs(col(athleteUid));
@@ -26,237 +31,110 @@ async function loadOpen(athleteUid) {
     .filter(d => OPEN_STATUSES.includes(d.status));
 }
 
-// Only a well-formed target is persisted — a hallucinated metric id must never
-// reach the auto-resolver.
-const cleanTarget = (t) => (isMetricTarget(t) ? {
-  metric: t.metric, comparator: t.comparator, value: t.value,
-} : null);
+// The core can't call serverTimestamp(), so it emits a sentinel instead. Swap
+// every sentinel for the client SDK's real one on the way to Firestore.
+const materialize = (fields) => {
+  const out = {};
+  for (const [k, v] of Object.entries(fields || {})) {
+    out[k] = isServerTimestamp(v) ? serverTimestamp() : v;
+  }
+  return out;
+};
 
+// ── applyPriorityOps ─────────────────────────────────────────────────────────
+// Applies a planner's op list in order. Ops may reference a doc an earlier op
+// in the same list created, by its `tempId`; those are mapped to the real id
+// Firestore hands back.
+async function applyPriorityOps(athleteUid, ops) {
+  const idMap = new Map();                       // tempId → real Firestore id
+  const realId = (id) => idMap.get(id) ?? id;
+
+  for (const op of ops || []) {
+    if (op.op === "create") {
+      const created = await addDoc(col(athleteUid), materialize(op.fields));
+      if (op.tempId) idMap.set(op.tempId, created.id);
+      continue;
+    }
+
+    if (op.op === "supersede") {
+      const oldId = realId(op.oldId);
+      const created = await addDoc(
+        col(athleteUid),
+        materialize({ ...op.newFields, supersedes: oldId }),
+      );
+      if (op.tempId) idMap.set(op.tempId, created.id);
+      await updateDoc(ref(athleteUid, oldId), {
+        status:         "superseded",
+        supersededBy:   created.id,
+        supersededDate: serverTimestamp(),
+      });
+      continue;
+    }
+
+    // update | resolve | escalate — all a plain field write on one document.
+    await updateDoc(ref(athleteUid, realId(op.id)), materialize(op.fields));
+  }
+
+  return idMap;
+}
 
 // ── saveDeferredPriorities ───────────────────────────────────────────────────
 // Takes the deferredPriorities array returned by the AI and upserts each item.
-//
-// Matching is by development area (priorityKeys.samePriority), not by exact
-// label: the match analysis and the Sunday plan each word the same problem
-// differently, and exact-string matching let those pile up as duplicate rows.
-//   - identical wording   → update in place, incrementing weeksDeferredCount
-//                           once per ISO week (guarded by lastCountedWeek)
-//   - reworded            → supersede the old doc and create the new wording,
-//                           carrying over deferredDate, the deferral count and
-//                           any escalation, so rewording can never reset the
-//                           4-week escalation clock
-//   - genuinely new       → create with weeksDeferredCount: 0
 export async function saveDeferredPriorities(athleteUid, deferredArray) {
-  const thisWeek = currentWeekKey();
-  let open = await loadOpen(athleteUid);
-
-  for (const item of deferredArray || []) {
-    const label = item?.priority;
-    if (!label) continue;
-
-    const key = item.key ?? null;
-    const shared = {
-      priority:         label,
-      key,
-      reason:           item.reason           ?? null,
-      resolveCondition: item.resolveCondition ?? null,
-      metricTarget:     cleanTarget(item.metricTarget),
-    };
-
-    const existing = open.find(d => samePriority(d, { priority: label, key }));
-
-    // ── new development area ────────────────────────────────────────────────
-    if (!existing) {
-      const fields = {
-        ...shared,
-        deferredDate:       serverTimestamp(),
-        weeksDeferredCount: 0,
-        lastCountedWeek:    thisWeek,
-        status:             "active",
-        addressedDate:      null,
-        escalatedDate:      null,
-      };
-      const created = await addDoc(col(athleteUid), fields);
-      // Track locally so a second item in the same batch describing the same
-      // area matches this one instead of creating another duplicate.
-      open.push({ id: created.id, ...fields, deferredDate: new Date().toISOString() });
-      continue;
-    }
-
-    const countedThisWeek = existing.lastCountedWeek === thisWeek;
-
-    // ── same area, same wording ─────────────────────────────────────────────
-    if (existing.priority === label) {
-      if (countedThisWeek) continue;   // re-generating a plan must not inflate the count
-      const nextCount = (existing.weeksDeferredCount ?? 0) + 1;
-      await updateDoc(ref(athleteUid, existing.id), {
-        ...shared,
-        weeksDeferredCount: nextCount,
-        lastCountedWeek:    thisWeek,
-      });
-      Object.assign(existing, shared, { weeksDeferredCount: nextCount, lastCountedWeek: thisWeek });
-      continue;
-    }
-
-    // ── same area, new wording → supersede and carry the clock over ─────────
-    const carriedCount = countedThisWeek
-      ? (existing.weeksDeferredCount ?? 0)
-      : (existing.weeksDeferredCount ?? 0) + 1;
-
-    const fields = {
-      ...shared,
-      // Fall back to the incoming target only when the newest wording omits one,
-      // so a re-worded priority doesn't lose its auto-resolve condition.
-      metricTarget:       shared.metricTarget ?? cleanTarget(existing.metricTarget),
-      deferredDate:       existing.deferredDate ?? serverTimestamp(),
-      weeksDeferredCount: carriedCount,
-      lastCountedWeek:    thisWeek,
-      status:             existing.status === "escalated" ? "escalated" : "active",
-      escalatedDate:      existing.escalatedDate ?? null,
-      addressedDate:      null,
-      supersedes:         existing.id,
-    };
-    const created = await addDoc(col(athleteUid), fields);
-    await updateDoc(ref(athleteUid, existing.id), {
-      status:         "superseded",
-      supersededBy:   created.id,
-      supersededDate: serverTimestamp(),
-    });
-
-    open = open.filter(d => d.id !== existing.id);
-    open.push({ id: created.id, ...fields });
-  }
+  const open = await loadOpen(athleteUid);
+  const ops = planPriorityUpserts(open, deferredArray, currentWeekKey());
+  await applyPriorityOps(athleteUid, ops);
 }
 
 // ── mergeDuplicatePriorities ─────────────────────────────────────────────────
 // One-time cleanup for the duplicates already in Firestore, written before
-// matching became area-based. Groups the open items, keeps the newest wording
-// of each group with the ORIGINAL deferredDate and the highest deferral count,
-// and supersedes the rest. Idempotent: once the list is clean every cluster has
-// one member and this writes nothing, so it is safe to call on every load.
+// matching became area-based. Idempotent: once the list is clean this writes
+// nothing, so it is safe to call on every load.
 // Returns the number of docs folded away.
 export async function mergeDuplicatePriorities(athleteUid) {
   const open = await loadOpen(athleteUid);
-  if (open.length < 2) return 0;
-
-  const clusters = clusterPriorities(
-    open.map(d => ({ ...d, sortDate: toISO(d.deferredDate) ?? "" }))
-  );
-
-  let folded = 0;
-  for (const cluster of clusters) {
-    if (cluster.length < 2) continue;
-
-    const survivor = cluster[cluster.length - 1];        // newest wording
-    const others   = cluster.slice(0, -1);
-
-    const dated    = cluster.filter(d => d.sortDate);
-    const earliest = dated.length ? dated[0] : survivor; // clusters are sorted oldest → newest
-    const maxCount = Math.max(...cluster.map(d => d.weeksDeferredCount ?? 0));
-    const escalated = cluster.find(d => d.status === "escalated") || null;
-    const withTarget = cluster.find(d => isMetricTarget(d.metricTarget)) || null;
-
-    await updateDoc(ref(athleteUid, survivor.id), {
-      deferredDate:       earliest.deferredDate ?? survivor.deferredDate ?? serverTimestamp(),
-      weeksDeferredCount: maxCount,
-      status:             escalated ? "escalated" : survivor.status,
-      escalatedDate:      escalated?.escalatedDate ?? survivor.escalatedDate ?? null,
-      metricTarget:       cleanTarget(survivor.metricTarget) ?? cleanTarget(withTarget?.metricTarget),
-      mergedFrom:         others.map(d => d.id),
-    });
-
-    for (const old of others) {
-      await updateDoc(ref(athleteUid, old.id), {
-        status:         "superseded",
-        supersededBy:   survivor.id,
-        supersededDate: serverTimestamp(),
-      });
-      folded += 1;
-    }
-  }
-
-  return folded;
+  const ops = planMergeDuplicates(open);
+  if (ops.length === 0) return 0;
+  await applyPriorityOps(athleteUid, ops);
+  return ops.filter(o => o.kind === "fold").length;
 }
 
 // ── resolveMetricTargets ─────────────────────────────────────────────────────
-// Closes any open priority whose match-statistic target has been met. A target
-// only counts against matches played AFTER the priority was raised, and must
-// hold in the two most recent matches with a large enough sample — one good
-// match against a weak opponent must not clear a real weakness.
+// Closes any open priority whose match-statistic target has been met.
 // Returns the priorities it resolved, for the caller to surface as a toast.
 export async function resolveMetricTargets(athleteUid) {
   const open = await loadOpen(athleteUid);
-  const withTargets = open.filter(d => isMetricTarget(d.metricTarget));
-  if (withTargets.length === 0) return [];
+  // Skip the matches read entirely when nothing is target-driven.
+  if (!open.some(d => isMetricTarget(d.metricTarget))) return [];
 
   const matchesSnap = await getDocs(collection(db, "matches"));
   const matches = matchesSnap.docs
     .map(d => ({ id: d.id, ...d.data() }))
     .filter(m => m.athleteId === athleteUid);
-  if (matches.length === 0) return [];
 
-  const resolved = [];
-  for (const item of withTargets) {
-    const since  = toISO(item.deferredDate);
-    const streak = streakMet(matchesSince(matches, since), item.metricTarget);
-    if (!streak.met) continue;
-
-    // Resolved by document id, not by label — label matching is exactly the
-    // fragility this whole change is removing.
-    await updateDoc(ref(athleteUid, item.id), {
-      status:              "resolved",
-      addressedDate:       serverTimestamp(),
-      resolvedBy:          "metric",
-      resolvedByMatchIds:  streak.matchIds.filter(Boolean),
-    });
-    resolved.push(item);
-  }
-
-  return resolved;
+  const ops = planMetricResolutions(open, matches);
+  await applyPriorityOps(athleteUid, ops);
+  return ops.map(o => o.doc);
 }
 
 // ── resolveDeferred ──────────────────────────────────────────────────────────
 // Sets status to 'resolved' and records addressedDate for any open document
-// describing the same development area as the given label. Area matching (not
-// exact string equality) means the ✓ Resolved button still works after the AI
-// has re-worded a priority.
+// describing the same development area as the given label.
 export async function resolveDeferred(athleteUid, priorityLabel) {
   if (!priorityLabel) return;
   const open = await loadOpen(athleteUid);
-  const targets = open.filter(d => d.priority === priorityLabel || samePriority(d, priorityLabel));
-
-  for (const d of targets) {
-    await updateDoc(ref(athleteUid, d.id), {
-      status:        "resolved",
-      addressedDate: serverTimestamp(),
-    });
-  }
+  await applyPriorityOps(athleteUid, planLabelResolutions(open, priorityLabel));
 }
 
 // ── checkEscalations ─────────────────────────────────────────────────────────
 // Promotes active items deferred 4+ weeks to 'escalated' (a write). This MUTATES,
 // so its return value only reflects items it flipped on this call — do not rely
 // on it for display (use refreshEscalations / getEscalated instead).
-// Requires a Firestore composite index on: status ASC, weeksDeferredCount ASC
 export async function checkEscalations(athleteUid) {
-  const snap = await getDocs(
-    query(
-      col(athleteUid),
-      where("status", "==", "active"),
-      where("weeksDeferredCount", ">=", 4)
-    )
-  );
-
-  const escalated = [];
-  for (const d of snap.docs) {
-    await updateDoc(ref(athleteUid, d.id), {
-      status:        "escalated",
-      escalatedDate: serverTimestamp(),
-    });
-    escalated.push({ id: d.id, ...d.data() });
-  }
-
-  return escalated;
+  const open = await loadOpen(athleteUid);
+  const ops = planEscalations(open);
+  await applyPriorityOps(athleteUid, ops);
+  return ops.map(o => o.doc);
 }
 
 // ── getEscalated ─────────────────────────────────────────────────────────────

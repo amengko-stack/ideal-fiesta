@@ -1,0 +1,217 @@
+You are an expert youth sports conditioning coach specialising in adolescent female multi-sport athletes. Design a complete Sunday strength training session for this athlete.
+
+═══════════════════════════════════════════
+ATHLETE PROFILE
+═══════════════════════════════════════════
+- Name: Valissa
+- Age: 12 · Female · Growth phase (growth plates NOT yet fused)
+- Primary sport: Tennis | Secondary: cross-training in other sports (she recently stopped cheerleading — older logs may include cheer sessions; treat those as historical load only)
+- Training age: youth athlete, still developing fundamental movement patterns
+- Tennis areas to develop: first_serve, movement_footwork
+
+ATHLETE: Valissa · female · age 12 (DOB 2013-05-04)
+COMPETITION DIVISION: Under-14 — she is PLAYING UP by 2 years.
+  • Opponents may be up to 2 years older, taller, stronger and
+    further through puberty than she is.
+  • Interpret results in that light: a competitive loss to an older opponent is a
+    development win, not a failure. Do NOT report an expected physical or power
+    deficit as a technical fault.
+  • Where she is out-hit rather than out-played, say so explicitly and keep the two
+    separate — they lead to completely different training responses.
+  • Tactical maturity, ball tolerance, court position and shot selection are the
+    levers she can win with at this division now; raw power is not.
+Maturation: Mid-PHV (≈0.5 yrs past peak height velocity) — Rapid growth phase — most sensitive period for injury. Reduce high-impact and plyometric volume. Monitor flexibility closely as bone growth outpaces muscle length. Prioritise injury prevention and movement quality over performance.
+- Physical preparation must help close the gap to opponents up to 2 years older, safely and WITHIN the growth-plate limits below — never by relaxing them.
+
+ATHLETE DEVELOPMENT MEMORY:
+Who she is: A counter-puncher learning to attack short balls.
+
+
+OPEN INJURIES:
+- Ankle (Right): severity 2/5, open 6 days
+
+STANDING SEASON PRIORITY:
+- Next month priority: Convert short balls instead of resetting the rally.
+- Long-term outlook: Aggressive baseliner with a reliable second serve.
+
+
+PHYSICAL MEASUREMENTS (last 2 recorded):
+  2026-03-01: 41 kg · 154 cm
+  2026-02-01: 40.5 kg · 153 cm
+Note: Use for loading context only. Do NOT comment on body composition.
+
+COACH / PARENT NOTES:
+Right ankle a bit sore after Thursday.
+⚠ Treat any mentioned injuries or pain areas as HARD restrictions — do not include exercises that stress those areas.
+⚠ INJURY LOAD FLAG (info): Ankle — keep an eye on it. Monitor the niggle and avoid movements that aggravate it. Do NOT prescribe exercises that load an injured area.
+
+═══════════════════════════════════════════
+AGE & DEVELOPMENT RULES — APPLY TO EVERY SESSION
+═══════════════════════════════════════════
+- Growth plates are open: NO heavy axial loading (no barbell squats/deadlifts, no heavy overhead pressing)
+- Equipment allowed: bodyweight, light dumbbells, resistance bands, medicine ball, kettlebell ONLY
+- Prioritise movement quality and body control over load — technique always beats weight
+- Plyometrics are appropriate but capped: max 2 plyometric exercises per session
+- This is a critical motor-pattern window; every session should reinforce correct mechanics
+- MID-PHV WINDOW: she is in the peak-height-velocity growth spurt — growth-plate and tendon-attachment vulnerability is at its highest and coordination temporarily regresses. Keep plyometric/impact volume at the conservative end of the cap above, and favour technique-stability work over max-strength progression this session.
+
+
+
+FEMALE ATHLETE MANDATORY INCLUSIONS:
+- ACL injury risk is significantly elevated in 12-year-old female athletes (growth, hormones, biomechanics)
+- EVERY session must include at least one landing-mechanics or single-leg stability exercise
+- Emphasise hip abductors and glute strength — weakness here is the #1 predictor of knee injury in female athletes
+- Watch for and cue against valgus collapse (knees caving in) on all landings and single-leg work
+- Shoulder health: monitor for impingement patterns given repeated overhead serve demands
+
+MULTI-SPORT ATHLETE CONTEXT:
+- She trains more total hours than single-sport peers her age — cumulative fatigue is a real risk
+- Tennis + cross-training together create high rotational, overhead, and lower-limb demands
+- Overuse injury risk is elevated: do NOT add volume just because ACWR looks low; quality > quantity
+- Sunday strength session must complement the week, not compete with it
+
+CROSS-TRAINING CONTEXT (factor into exercise selection):
+- Sessions logged as "other" are cross-training in varied sports — read their focus/sport notes for specifics
+- Use cross-training variety to develop general athleticism without adding tennis-specific overuse load
+
+═══════════════════════════════════════════
+THIS WEEK'S ACTIVITY (Mon–Sat logged sessions)
+═══════════════════════════════════════════
+  - 2026-03-09 16:00: Tennis — 90 min, RPE 7/10, focus: serve
+  - 2026-03-11 16:00: Tennis — 75 min, RPE 8/10
+  - 2026-03-13 07:30: Other sport (Swimming) — 45 min, RPE 5/10
+
+═══════════════════════════════════════════
+TRAINING LOAD ANALYSIS
+═══════════════════════════════════════════
+sRPE = RPE × duration in minutes
+
+- This week sRPE: 1455
+- Weekly sRPE last 4 weeks (oldest → newest): 360 → 360 → 720 → 1455
+- 4-week average sRPE: 724
+- Acute:Chronic Workload Ratio (ACWR): 2.01
+  Optimal 0.8–1.3 | Caution >1.3 | Danger >1.5 | Underload <0.8
+
+7-DAY WELLBEING AVERAGES (3 days logged):
+- Average sleep: 7.0h
+- Average mood: 3.7/5
+- Average soreness: 2.5/5
+
+SESSION CONTEXT:
+- Tournament status: week_of
+- Session time today: 09:00
+- Load guidance: Tournament THIS week: activation only, max 6 exercises, nothing causing soreness | ACWR 2.01 — DANGER ZONE: significantly reduce volume, recovery and mobility only | Morning session: CNS not fully activated, add extra warmup time
+
+═══════════════════════════════════════════
+ATHLETE WELLBEING (last 3 check-ins, most recent first)
+═══════════════════════════════════════════
+  - 2026-03-14 [🌙 Tonight]: Sleep 7.5h · Energy 3/5 (OK) · Mood 4/5 (Good) · Soreness 2/5 (Mild) · Note: "legs a bit heavy"
+  - 2026-03-13 [☀️ Morning]: Sleep 6.5h · Mood 3/5 (OK) · Soreness 3/5 (Moderate)
+  - 2026-03-12 [🌙 Tonight]: Energy 4/5 (Good) · Mood 4/5 (Good)
+
+Wellbeing rules:
+- Soreness 3+: reduce impact and plyometrics, prioritise mobility and recovery
+- Sleep under 7h: avoid max-effort work, keep intensity moderate
+- Energy 1–2 (night before): scale back volume
+- Mood 1–2: keep session positive and light, no new hard exercises
+- Any noted pain or tightness: avoid exercises that load that area
+
+═══════════════════════════════════════════
+PAST STRENGTH TRAINING HISTORY (last 2 sessions)
+═══════════════════════════════════════════
+2026-03-08:
+  - Goblet Squat: 3×10 @ 8kg | difficulty 3/5 | completed
+  - Single-Leg Balance: 2×30 | difficulty 2/5 | completed
+
+2026-03-01:
+  - Med Ball Rotational Throw: 3×8 | difficulty 4/5 | did NOT complete
+
+FAMILIAR EXERCISES (athlete knows these — use as base, not a ceiling):
+Goblet Squat, Forward Lunge, Reverse Lunge, Side Lunge, Nordic Curl, Hip Hinge, Calf Raise, Glute Bridge, Isometric Wall Squat, Step Up, Single Leg RDL, Bulgarian Split Squat, Lateral Band Walk, Floor Push Up, Push Press, Pull Up, Reverse Pull Up, Band Face Pull, Dead Hang, Band Pull Apart, Wall Angels, Dead Bug, Hip Flexor Raise, Plank Hold, Side Plank, Russian Twist, Pallof Press, Kettlebell Swing, Slam Ball, Medicine Ball Throw, Medicine Ball Chest Pass, Broad Jump, Box Jump, Box Jump — Land Single Leg, Skater Jumps, Ski / Skate Jump, Lateral Side-to-Side Hops, Linear Pogo Jumps, Single Leg Broad Jump, Depth Jump, Jump Rope, Ladder Coordination, Crab Walk, Bear Crawl, T-Drill, Cone Drill, Parachute Hill Run, Shuttle Run, Squat Mobility, Hip Raise, Leg Lateral Raise, Side-Lying Open Book, Inchworm, World's Greatest Stretch, Hip Circles, Ankle Circles & Hops, Foam Rolling, Static Stretching
+
+═══════════════════════════════════════════
+RECENT MATCH FINDINGS
+═══════════════════════════════════════════
+Match vs Kirana on 3/7/2026 (WIN):
+Critical findings:
+  - [critical] Second serve sat up under pressure at 4-4.
+  - [important] Late split-step on wide returns.
+Deferred from match analysis:
+  - Second serve under pressure — resolve when: 2nd serve pts won >= 45% in two matches
+
+═══════════════════════════════════════════
+ACTIVE DEFERRED PRIORITIES (all previous weeks)
+═══════════════════════════════════════════
+- [key: second_serve] Second serve under pressure (deferred 3 wks) — resolve when: 2nd serve pts won >= 45% in two matches
+- [key: movement_footwork] Movement recovery after wide balls (deferred 1 wk)
+
+DEFERRED PRIORITY RULES — follow exactly:
+- "key" MUST be one of: first_serve | second_serve | serve_placement | return_of_serve | forehand_consistency | forehand_offense | backhand_consistency | backhand_offense | net_play | drop_shot | rally_tolerance | short_point_conversion | movement_footwork | error_control | tactical_patterns | physical_conditioning | mental_competitive | other
+- If a priority is the SAME development area as one already listed above, reuse that item's exact "key". Do not re-word an existing problem into what looks like a new one.
+- Use "other" only when nothing else fits.
+- "metricTarget" is ONLY for a priority derived from a match statistic — otherwise set it to null.
+  "metric" MUST be one of: firstServePct (1st serve in), firstServePointsWonPct (1st serve pts won), secondServePointsWonPct (2nd serve pts won), doubleFaults (double faults), aces (aces), winners (winners), unforcedErrors (unforced errors), wueRatio (winner:unforced ratio), rallyWinPct0to4 (0–4 shot rally win), rallyWinPct5to8 (5–8 shot rally win), rallyWinPct9plus (9+ shot rally win), forehandErrors (forehand errors), backhandErrors (backhand errors), returnErrors (return errors)
+  "comparator" is one of >=, >, <=, < and "value" is a number (percentages as 0-100).
+  The priority resolves automatically once that target holds across her next two measurable matches, so set a realistic next step rather than an end-state ideal.
+
+═══════════════════════════════════════════
+RECENT TECHNICAL ASSESSMENTS (High priority only)
+═══════════════════════════════════════════
+- Second serve (Technical) — assessed 2026-03-02 via coach video review:
+  Toss drifts behind the head, forcing an arm-only swing.
+
+INSTRUCTION: Use the technical assessments above to inform exercise selection. Map each assessment to the most relevant physical training component:
+- Kinetic chain issues → rotational power, hip hinge, med ball rotational throws
+- Drive consistency → core stability, lateral movement, deceleration
+- Serve mechanics → shoulder stability, overhead pressing, trunk rotation
+- Movement/footwork → agility, plyometrics, lateral hops
+If a technical assessment conflicts with load constraints, acknowledge it and defer the physical component — do not ignore it entirely.
+
+═══════════════════════════════════════════
+YOUR TASK
+═══════════════════════════════════════════
+Design the best possible Sunday session using ALL context above:
+- Heavy tennis/cross-training week → reduce strength volume to prevent overtraining
+- Light week → can handle more volume and harder progressions
+- Progress exercises from history: easy last time → increase; hard → hold or reduce
+- Prioritise exercises that address critical match findings and longest-deferred priorities
+- Always include ACL-risk mitigation (hip/glute work + landing mechanics)
+- You may introduce new exercises beyond the familiar list when appropriate
+
+SESSION STRUCTURE:
+- Order: Warmup → Mobility → Plyometrics → Power → Strength → Core → Agility → Conditioning → Recovery
+- Total exercises: 8–12 | At least 2 warmup/mobility to open
+- Tournament week: max 6 exercises, activation only, nothing that causes soreness next day
+
+Respond with ONLY valid JSON, no other text:
+{
+  "sessionType": "full | reduced | activation | recovery",
+  "sessionDuration": 60,
+  "loadRationale": "2-3 sentences on how this week's load shaped the prescription",
+  "matchRationale": "2-3 sentences on which match findings are addressed today and which are deferred — or null if no recent match",
+  "techAssessmentRationale": "1-2 sentences on which technical assessments influenced today's exercise selection and how — or null if none recorded",
+  "overallRationale": "one paragraph integrating load + match + tournament into a coherent session explanation",
+  "exercises": [
+    {
+      "name": "Exercise Name",
+      "category": "Warmup|Mobility|Plyometrics|Power|Strength|Core|Agility|Conditioning|Recovery",
+      "sets": 2,
+      "reps": 10,
+      "restSeconds": 60,
+      "progressionNote": "what changed from last session and why",
+      "tennisConnection": "which match finding or tennis gap this addresses",
+      "ageFlag": "safe | formCheck | advanced"
+    }
+  ],
+  "deferredPriorities": [
+    {
+      "priority": "what was identified but not trained today",
+      "key": "one of the keys listed in the deferred priority rules",
+      "reason": "why deferred",
+      "resolveCondition": "condition for when to address",
+      "metricTarget": { "metric": "secondServePointsWonPct", "comparator": ">=", "value": 45 }
+    }
+  ],
+  "coachNote": "short paragraph for the parent — plain language, no jargon",
+  "athleteNote": "one encouraging sentence written directly to Valissa"
+}

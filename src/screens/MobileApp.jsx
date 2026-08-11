@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { collection, getDocs, query, where, doc, getDoc, setDoc, addDoc, deleteDoc } from "firebase/firestore";
+import { collection, getDocs, query, where, orderBy, limit, documentId, doc, getDoc, setDoc, addDoc, deleteDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { M, mobileCss } from "../styles/mobileTheme.js";
 import { computeStreak } from "../lib/streak.js";
@@ -39,7 +39,9 @@ import { BADGES, evaluateBadges } from "../lib/badges.js";
 import { resolveDeferred, mergeDuplicatePriorities, resolveMetricTargets } from "../lib/deferredPriorities.js";
 import { emptyMemory, deleteMemoryPattern } from "../lib/athleteMemory.js";
 import { dueReminders } from "../lib/reminders.js";
+import { supersededReminderKinds } from "../lib/guardianCore.js";
 import { isPushSupported, pushPermission, enablePush, disablePush, refreshPushToken, onForegroundMessage } from "../lib/push.js";
+import { runWeeklyReviewNow, runGuardianNow } from "../lib/orchestrator.js";
 
 // Why enabling reminders failed, in words the family can act on. Keyed by the
 // `reason` push.js returns instead of throwing.
@@ -90,6 +92,14 @@ export default function MobileApp({ athleteId, isParent, user, onSignOut }) {
   const [technical, setTechnical] = useState([]);
   const [injuries, setInjuries] = useState([]);
   const [memory, setMemory] = useState(emptyMemory());
+  // Newest weekly-review digest, or null. HomeScreen decides whether it is
+  // still fresh enough to show (dates.isDigestFresh).
+  const [digest, setDigest] = useState(null);
+  const [weeklyReviewRunning, setWeeklyReviewRunning] = useState(false);
+  // Newest guardian alert, or null. HomeScreen decides whether it is still
+  // showable (un-dismissed, un-resolved, matching engine version).
+  const [guardianAlert, setGuardianAlert] = useState(null);
+  const [guardianRunning, setGuardianRunning] = useState(false);
   const [parentMode, setParentMode] = useState(() => {
     try { return localStorage.getItem("parentMode") !== "0"; } catch { return true; }
   });
@@ -337,6 +347,81 @@ export default function MobileApp({ athleteId, isParent, user, onSignOut }) {
     }
   };
 
+  // The Sunday orchestrator's opt-in flag lives on the athlete doc because the
+  // scheduled function is what reads it — same reasoning (and same merge-set) as
+  // remindersEnabled in push.js.
+  const toggleWeeklyReview = () => {
+    setProfile(prev => {
+      if (!prev) return prev;
+      const next = !prev.weeklyReviewEnabled;
+      setDoc(doc(db, "athletes", athleteId), { weeklyReviewEnabled: next }, { merge: true })
+        .catch(err => console.error("weeklyReviewEnabled save:", err));
+      showToast(next ? "Weekly review on — every Sunday morning 🗞️" : "Weekly review off");
+      return { ...prev, weeklyReviewEnabled: next };
+    });
+  };
+
+  // The full pipeline takes a couple of minutes; the running flag both blocks a
+  // double-tap and gives the button something honest to say meanwhile.
+  const runWeeklyReview = async () => {
+    if (weeklyReviewRunning) return;
+    setWeeklyReviewRunning(true);
+    try {
+      await runWeeklyReviewNow(athleteId);
+      showToast("Weekly review complete 🗞️");
+      refresh();
+    } catch (e) {
+      console.error("runWeeklyReview:", e);
+      // orchestrator.js has already turned the callable error into a sentence.
+      showToast(`Couldn't run the review — ${e.message}`);
+    } finally {
+      setWeeklyReviewRunning(false);
+    }
+  };
+
+  // The guardian's opt-in flag, same merge-set and same reasoning as
+  // weeklyReviewEnabled: the scheduled function is what reads it.
+  const toggleGuardian = () => {
+    setProfile(prev => {
+      if (!prev) return prev;
+      const next = !prev.guardianEnabled;
+      setDoc(doc(db, "athletes", athleteId), { guardianEnabled: next }, { merge: true })
+        .catch(err => console.error("guardianEnabled save:", err));
+      showToast(next ? "Guardian on — a quiet check every morning 🛡️" : "Guardian off");
+      return { ...prev, guardianEnabled: next };
+    });
+  };
+
+  // One LLM call at most, so this is faster than the weekly review — but the
+  // running flag still blocks a double-tap and gives the button something
+  // honest to say meanwhile.
+  const runGuardian = async () => {
+    if (guardianRunning) return;
+    setGuardianRunning(true);
+    try {
+      await runGuardianNow(athleteId);
+      showToast("Guardian check complete 🛡️");
+      refresh();
+    } catch (e) {
+      console.error("runGuardian:", e);
+      // orchestrator.js has already turned the callable error into a sentence.
+      showToast(`Couldn't run the check — ${e.message}`);
+    } finally {
+      setGuardianRunning(false);
+    }
+  };
+
+  // Dismissal lives on the alert doc, not localStorage, because it has to hold
+  // across the family's three devices. Optimistic locally, fire-and-forget
+  // remotely — a failed write costs a re-appearing card, not data.
+  const dismissGuardianAlert = (alertId) => {
+    setGuardianAlert(prev => (prev ? { ...prev, dismissedAt: new Date().toISOString() } : prev));
+    setDoc(doc(db, "athletes", athleteId, "guardianAlerts", alertId), {
+      dismissedAt: new Date().toISOString(),
+      dismissedBy: isParent && parentMode ? "parent" : "athlete",
+    }, { merge: true }).catch(console.error);
+  };
+
   const toggleParentMode = () => {
     setParentMode(p => {
       const next = !p;
@@ -449,13 +534,19 @@ export default function MobileApp({ athleteId, isParent, user, onSignOut }) {
       getDoc(doc(db, "athletes", athleteId, "liveMatches", "current")),
       getDoc(doc(db, "athletes", athleteId, "memory", "current")),
       getDocs(collection(db, "athletes", athleteId, "injuries")),
+      // Weekly digests are keyed by their Monday (YYYY-MM-DD), so document-id
+      // order is chronological order — the newest one is a single-doc read.
+      getDocs(query(collection(db, "athletes", athleteId, "digests"), orderBy(documentId(), "desc"), limit(1))),
+      // Same trick: guardian alert ids are `{date}_{storyKey}` — date first, so
+      // document-id order is chronological and the newest alert is one read.
+      getDocs(query(collection(db, "athletes", athleteId, "guardianAlerts"), orderBy(documentId(), "desc"), limit(1))),
     ])
       .then((results) => {
         if (cancelled) return;
         const val = (i) => (results[i].status === "fulfilled" ? results[i].value : null);
         const failed = results.filter(r => r.status === "rejected");
-        if (failed.length) console.error(`MobileApp data load: ${failed.length}/15 reads failed`, failed[0].reason);
-        const [profileSnap, logsSnap, wbSnap, sessSnap, xpSnap, matchesSnap, tournamentsSnap, seasonSnap, planSnap, prioritiesSnap, benchmarksSnap, technicalSnap, liveSnap, memorySnap, injuriesSnap] =
+        if (failed.length) console.error(`MobileApp data load: ${failed.length}/${results.length} reads failed`, failed[0].reason);
+        const [profileSnap, logsSnap, wbSnap, sessSnap, xpSnap, matchesSnap, tournamentsSnap, seasonSnap, planSnap, prioritiesSnap, benchmarksSnap, technicalSnap, liveSnap, memorySnap, injuriesSnap, digestSnap, guardianSnap] =
           results.map((_, i) => val(i));
         if (profileSnap?.exists()) setProfile({ id: profileSnap.id, ...profileSnap.data() });
         const logs = logsSnap ? logsSnap.docs.map(d => ({ id: d.id, ...d.data() })) : [];
@@ -487,6 +578,8 @@ export default function MobileApp({ athleteId, isParent, user, onSignOut }) {
         if (injuriesSnap) setInjuries(injuriesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
         if (liveSnap) setLiveDraft(liveSnap.exists() ? liveSnap.data() : null);
         if (memorySnap) setMemory(memorySnap.exists() ? { ...emptyMemory(), ...memorySnap.data() } : emptyMemory());
+        if (digestSnap) setDigest(digestSnap.docs[0] ? { id: digestSnap.docs[0].id, ...digestSnap.docs[0].data() } : null);
+        if (guardianSnap) setGuardianAlert(guardianSnap.docs[0] ? { id: guardianSnap.docs[0].id, ...guardianSnap.docs[0].data() } : null);
         const dates = [
           ...logs.map(l => l.date),
           ...wb.map(w => w.date),
@@ -551,9 +644,14 @@ export default function MobileApp({ athleteId, isParent, user, onSignOut }) {
   // isParent is the auth role, parentMode is the per-device display toggle
   // (so handing the phone to Valissa hides parent/medical alerts too).
   const canSeeParentAlerts = isParent && parentMode;
+  // Supersession: when the guardian is telling one joined-up story, the
+  // reminders that say a thinner version of the same thing are dropped rather
+  // than stacked underneath it. supersededReminderKinds returns [] for a null,
+  // dismissed, resolved or wrong-version alert, so this is a no-op most days.
   const alerts = dueReminders(
     { weekLogs, wellbeing, sessions: sessionHistory, tournaments, priorities, technical, benchmarks, injuries, plan: planResult, profile },
-    new Date()
+    new Date(),
+    { suppressKinds: supersededReminderKinds(guardianAlert) }
   )
     .filter(r => r.audience === "both" || (r.audience === "athlete") || (r.audience === "parent" && canSeeParentAlerts))
     .map(({ id, tone, title, body }) => ({ id, tone, title, body }));
@@ -585,6 +683,11 @@ export default function MobileApp({ athleteId, isParent, user, onSignOut }) {
               alerts={activeAlerts}
               onDismissAlert={dismissAlert}
               priorities={priorities}
+              digest={digest}
+              guardianAlert={guardianAlert}
+              onDismissGuardian={dismissGuardianAlert}
+              showParentNotes={isParent && parentMode}
+              onOpenPlan={() => setScreen("plan")}
             />
           ) : screen === "load" ? (
             <LoadScreen weekLogs={weekLogs} />
@@ -633,6 +736,14 @@ export default function MobileApp({ athleteId, isParent, user, onSignOut }) {
               onRemoveMemoryPattern={removeMemoryPattern}
               pushState={{ ...pushState, enabled: !!profile?.remindersEnabled }}
               onToggleReminders={toggleReminders}
+              weeklyReviewEnabled={!!profile?.weeklyReviewEnabled}
+              weeklyReviewRunning={weeklyReviewRunning}
+              onToggleWeeklyReview={toggleWeeklyReview}
+              onRunWeeklyReview={runWeeklyReview}
+              guardianEnabled={!!profile?.guardianEnabled}
+              guardianRunning={guardianRunning}
+              onToggleGuardian={toggleGuardian}
+              onRunGuardian={runGuardian}
               isParent={isParent}
               parentMode={parentMode}
               onToggleParentMode={toggleParentMode}

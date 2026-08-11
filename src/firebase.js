@@ -13,7 +13,9 @@ const firebaseConfig = {
   appId:             import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
-const app = initializeApp(firebaseConfig);
+// Exported so callable helpers (src/lib/orchestrator.js) can reach the same
+// app instance instead of relying on getApp() import-order luck.
+export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 // Offline persistence: reads serve from cache and writes queue while offline
 // (courtside logging with no signal), syncing when the connection returns.
