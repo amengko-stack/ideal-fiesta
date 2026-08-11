@@ -42,10 +42,15 @@ export function mergeWellbeingByDate(entries) {
   return byDate;
 }
 
-export function calculateMetrics(logs, wellbeing) {
+// `ref` is the day the 7-day wellbeing window ends on. It defaults to the real
+// clock for app callers, but callers that already know "today" must pass it —
+// reading the clock here instead would silently slide the window out from under
+// a caller working to a fixed date, which is how fixtures pinned to a literal
+// date start failing on a day nobody touched the code.
+export function calculateMetrics(logs, wellbeing, ref = new Date()) {
   const { weekSRPEs, thisWeekSRPE, fourWeekAvg, acwr } = computeLoad(logs);
 
-  const sevenDaysAgo = new Date();
+  const sevenDaysAgo = new Date(ref);
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
   const sevenDaysAgoStr = toLocalDateStr(sevenDaysAgo);
 

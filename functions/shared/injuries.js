@@ -23,7 +23,10 @@ const isValidDate = (s) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s
 const msPerDay = 24 * 60 * 60 * 1000;
 
 // Short human summary, e.g. "Left knee · niggle (2/5) · 6 days".
-export function describeInjury(injury) {
+// `today` is forwarded to injuryDuration, which measures an open injury against
+// it. Defaulting to the clock is right for the UI; tests and any caller working
+// to a fixed date should pass one, or the duration drifts as the calendar moves.
+export function describeInjury(injury, today = new Date()) {
   if (!injury) return "";
   const side = injury.side && injury.side !== "N/A" ? `${injury.side} ` : "";
   const area = injury.bodyArea || "Injury";
@@ -31,7 +34,7 @@ export function describeInjury(injury) {
   const sevWord = sev === 1 ? "niggle" : sev >= 4 ? "severe" : sev === 3 ? "moderate" : "mild";
   const parts = [`${side}${area}`.trim()];
   if (sev != null) parts.push(`${sevWord} (${sev}/5)`);
-  const dur = injuryDuration(injury);
+  const dur = injuryDuration(injury, today);
   if (dur != null) parts.push(`${dur} day${dur === 1 ? "" : "s"}`);
   return parts.join(" · ");
 }
@@ -101,8 +104,11 @@ export function injuryLoadFlag(list) {
 
 // Body areas injured minCount+ times within the window, newest (most recent
 // onset) first — a repeat niggle in the same site is the real signal.
-export function recurringAreas(list, { withinDays = 180, minCount = 2 } = {}) {
-  const cutoff = new Date(new Date() - withinDays * msPerDay);
+// `ref` is the day the lookback window ends on — same reasoning as
+// describeInjury: the UI wants the real clock, a caller working to a fixed date
+// must be able to say so.
+export function recurringAreas(list, { withinDays = 180, minCount = 2, ref = new Date() } = {}) {
+  const cutoff = new Date(ref - withinDays * msPerDay);
   const recent = (list || []).filter(i => i && i.bodyArea && isValidDate(i.onsetDate) && new Date(`${i.onsetDate}T00:00:00`) >= cutoff);
 
   const byArea = {};

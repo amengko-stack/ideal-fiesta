@@ -385,24 +385,32 @@ describe("load family", () => {
   describe("family collapse — three load factors are ONE story", () => {
     // week 0 repetitive at 2760 sRPE (ACWR 1.59 severe + monotony 28.17
     // severe), weeks 1-2 at 2100 (over the sustained-volume line), week 3 empty.
-    const ALL_THREE = [...weekOf(0, repetitive(400)), ...weekOf(1, flat(300)), ...weekOf(2, flat(300))];
+    //
+    // Built lazily, INSIDE each test, and that is load-bearing. weekOf() goes
+    // through realMonday(), which reads the clock — and a describe body is
+    // evaluated at collection time, before beforeAll installs the frozen one.
+    // As a `const` here the fixture silently dated itself to the real week
+    // while the assertion ran against the frozen week, so these passed only
+    // while the two happened to coincide and went red on a day nobody touched
+    // the code. Same trap as the sleep fixture in reminders.test.js.
+    const allThree = () => [...weekOf(0, repetitive(400)), ...weekOf(1, flat(300)), ...weekOf(2, flat(300))];
 
     it("finds all three load factors", () => {
-      expect(idsOf(assessGuardian({ weekLogs: ALL_THREE }, TODAY).factors).sort())
+      expect(idsOf(assessGuardian({ weekLogs: allThree() }, TODAY).factors).sort())
         .toEqual(["acwr-spike", "monotony-high", "sustained-load"]);
     });
 
     it("collapses them to a single family", () => {
-      expect(familiesOf(assessGuardian({ weekLogs: ALL_THREE }, TODAY))).toEqual(["load"]);
+      expect(familiesOf(assessGuardian({ weekLogs: allThree() }, TODAY))).toEqual(["load"]);
     });
 
     it("counts the family's MAXIMUM weight, not the sum of its factors", () => {
       // 3 + 2 + 2 summed would be 7 (urgent!). The family contributes 3.
-      expect(assessGuardian({ weekLogs: ALL_THREE }, TODAY).totalWeight).toBe(3);
+      expect(assessGuardian({ weekLogs: allThree() }, TODAY).totalWeight).toBe(3);
     });
 
     it("DOES NOT FIRE — one story told three ways is still one story", () => {
-      const a = assessGuardian({ weekLogs: ALL_THREE }, TODAY);
+      const a = assessGuardian({ weekLogs: allThree() }, TODAY);
       expect(a.fires).toBe(false);
       expect(a.reason).toBe("single-family");
       expect(a.severity).toBeNull();
@@ -411,7 +419,7 @@ describe("load family", () => {
 
     it("fires the moment a SECOND family joins the same load story", () => {
       const wellbeing = wbDays([{ mood: 2 }, { mood: 2 }, { mood: 2 }]);
-      const a = assessGuardian({ weekLogs: ALL_THREE, wellbeing }, TODAY);
+      const a = assessGuardian({ weekLogs: allThree(), wellbeing }, TODAY);
       expect(a.fires).toBe(true);
       expect(a.families).toEqual(["load", "recovery"]);
       expect(a.totalWeight).toBe(5);          // load 3 + recovery 2

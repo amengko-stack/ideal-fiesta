@@ -45,14 +45,8 @@ describe("injuryDuration", () => {
 
 describe("describeInjury", () => {
   it("formats side, area, severity word and duration", () => {
-    // Derived from today, not hardcoded: describeInjury measures an open injury
-    // against the current date, so a literal onsetDate makes this pass only on
-    // the day it was written.
-    const d = new Date();
-    d.setDate(d.getDate() - 6);
-    const onsetDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    const injury = { bodyArea: "Knee", side: "Left", severity: 2, status: "open", onsetDate };
-    expect(describeInjury(injury)).toBe("Left Knee · mild (2/5) · 6 days");
+    const injury = { bodyArea: "Knee", side: "Left", severity: 2, status: "open", onsetDate: "2026-07-28" };
+    expect(describeInjury(injury, new Date("2026-08-03T12:00:00"))).toBe("Left Knee · mild (2/5) · 6 days");
   });
   it("omits side when N/A", () => {
     const injury = { bodyArea: "Lower back", side: "N/A", severity: 1, status: "open", onsetDate: "2026-08-02" };
@@ -127,13 +121,18 @@ describe("injuryLoadFlag", () => {
 });
 
 describe("recurringAreas", () => {
+  // Pinned so the fixtures below stay inside the lookback window forever. With
+  // the real clock these pass today and start failing months from now, on a day
+  // nobody touched this file.
+  const REF = new Date("2026-08-03T12:00:00");
+
   it("flags a body area injured 2+ times within the window", () => {
     const list = [
       { bodyArea: "Knee", onsetDate: "2026-06-01" },
       { bodyArea: "Knee", onsetDate: "2026-07-15" },
       { bodyArea: "Ankle", onsetDate: "2026-07-20" },
     ];
-    const rec = recurringAreas(list, { withinDays: 180 });
+    const rec = recurringAreas(list, { withinDays: 180, ref: REF });
     expect(rec).toEqual([{ bodyArea: "Knee", count: 2, mostRecentOnset: "2026-07-15" }]);
   });
   it("excludes injuries outside the window", () => {
@@ -141,7 +140,7 @@ describe("recurringAreas", () => {
       { bodyArea: "Knee", onsetDate: "2025-01-01" },
       { bodyArea: "Knee", onsetDate: "2025-01-15" },
     ];
-    expect(recurringAreas(list, { withinDays: 180 })).toEqual([]);
+    expect(recurringAreas(list, { withinDays: 180, ref: REF })).toEqual([]);
   });
   it("respects a custom minCount", () => {
     const list = [
@@ -149,8 +148,8 @@ describe("recurringAreas", () => {
       { bodyArea: "Knee", onsetDate: "2026-07-10" },
       { bodyArea: "Knee", onsetDate: "2026-07-20" },
     ];
-    expect(recurringAreas(list, { minCount: 3 })).toEqual([{ bodyArea: "Knee", count: 3, mostRecentOnset: "2026-07-20" }]);
-    expect(recurringAreas(list, { minCount: 4 })).toEqual([]);
+    expect(recurringAreas(list, { minCount: 3, ref: REF })).toEqual([{ bodyArea: "Knee", count: 3, mostRecentOnset: "2026-07-20" }]);
+    expect(recurringAreas(list, { minCount: 4, ref: REF })).toEqual([]);
   });
   it("sorts multiple recurring areas newest onset first", () => {
     const list = [
@@ -159,7 +158,7 @@ describe("recurringAreas", () => {
       { bodyArea: "Ankle", onsetDate: "2026-07-01" },
       { bodyArea: "Ankle", onsetDate: "2026-07-05" },
     ];
-    const rec = recurringAreas(list);
+    const rec = recurringAreas(list, { ref: REF });
     expect(rec.map(r => r.bodyArea)).toEqual(["Ankle", "Knee"]);
   });
   it("ignores entries with malformed or missing onset dates", () => {
