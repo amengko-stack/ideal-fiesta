@@ -71,7 +71,7 @@ you tune thresholds without reading logs:
 
 ```
 athletes/{id}/guardianRuns/{today}   → status "complete", outcome "quiet",
-                                        assessment.{families,totalWeight,factors}
+                                        assessment.{families,acuteWeight,factors}
 ```
 
 ## 4. Make it fire
@@ -101,7 +101,7 @@ Re-run §3. Now expect `status: "fired"` and assert:
 | Path | Expect |
 |---|---|
 | `guardianAlerts/{today}_g1-…` | `families` has ≥2 entries, one of them a trigger family; `severity`; `headline`; every `factors[].evidence` populated; `actions.athlete` **non-empty**; `dismissedAt` and `resolvedAt` null |
-| `guardianState/cooldowns` | a single `current` record — `storyKey`, `families`, `severity`, `totalWeight`, `firstFiredDate`, `lastFiredDate`, `fireCount`, `cleared: false` |
+| `guardianState/cooldowns` | a single `current` record — `storyKey`, `families`, `severity`, `acuteWeight`, `firstFiredDate`, `lastFiredDate`, `fireCount`, `cleared: false` |
 | `guardianRuns/{today}` | `outcome: "fired"`, `pushClaimedAt` set, `pushSentAt` set when severity is above `watch` |
 
 `pushSentAt` will be absent with no registered push tokens — `sendPushToRole`

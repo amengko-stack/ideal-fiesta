@@ -186,7 +186,10 @@ const assessmentRecord = (a) => ({
   fires: a.fires,
   reason: a.reason,
   severity: a.severity ?? null,
-  totalWeight: a.totalWeight ?? 0,
+  // Trigger families only — the number severity is actually banded on. It does
+  // NOT equal the sum of `families`' weights when a modifier (growth) is among
+  // them, which is the whole point: see evaluateGate in shared/guardianCore.js.
+  acuteWeight: a.acuteWeight ?? 0,
   families: [...(a.families || [])],
   storyKey: a.storyKey ?? null,
   factorIds: (a.factors || []).map((f) => f.id),
@@ -418,7 +421,7 @@ export async function runGuardianForAthlete(db, athleteId, { force = false, athl
       severity: assessment.severity,
       storyKey: assessment.storyKey,
       families: assessment.families,
-      totalWeight: assessment.totalWeight,
+      acuteWeight: assessment.acuteWeight,
       cooldownReason: decision.reason,
       notesError,
       push: pushResult,

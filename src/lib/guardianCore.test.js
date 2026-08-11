@@ -95,6 +95,19 @@ describe("GUARDIAN_THRESHOLDS", () => {
     expect(TRIGGER_FAMILIES).toEqual(["load", "recovery", "tissue"]);
     expect(MODIFIER_FAMILIES).toContain("growth");
   });
+  it("bands severity on the acute scale, with the floor below the first band", () => {
+    // The recalibration in one assertion. `watch` starts at the floor (2),
+    // `concern` at 4 and `urgent` at 6 — and 6 is unreachable without all three
+    // trigger families, which is what the old summed scale had stopped meaning.
+    expect(GUARDIAN_THRESHOLDS.minFamilies).toBe(2);
+    expect(GUARDIAN_THRESHOLDS.minAcuteWeight).toBe(2);
+    expect(GUARDIAN_THRESHOLDS.severityConcern).toBe(4);
+    expect(GUARDIAN_THRESHOLDS.severityUrgent).toBe(6);
+    expect(GUARDIAN_THRESHOLDS.minAcuteWeight).toBeLessThan(GUARDIAN_THRESHOLDS.severityConcern);
+    expect(GUARDIAN_THRESHOLDS.severityConcern).toBeLessThan(GUARDIAN_THRESHOLDS.severityUrgent);
+    // The old name is gone, not shadowing the new one with a stale number.
+    expect(GUARDIAN_THRESHOLDS.minTotalWeight).toBeUndefined();
+  });
 });
 
 // ─── MALFORMED INPUT ─────────────────────────────────────────────────────────
@@ -406,7 +419,7 @@ describe("load family", () => {
 
     it("counts the family's MAXIMUM weight, not the sum of its factors", () => {
       // 3 + 2 + 2 summed would be 7 (urgent!). The family contributes 3.
-      expect(assessGuardian({ weekLogs: allThree() }, TODAY).totalWeight).toBe(3);
+      expect(assessGuardian({ weekLogs: allThree() }, TODAY).acuteWeight).toBe(3);
     });
 
     it("DOES NOT FIRE — one story told three ways is still one story", () => {
@@ -422,7 +435,7 @@ describe("load family", () => {
       const a = assessGuardian({ weekLogs: allThree(), wellbeing }, TODAY);
       expect(a.fires).toBe(true);
       expect(a.families).toEqual(["load", "recovery"]);
-      expect(a.totalWeight).toBe(5);          // load 3 + recovery 2
+      expect(a.acuteWeight).toBe(5);          // load 3 + recovery 2, both acute
       expect(a.severity).toBe("concern");
       expect(a.tone).toBe("warn");
     });
@@ -583,7 +596,7 @@ describe("recovery family", () => {
       expect(f.weight).toBe(0);
       // One low-readiness morning must not put `recovery` on the board.
       expect(a.families).toEqual([]);
-      expect(a.totalWeight).toBe(0);
+      expect(a.acuteWeight).toBe(0);
     });
     it("does not appear on a good morning", () => {
       expect(ids(wbDays([{ mood: 5, soreness: 1, sleep: 9 }]))).not.toContain("readiness-low");
@@ -792,13 +805,13 @@ describe("the gate — combinations, not factors", () => {
   const MOOD_3_LOW    = wbDays([{ mood: 2 }, { mood: 2 }, { mood: 2 }]);           // recovery, w2
   const MODERATE_INJ  = [{ id: "i1", bodyArea: "Knee", severity: 3, status: "open", onsetDate: dayStr(TODAY, -3) }]; // tissue, w2
 
-  it("fires on recovery + tissue at exactly the weight floor", () => {
+  it("fires at concern on recovery + tissue — two trigger families both genuinely speaking", () => {
     const a = assessGuardian({ wellbeing: MOOD_3_LOW, injuries: MODERATE_INJ }, TODAY);
     expect(a.fires).toBe(true);
     expect(a.families).toEqual(["recovery", "tissue"]);
-    expect(a.totalWeight).toBe(4);
-    expect(a.severity).toBe("watch");
-    expect(a.tone).toBe("info");
+    expect(a.acuteWeight).toBe(4);
+    expect(a.severity).toBe("concern");
+    expect(a.tone).toBe("warn");
     expect(a.reason).toBe("family-stack");
   });
 
@@ -818,19 +831,34 @@ describe("the gate — combinations, not factors", () => {
     expect(a.reason).toBe("single-family");
   });
 
-  it("lets growth tip a borderline recovery story over the line", () => {
+  it("lets growth tip a borderline recovery story over the line — without paying for it in severity", () => {
     const a = assessGuardian({ wellbeing: MOOD_3_LOW, athlete: MID_PHV_ATHLETE }, TODAY);
     expect(a.families).toEqual(["growth", "recovery"]);
-    expect(a.totalWeight).toBe(4);
     expect(a.fires).toBe(true);
+    // Growth is the reason this fires at all — one family alone never does — and
+    // it is still named in the evidence the parent reads. It just contributes
+    // nothing to the number severity is banded on, so the story stays `watch`.
+    expect(a.acuteWeight).toBe(2);
+    expect(idsOf(a.factors)).toContain("mid-phv-window");
+    expect(a.severity).toBe("watch");
   });
 
-  it("escalates to urgent on three families", () => {
+  // ── THE PRODUCTION CASE ────────────────────────────────────────────────────
+  it("does NOT reach urgent on growth + recovery + tissue — a months-long state is not what changed today", () => {
+    // The first real run fired here, at maximum severity, on the athlete's very
+    // first assessment. Mid-PHV was a permanent +2 on a scale that topped out at
+    // 6, so two ordinary trigger families arrived pre-loaded at `urgent`.
     const a = assessGuardian({ wellbeing: MOOD_3_LOW, injuries: MODERATE_INJ, athlete: MID_PHV_ATHLETE }, TODAY);
+    expect(a.fires).toBe(true);
     expect(a.families).toEqual(["growth", "recovery", "tissue"]);
-    expect(a.totalWeight).toBe(6);
-    expect(a.severity).toBe("urgent");
-    expect(a.tone).toBe("danger");
+    expect(a.acuteWeight).toBe(4);              // recovery 2 + tissue 2; growth adds 0
+    expect(a.severity).toBe("concern");
+    expect(a.tone).toBe("warn");
+    // And it reads identically to the same two acute families without growth —
+    // which is the point: growth changed whether it fires, never how loud it is.
+    const withoutGrowth = assessGuardian({ wellbeing: MOOD_3_LOW, injuries: MODERATE_INJ }, TODAY);
+    expect(a.acuteWeight).toBe(withoutGrowth.acuteWeight);
+    expect(a.severity).toBe(withoutGrowth.severity);
   });
 
   it("does not fire on a single recovery factor", () => {
@@ -847,7 +875,7 @@ describe("the gate — combinations, not factors", () => {
       expect(a.fires).toBe(true);
       expect(a.reason).toBe("standalone");
       expect(a.families).toEqual(["tissue"]);
-      expect(a.totalWeight).toBe(3);          // below the normal weight floor
+      expect(a.acuteWeight).toBe(3);          // one family, so the normal gate would refuse it
       expect(a.severity).toBe("urgent");
       expect(a.headline).toMatch(/open injury/i);
     });
@@ -857,37 +885,105 @@ describe("the gate — combinations, not factors", () => {
 describe("evaluateGate — combinations the live factor table cannot reach yet", () => {
   const f = (family, weight, extra = {}) => ({ id: `${family}-${weight}`, family, weight, counts: true, standalone: false, ...extra });
 
-  it("refuses two MODIFIER families — asymmetry + growth have no trigger between them", () => {
+  // ── THE BEHAVIOUR TABLE ────────────────────────────────────────────────────
+  // Every row of the recalibrated ladder in one place, driven off evaluateGate
+  // directly so the rule is pinned independently of which factors the live
+  // table happens to be able to produce. `growth` and `asymmetry` are the
+  // modifiers; `load`, `recovery` and `tissue` the triggers.
+  //
+  // The column that matters is acute weight — TRIGGER families only. Modifiers
+  // are present in `families` and `weightByFamily` on every row they appear in,
+  // and absent from the arithmetic on every one of them.
+  const TABLE = [
+    { name: "load(2) alone — one family is one story",
+      factors: [f("load", 2)],
+      families: ["load"], acuteWeight: 2, fires: false, reason: "single-family", severity: null },
+
+    { name: "load(2) + growth — the combination the Guardian exists for",
+      factors: [f("load", 2), f("growth", 2)],
+      families: ["growth", "load"], acuteWeight: 2, fires: true, reason: "family-stack", severity: "watch" },
+
+    { name: "load monotony-only(1) + growth — a mild week in a growth phase is still a mild week",
+      factors: [f("load", 1), f("growth", 2)],
+      families: ["growth", "load"], acuteWeight: 1, fires: false, reason: "below-weight-floor", severity: null },
+
+    { name: "load(2) + recovery(2) — two trigger families",
+      factors: [f("load", 2), f("recovery", 2)],
+      families: ["load", "recovery"], acuteWeight: 4, fires: true, reason: "family-stack", severity: "concern" },
+
+    { name: "growth + load(2) + recovery(2) — THE PRODUCTION CASE, was urgent",
+      factors: [f("growth", 2), f("load", 2), f("recovery", 2)],
+      families: ["growth", "load", "recovery"], acuteWeight: 4, fires: true, reason: "family-stack", severity: "concern" },
+
+    { name: "load(3 severe) + recovery(2) + growth — a severe spike is still two families",
+      factors: [f("load", 3), f("recovery", 2), f("growth", 2)],
+      families: ["growth", "load", "recovery"], acuteWeight: 5, fires: true, reason: "family-stack", severity: "concern" },
+
+    { name: "load(2) + recovery(2) + tissue(2) — all three trigger families at once",
+      factors: [f("load", 2), f("recovery", 2), f("tissue", 2)],
+      families: ["load", "recovery", "tissue"], acuteWeight: 6, fires: true, reason: "family-stack", severity: "urgent" },
+
+    { name: "growth alone — a state, and only one family",
+      factors: [f("growth", 2)],
+      families: ["growth"], acuteWeight: 0, fires: false, reason: "single-family", severity: null },
+
+    { name: "growth + asymmetry — two families, nothing acute between them",
+      factors: [f("growth", 2), f("asymmetry", 2)],
+      families: ["asymmetry", "growth"], acuteWeight: 0, fires: false, reason: "modifiers-only", severity: null },
+
+    { name: "standalone severity-5 injury — one family, below the floor, urgent anyway",
+      factors: [f("tissue", 3, { standalone: true, severe: true })],
+      families: ["tissue"], acuteWeight: 3, fires: true, reason: "standalone", severity: "urgent" },
+  ];
+
+  for (const row of TABLE) {
+    it(row.name, () => {
+      const g = evaluateGate(row.factors);
+      expect(g.families).toEqual(row.families);
+      expect(g.acuteWeight).toBe(row.acuteWeight);
+      expect(g.fires).toBe(row.fires);
+      expect(g.reason).toBe(row.reason);
+      expect(g.severity).toBe(row.severity);
+    });
+  }
+
+  it("names modifiers-only as itself, not as the weight floor it also trips", () => {
+    // With modifiers worth 0 acute, two modifier families now fail BOTH the
+    // trigger check and the weight floor. The branches are ordered so the
+    // specific reason wins — the claim doc is read to tune thresholds, and
+    // `below-weight-floor` would send that reader looking at the wrong number.
     const g = evaluateGate([f("growth", 2), f("asymmetry", 2)]);
-    expect(g.fires).toBe(false);
     expect(g.reason).toBe("modifiers-only");
-    expect(g.totalWeight).toBe(4);            // it clears the weight floor and still does not fire
+    expect(g.acuteWeight).toBeLessThan(GUARDIAN_THRESHOLDS.minAcuteWeight);
   });
 
-  it("refuses two weight-1 families — a repetitive week plus one grumpy morning is a normal fortnight", () => {
-    const g = evaluateGate([f("load", 1), f("recovery", 1)]);
-    expect(g.fires).toBe(false);
-    expect(g.reason).toBe("below-weight-floor");
-    expect(g.totalWeight).toBe(2);
+  it("keeps a modifier's weight as evidence even though it buys no severity", () => {
+    const g = evaluateGate([f("load", 2), f("growth", 2)]);
+    expect(g.weightByFamily).toEqual({ growth: 2, load: 2 });   // the evidence
+    expect(g.acuteWeight).toBe(2);                              // the arithmetic
   });
 
-  it("fires urgent on three trigger families", () => {
-    const g = evaluateGate([f("load", 2), f("recovery", 2), f("tissue", 2)]);
-    expect(g.fires).toBe(true);
-    expect(g.severity).toBe("urgent");
-    expect(g.families).toEqual(["load", "recovery", "tissue"]);
-  });
-
-  it("bands severity at 4 / 5 / 6", () => {
-    expect(evaluateGate([f("load", 2), f("recovery", 2)]).severity).toBe("watch");
-    expect(evaluateGate([f("load", 3), f("recovery", 2)]).severity).toBe("concern");
-    expect(evaluateGate([f("load", 3), f("recovery", 3)]).severity).toBe("urgent");
+  it("bands severity at 2 / 4 / 6 on acute weight", () => {
+    expect(evaluateGate([f("load", 1), f("recovery", 1)]).severity).toBe("watch");    // 2
+    expect(evaluateGate([f("load", 2), f("recovery", 1)]).severity).toBe("watch");    // 3
+    expect(evaluateGate([f("load", 2), f("recovery", 2)]).severity).toBe("concern");  // 4
+    expect(evaluateGate([f("load", 3), f("recovery", 2)]).severity).toBe("concern");  // 5
+    expect(evaluateGate([f("load", 3), f("recovery", 3)]).severity).toBe("urgent");   // 6
   });
 
   it("takes each family's max weight, never the sum of its factors", () => {
     const g = evaluateGate([f("load", 3), f("load", 2), f("load", 2), f("recovery", 2)]);
-    expect(g.totalWeight).toBe(5);
+    expect(g.acuteWeight).toBe(5);
     expect(g.weightByFamily).toEqual({ load: 3, recovery: 2 });
+  });
+
+  it("treats an unrecognised family as a modifier — it can neither trigger nor add weight", () => {
+    // Belt and braces on the two TRIGGER_FAMILIES reads in evaluateGate being
+    // the same predicate: a family that is in neither list must not be able to
+    // answer "can this fire?" and "what is this worth?" differently.
+    const g = evaluateGate([f("nonsense", 3), f("growth", 2)]);
+    expect(g.acuteWeight).toBe(0);
+    expect(g.reason).toBe("modifiers-only");
   });
 
   it("ignores counts:false factors entirely", () => {
@@ -965,7 +1061,7 @@ describe("cooldownDecision", () => {
   const FIRED_ON = "2026-08-01";
   const assessment = (over = {}) => ({
     fires: true, storyKey: "g1:recovery+tissue", factorKey: "g1:mood-decline+open-injury-moderate",
-    families: ["recovery", "tissue"], severity: "watch", totalWeight: 4, ...over,
+    families: ["recovery", "tissue"], severity: "watch", acuteWeight: 4, ...over,
   });
   const at = (dateStr) => new Date(`${dateStr}T06:00:00`);
 
@@ -982,16 +1078,16 @@ describe("cooldownDecision", () => {
   const openKnee = (base) => [
     { id: "i1", bodyArea: "Knee", severity: 3, status: "open", onsetDate: dayStr(base, -3) },
   ];
-  //  recovery + tissue          — weight 4, watch
+  //  recovery + tissue          — acute weight 4, concern
   const recoveryTissue = (day) =>
     assessGuardian({ wellbeing: lowMood(at(day)), injuries: openKnee(at(day)) }, at(day));
-  //  growth + recovery + tissue — weight 6, urgent
+  //  growth + recovery + tissue — acute weight 4, concern (growth adds a family, not weight)
   const withGrowth = (day) =>
     assessGuardian(
       { wellbeing: lowMood(at(day)), injuries: openKnee(at(day)), athlete: MID_PHV_ATHLETE },
       at(day),
     );
-  //  growth + recovery          — weight 4, watch (tissue gone, growth new)
+  //  growth + recovery          — acute weight 2, watch (tissue gone, growth new)
   const recoveryGrowth = (day) =>
     assessGuardian({ wellbeing: lowMood(at(day)), athlete: MID_PHV_ATHLETE }, at(day));
 
@@ -1065,21 +1161,23 @@ describe("cooldownDecision", () => {
   });
 
   it("breaks the window when severity rises", () => {
-    const d = cooldownDecision(doc(), assessment({ severity: "concern", totalWeight: 5 }), at("2026-08-03"));
+    const d = cooldownDecision(doc(), assessment({ severity: "concern", acuteWeight: 5 }), at("2026-08-03"));
     expect(d.suppressed).toBe(false);
     expect(d.reason).toBe("escalation-severity");
   });
 
   it("breaks the window when a NEW family joins", () => {
     // Both records come from the engine: recovery+tissue on the 1st, then
-    // growth+recovery on the 3rd. Same weight (4) and same severity (watch), so
-    // `growth` arriving is the only thing that can break the window — which is
-    // what makes this branch reachable at all now that the lookup is not keyed
-    // by storyKey.
+    // growth+recovery on the 3rd. The later story is LOWER on both of the other
+    // escalation branches — tissue dropped out, so acute weight falls and
+    // severity falls with it — which leaves `growth` arriving as the only thing
+    // that can break the window, and is what makes this branch reachable at all
+    // now that the lookup is not keyed by storyKey.
     const first = recoveryTissue("2026-08-01");
     const later = recoveryGrowth("2026-08-03");
-    expect(later.totalWeight).toBe(first.totalWeight);
-    expect(later.severity).toBe(first.severity);
+    expect(later.acuteWeight).toBeLessThan(first.acuteWeight);
+    expect(later.severity).toBe("watch");
+    expect(first.severity).toBe("concern");
     expect(later.families).toContain("growth");
 
     const prior = cooldownDecision(null, first, at("2026-08-01"));
@@ -1088,15 +1186,33 @@ describe("cooldownDecision", () => {
     expect(d.reason).toBe("escalation-new-family");
   });
 
-  it("breaks the window on a +2 weight jump", () => {
-    const d = cooldownDecision(doc(), assessment({ totalWeight: 6, severity: "watch" }), at("2026-08-03"));
+  it("breaks the window on a +2 acute-weight jump", () => {
+    // Severity is pinned to `watch` on both sides so the jump is the only thing
+    // that can break through. On the acute scale +2 is a trigger family the
+    // parent already knows about getting substantially worse on its own.
+    const d = cooldownDecision(doc(), assessment({ acuteWeight: 6, severity: "watch" }), at("2026-08-03"));
     expect(d.suppressed).toBe(false);
     expect(d.reason).toBe("escalation-weight");
   });
 
-  it("does NOT break on a +1 weight jump", () => {
-    const d = cooldownDecision(doc(), assessment({ totalWeight: 5, severity: "watch" }), at("2026-08-03"));
+  it("does NOT break on a +1 acute-weight jump", () => {
+    const d = cooldownDecision(doc(), assessment({ acuteWeight: 5, severity: "watch" }), at("2026-08-03"));
     expect(d.suppressed).toBe(true);
+  });
+
+  it("does NOT break when a MODIFIER arrives with weight but no acute weight", () => {
+    // The recalibration's effect on the cooldown: entering Mid-PHV mid-episode
+    // used to be a +2 weight jump and would have re-told an unchanged story.
+    // Now it moves no weight at all. It is still allowed through — by
+    // escalation-new-family, one branch higher — which is the honest reason.
+    const priorRun = cooldownDecision(doc(), assessment({ acuteWeight: 4, severity: "watch" }), at("2026-08-03"));
+    expect(priorRun.suppressed).toBe(true);
+    const withModifier = assessment({
+      acuteWeight: 4, severity: "watch",
+      families: ["growth", "recovery", "tissue"], storyKey: "g1:growth+recovery+tissue",
+    });
+    const d = cooldownDecision(doc(), withModifier, at("2026-08-03"));
+    expect(d.reason).toBe("escalation-new-family");
   });
 
   it("does NOT break when an extra factor lands INSIDE an already-firing family", () => {
@@ -1151,7 +1267,7 @@ describe("clearedCooldown", () => {
   const at = (dateStr) => new Date(`${dateStr}T06:00:00`);
   const record = {
     storyKey: "g1:recovery+tissue", families: ["recovery", "tissue"],
-    severity: "watch", totalWeight: 4,
+    severity: "watch", acuteWeight: 4,
     firstFiredDate: "2026-08-01", lastFiredDate: "2026-08-01",
     firstSeenDate: "2026-08-01", fireCount: 1, cleared: false, clearedDate: null,
     reason: "first-fire",
@@ -1332,9 +1448,12 @@ describe("buildGuardianAlert", () => {
     expect(alert.storyKey).toBe(assessment.storyKey);
     expect(alert.factorKey).toBe(assessment.factorKey);
     expect(alert.families).toEqual(assessment.families);
-    expect(alert.severity).toBe("watch");
-    expect(alert.tone).toBe("info");
-    expect(alert.totalWeight).toBe(4);
+    expect(alert.severity).toBe("concern");
+    expect(alert.tone).toBe("warn");
+    expect(alert.acuteWeight).toBe(4);
+    // The stored number is the acute one, and the old name is not also present
+    // holding a stale value a reader might trust.
+    expect(alert.totalWeight).toBeUndefined();
     expect(alert.headline).toBe(assessment.headline);
     expect(alert.factors.map(f => f.id).sort()).toEqual(idsOf(assessment.factors).sort());
     expect(alert.actions.athlete.length).toBeGreaterThan(0);
@@ -1360,18 +1479,42 @@ describe("buildGuardianAlert", () => {
   });
 
   it("marks a watch-level alert as push-ineligible — a 6am buzz IS risk framing", () => {
-    expect(buildGuardianAlert({ assessment, now: TODAY }).push).toEqual({ eligible: false, role: "parent", sentAt: null });
+    // Low mood plus Mid-PHV: two families, but only one of them acute, so this
+    // is the bottom of the ladder. It is also the shape the floor drop to 2
+    // newly admits, which is exactly why it must not reach a phone.
+    const watch = assessGuardian({
+      wellbeing: wbDays([{ mood: 2 }, { mood: 2 }, { mood: 2 }]),
+      athlete: MID_PHV_ATHLETE,
+    }, TODAY);
+    expect(watch.severity).toBe("watch");
+    expect(buildGuardianAlert({ assessment: watch, now: TODAY }).push)
+      .toEqual({ eligible: false, role: "parent", sentAt: null });
   });
 
   it("marks an urgent alert push-eligible, parents only", () => {
+    // A standalone severity-5 injury. Growth can no longer manufacture an
+    // `urgent`, and three trigger families at once need a load fixture, which
+    // this describe deliberately has no frozen clock for.
     const urgent = assessGuardian({
       wellbeing: wbDays([{ mood: 2 }, { mood: 2 }, { mood: 2 }]),
-      injuries: [{ id: "i1", bodyArea: "Knee", severity: 3, status: "open", onsetDate: dayStr(TODAY, -3) }],
-      athlete: MID_PHV_ATHLETE,
+      injuries: [{ id: "i1", bodyArea: "Shoulder", severity: 5, status: "open", onsetDate: dayStr(TODAY, -2) }],
     }, TODAY);
     expect(urgent.severity).toBe("urgent");
     const alert = buildGuardianAlert({ assessment: urgent, now: TODAY });
     expect(alert.push).toEqual({ eligible: true, role: "parent", sentAt: null });
+  });
+
+  it("puts the ACUTE weight in the model prompt, under a label that says so", () => {
+    const withGrowth = assessGuardian({
+      wellbeing: wbDays([{ mood: 2 }, { mood: 2 }, { mood: 2 }]),
+      injuries: [{ id: "i1", bodyArea: "Knee", severity: 3, status: "open", onsetDate: dayStr(TODAY, -3) }],
+      athlete: MID_PHV_ATHLETE,
+    }, TODAY);
+    const { prompt } = buildGuardianNotesPrompt(withGrowth, "Valissa");
+    expect(prompt).toContain("acute signal weight 4");
+    expect(prompt).not.toContain("combined weight");
+    // Growth is still named to the model as evidence, just not as arithmetic.
+    expect(prompt).toContain("growth");
   });
 
   it("does not let the athlete's own view inherit risk language", () => {

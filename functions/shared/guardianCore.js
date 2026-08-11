@@ -175,17 +175,44 @@ export const GUARDIAN_THRESHOLDS = Object.freeze({
   wellbeingWindowDays: 14,
 
   // ── the gate ───────────────────────────────────────────────────────────────
-  // The whole thesis in two numbers. Two families, because a single family
-  // firing on three factors is one story told three ways (that is precisely
-  // the bug this engine exists to fix), and weight 4, because two lightweight
-  // signals — a mildly repetitive week plus one grumpy morning — are a normal
-  // fortnight in the life of a 12-year-old, not an alert.
+  // Two families, because a single family firing on three factors is one story
+  // told three ways (that is precisely the bug this engine exists to fix).
+  // Modifier families count towards this two — "a load spike during her
+  // peak-growth window" is the combination the Guardian was built to notice,
+  // and it is only ever two families because growth is one of them.
   minFamilies: 2,
-  minTotalWeight: 4,
-  // Severity bands over totalWeight. 4 is the floor, so `watch` is exactly the
-  // minimum firing case; 6 needs either a severe factor or three families.
+
+  // Everything below is measured on ACUTE weight: the sum of the TRIGGER
+  // families only (see evaluateGate). Excluding modifiers is the correction the
+  // first production run forced. Mid-PHV persists for months, so `growth` sat
+  // on the scale as a permanent +2 — and on a scale whose top band was 6, that
+  // meant any two ordinary trigger families (a heavy week, a few poor nights)
+  // arrived at `urgent`. The very first real assessment came out at maximum
+  // severity, which is the opposite of being right and rare.
+  //
+  // The principle behind the split: severity should describe what CHANGED, and
+  // a growth phase that has been true since spring is not news. Growth still
+  // earns its keep — it carries the athlete to two families, it is named in
+  // `families` and `weightByFamily`, and it appears in the evidence the parent
+  // reads. It just no longer decides how loudly the Guardian speaks.
+  //
+  // 2 is the floor because on the acute scale that is the smallest real thing
+  // there is: one moderate trigger family. It is lower than the old 4 in name
+  // only — the old 4 was routinely a 2 that was happening now plus a 2 the
+  // athlete had been carrying for months. It does newly admit two weight-1
+  // trigger signals (a mildly repetitive week plus one grumpy morning) at the
+  // bottom of the ladder, where the old comment argued for silence; they land
+  // on `watch`, and `watch` never pushes (see buildGuardianAlert), so that is a
+  // card on Home rather than a phone buzzing at 6am.
+  minAcuteWeight: 2,
+  // Bands over acute weight, and the reason they are honest again: with load
+  // capped at 3 and recovery at 2, `concern` (4-5) is two trigger families both
+  // genuinely speaking, and `urgent` (6+) needs all three — load AND recovery
+  // AND tissue at once. That is what `urgent` always claimed to mean and what
+  // the summed scale had quietly stopped meaning. `watch` (2-3) is one real
+  // trigger family with something else standing next to it.
   severityUrgent: 6,
-  severityConcern: 5,
+  severityConcern: 4,
 
   // ── cooldown ───────────────────────────────────────────────────────────────
   // Days. Long enough to clear a full training week, so whatever the parent
@@ -194,9 +221,15 @@ export const GUARDIAN_THRESHOLDS = Object.freeze({
   // month, which is the difference between a warning and a nag.
   cooldownDays: 10,
   // Escalation override: a story already inside its cooldown speaks again if
-  // it got materially worse. Two weight units is one whole factor, not a
-  // factor's severity ticking up a notch — that keeps "monotony crossed 2.5"
-  // quiet while "and now she is also sleeping badly" gets through.
+  // it got materially worse. Read on the acute scale, where 2 is still one
+  // whole trigger family's worth of weight rather than a factor's severity
+  // ticking up a notch — so "monotony crossed 2.5" stays quiet while "and now
+  // she is also sleeping badly" gets through. On the acute scale this branch
+  // has narrowed to mean one specific thing, because a family JOINING is
+  // already caught by escalation-new-family above it and a modifier joining now
+  // adds nothing: it is the branch for a trigger family the parent has already
+  // been told about getting substantially worse on its own (a mild repetitive
+  // week, weight 1, becoming a severe ACWR spike, weight 3).
   escalationWeightJump: 2,
 });
 
@@ -646,13 +679,32 @@ function growthFactors(athlete, ref) {
 // Rules, in order:
 //   1. Any standalone factor fires, at `urgent`, whatever else is or is not on.
 //   2. Otherwise: at least `minFamilies` counting families, at least one of
-//      them a TRIGGER family, and totalWeight at least `minTotalWeight`.
+//      them a TRIGGER family, and acuteWeight at least `minAcuteWeight`.
 //
-// totalWeight sums each family's MAXIMUM factor weight, not every factor's
-// weight. That is the structural fix for three-cards-one-story: an ACWR spike,
+// TWO THINGS COLLAPSE HERE, and they are different collapses.
+//
+// First, a family contributes its MAXIMUM factor weight, not the sum of its
+// factors. That is the structural fix for three-cards-one-story: an ACWR spike,
 // a repetitive week and three heavy weeks are three readings of one week of
 // training, so they contribute once, and the Guardian stays quiet exactly where
 // the old engine shouted three times.
+//
+// Second — and this is the one the first production run taught us — the weight
+// that decides anything sums TRIGGER families only. A modifier is a state, not
+// an event: Mid-PHV is true for months at a stretch, and a number that is
+// always +2 is not evidence about today. Counting it meant a routine week plus
+// a bad night's sleep read as `urgent` on day one. So modifiers keep everything
+// EXCEPT arithmetic: they reach `minFamilies`, they appear in `families`, in
+// `weightByFamily` and in the factor list the parent reads, and they still make
+// the difference between a load spike that fires and one that does not. They
+// simply never move the severity dial. See GUARDIAN_THRESHOLDS' gate section.
+//
+// The order of the not-firing branches is load-bearing. A modifiers-only
+// combination now has acute weight 0, so it would trip the weight floor first
+// and report `below-weight-floor` — technically true, uselessly vague, and
+// wrong about the cause. Checking family count, then "is anything acute here at
+// all", then the floor means the most specific reason always wins, which is
+// what the enablement procedure reads off the claim doc to tune thresholds.
 export function evaluateGate(factors) {
   const list = (Array.isArray(factors) ? factors : []).filter(isObj);
   const counting = list.filter(f => f.counts !== false);
@@ -663,10 +715,15 @@ export function evaluateGate(factors) {
     byFamily[f.family] = Math.max(byFamily[f.family] ?? 0, w);
   }
   const families = Object.keys(byFamily).sort();
-  const totalWeight = families.reduce((s, fam) => s + byFamily[fam], 0);
+
+  // Both of these read TRIGGER_FAMILIES, deliberately: "does this contribute
+  // acute weight" and "is this able to trigger at all" have to be the same
+  // question, or an unrecognised family would answer them differently.
+  const triggers = families.filter(fam => TRIGGER_FAMILIES.includes(fam));
+  const acuteWeight = triggers.reduce((s, fam) => s + byFamily[fam], 0);
 
   const standalone = list.find(f => f.standalone === true) || null;
-  const hasTrigger = families.some(fam => TRIGGER_FAMILIES.includes(fam));
+  const hasTrigger = triggers.length > 0;
 
   let fires, reason;
   if (standalone) {
@@ -678,7 +735,7 @@ export function evaluateGate(factors) {
   } else if (!hasTrigger) {
     fires = false;
     reason = "modifiers-only";
-  } else if (totalWeight < T.minTotalWeight) {
+  } else if (acuteWeight < T.minAcuteWeight) {
     fires = false;
     reason = "below-weight-floor";
   } else {
@@ -691,11 +748,11 @@ export function evaluateGate(factors) {
   // stacked story's.
   const severity = !fires ? null
     : standalone ? "urgent"
-    : totalWeight >= T.severityUrgent ? "urgent"
-    : totalWeight >= T.severityConcern ? "concern"
+    : acuteWeight >= T.severityUrgent ? "urgent"
+    : acuteWeight >= T.severityConcern ? "concern"
     : "watch";
 
-  return { fires, reason, families, totalWeight, severity, tone: toneFor(severity), weightByFamily: byFamily };
+  return { fires, reason, families, acuteWeight, severity, tone: toneFor(severity), weightByFamily: byFamily };
 }
 
 // Maps onto HomeScreen's existing ALERT_TONE(tone) so the Guardian card is
@@ -779,7 +836,7 @@ export function assessGuardian(raw, now = new Date()) {
   if (weekLogs.length === 0 && wellbeing.length === 0 && injuries.length === 0) {
     return {
       fires: false, reason: "insufficient-data",
-      severity: null, tone: null, totalWeight: 0,
+      severity: null, tone: null, acuteWeight: 0,
       families: [], storyKey: null, factorKey: null, headline: null,
       factors: [], metrics: {}, actions: { athlete: [] },
       engineVersion: GUARDIAN_ENGINE_VERSION, assessedAt,
@@ -809,7 +866,7 @@ export function assessGuardian(raw, now = new Date()) {
     reason: gate.reason,
     severity: gate.severity,
     tone: gate.tone,
-    totalWeight: gate.totalWeight,
+    acuteWeight: gate.acuteWeight,
     families,
     storyKey,
     factorKey,
@@ -882,7 +939,7 @@ export function cooldownDecision(cooldowns, assessment, now = new Date()) {
     factorKey: a.factorKey ?? null,
     families: [...(a.families || [])],
     severity: a.severity ?? null,
-    totalWeight: a.totalWeight ?? 0,
+    acuteWeight: a.acuteWeight ?? 0,
     // The date THIS alert episode started. Suppression means no new doc, so
     // this only moves when an alert is actually written — which is exactly
     // what makes buildGuardianAlert's alertId stable across a same-day re-run.
@@ -912,7 +969,7 @@ export function cooldownDecision(cooldowns, assessment, now = new Date()) {
   //
   // Accepted trade-off: a genuinely flapping signal — one that crosses the line,
   // drops back under it, and crosses again — can now alert more than once inside
-  // a single window. The two-family, weight-4 gate makes that rare, and a signal
+  // a single window. The two-family, acute-weight-2 gate makes that rare, and a signal
   // that keeps crossing back over the line is information worth having. The
   // alternative is worse: a story that cleared on Tuesday and returned on
   // Thursday would be silently held for the remaining eight days.
@@ -924,7 +981,7 @@ export function cooldownDecision(cooldowns, assessment, now = new Date()) {
   const nowRank   = SEVERITY_RANK[a.severity] ?? 0;
   const priorFamilies = new Set(Array.isArray(prior.families) ? prior.families : []);
   const newFamily = (a.families || []).some(f => !priorFamilies.has(f));
-  const weightJump = (num(a.totalWeight) ?? 0) - (num(prior.totalWeight) ?? 0);
+  const weightJump = (num(a.acuteWeight) ?? 0) - (num(prior.acuteWeight) ?? 0);
 
   if (nowRank > priorRank)                          return { suppressed: false, reason: "escalation-severity", nextEntry: entryFor("escalation-severity") };
   if (newFamily)                                    return { suppressed: false, reason: "escalation-new-family", nextEntry: entryFor("escalation-new-family") };
@@ -1022,7 +1079,7 @@ export function buildGuardianNotesPrompt(assessment, athleteName) {
 
   const prompt = `RISK ASSESSMENT for ${name} — ${a.assessedAt || "today"}
 
-SEVERITY: ${a.severity || "—"} (combined weight ${a.totalWeight ?? "—"})
+SEVERITY: ${a.severity || "—"} (acute signal weight ${a.acuteWeight ?? "—"})
 SIGNAL FAMILIES THAT STACKED: ${(a.families || []).join(", ") || "—"}
 DETERMINISTIC HEADLINE: ${a.headline || "—"}
 
@@ -1079,7 +1136,11 @@ export function buildGuardianAlert({ assessment, notes = null, now = new Date(),
     // the deterministic assessment
     severity:    a.severity ?? null,
     tone:        a.tone ?? null,
-    totalWeight: a.totalWeight ?? 0,
+    // Named for what it is: trigger families only. `totalWeight` was the old
+    // name and it now reads as a lie, because weightByFamily on the factors
+    // below no longer sums to it — a modifier's weight is in the evidence but
+    // not in the arithmetic.
+    acuteWeight: a.acuteWeight ?? 0,
     headline:    a.headline ?? null,
     factors: (a.factors || []).filter(isObj).map(f => ({
       id: f.id, family: f.family, weight: f.weight, counts: f.counts !== false,
