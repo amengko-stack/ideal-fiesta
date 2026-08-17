@@ -45,6 +45,7 @@ export function escapeControlChars(text) {
   return text.replace(/"((?:[^"\\]|\\[\s\S])*)"/g, (_, inner) =>
     '"' + inner
       .replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t")
+      // eslint-disable-next-line no-control-regex -- deliberately stripping raw control chars
       .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "") + '"'
   );
 }
