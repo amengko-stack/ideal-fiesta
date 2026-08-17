@@ -67,12 +67,12 @@ justify the run.
 - **Silence is a valid outcome.** No PR, no issue, no comment, no "all clear"
   notification.
 
-## Baseline as of 2026-08-07
+## Baseline as of 2026-08-17
 
 Update these numbers in the same PR that changes them, so the next run compares
 against the truth.
 
-**Known-failing tests: none.** All 21 files / 418 tests pass.
+**Known-failing tests: none.** All 27 files / 883 tests pass.
 
 The suite is also clock-independent, which is worth preserving deliberately.
 `calculateMetrics`, `describeInjury` and `recurringAreas` used to read
@@ -94,7 +94,7 @@ cat > tmp-clock.config.js <<'EOF'
 import { defineConfig } from "vitest/config";
 export default defineConfig({ test: { setupFiles: ["./tmp-clock-setup.js"] } });
 EOF
-npx vitest run --config ./tmp-clock.config.js   # expect 418 passed
+npx vitest run --config ./tmp-clock.config.js   # expect 883 passed
 rm tmp-clock-setup.js tmp-clock.config.js
 ```
 
@@ -105,15 +105,23 @@ still reads the clock internally, so `computeLoad`, ACWR and
 against a fixed date, and threading a reference through reaches every load
 caller.
 
-**Lint: 24 problems (17 errors, 7 warnings).** Mostly `no-unused-vars` and
+**Lint: 23 problems (16 errors, 7 warnings).** Mostly `no-unused-vars` and
 `react-hooks/set-state-in-effect`. `deploy.yml` marks lint `continue-on-error`
-because of this backlog.
+because of this backlog. (The `sync-functions-shared` refactor on 2026-08-06
+briefly duplicated a pre-existing `no-control-regex` hit across
+`src/lib/aiJson.js` and its `functions/shared/` copy, bumping this to 18
+errors; both copies now carry a `// eslint-disable-next-line no-control-regex`
+on the intentional control-char strip, landing one below the original count
+since it used to hit twice pre-refactor via `ai.js` re-exports.)
 
-**Dependency advisories: 11 at the root, 12 in `functions/`.** Several are
-critical (`shell-quote` via `concurrently`, `websocket-driver`). Most sit in
-dev/transitive dependencies rather than in shipped client code — check whether
-a given advisory actually reaches the browser bundle before ranking it above a
-failing test.
+**Dependency advisories: 12 at the root, 12 in `functions/`.** Several are
+critical (`shell-quote` via `concurrently`, `websocket-driver`). Root gained
+one advisory since the last baseline (`@babel/core`, `@grpc/grpc-js`, or
+`body-parser` — live advisory-DB drift on existing transitive deps, not a new
+dependency; no root `package.json` dependency changed since 2026-08-07). Most
+sit in dev/transitive dependencies rather than in shipped client code — check
+whether a given advisory actually reaches the browser bundle before ranking it
+above a failing test.
 
 ## Writing the PR
 
