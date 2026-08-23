@@ -1,0 +1,31 @@
+{
+  "enabledPlugins": {
+    "context7@claude-plugins-official": true,
+    "firebase@claude-plugins-official": true
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/block-secret-files.mjs"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/sync-shared-on-edit.mjs",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
