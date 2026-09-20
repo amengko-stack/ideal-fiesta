@@ -221,22 +221,185 @@ export function clampBlockWeek(blockWeek) {
   return Math.min(BLOCK_LENGTH_WEEKS, Math.max(1, Math.round(n)));
 }
 
-// ── advanceBlockWeek ─────────────────────────────────────────────────────────
-// The block advances on WORK DONE, not on the calendar turning over. A week in
-// which neither session was logged repeats rather than burning a block week —
-// otherwise an athlete who trained twice in six weeks would arrive at "week 7:
-// quality" having done two sessions.
-export function advanceBlockWeek(previousPlan) {
-  const prevWeek = clampBlockWeek(previousPlan?.blockWeek ?? 0);
-  const prevBlock = Number(previousPlan?.blockNumber) || 1;
-  if (!previousPlan) return { blockWeek: 1, blockNumber: 1 };
+// ─── PROGRAM STATE — THE CANONICAL BLOCK CHRONOLOGY ──────────────────────────
+// The weekly plan is an OUTPUT. It must not be the source of truth for where
+// the athlete is in her programme: deleting or regenerating plans/current would
+// then silently restart her at week 1, and a manual re-run would advance her a
+// week she has not lived.
+//
+// So chronology lives in its own document — athletes/{id}/programState/strength
+// — and the block week is DERIVED from the calendar, not incremented:
+//
+//   weekIndex = calendarWeeksBetween(blockStartWeekKey, currentWeekKey)
+//   blockWeek = clamp(weekIndex + 1, 1, BLOCK_LENGTH_WEEKS)
+//
+// which makes every one of these true by construction rather than by care:
+//   • deleting plans/current does not reset the block;
+//   • regenerating a plan in the same week does not advance it;
+//   • a missed weekly run does not corrupt the sequence — the next run lands on
+//     the correct calendar week;
+//   • pressing "Run now" twice does not double-advance;
+//   • week 8 never becomes week 9.
+export const PROGRAM_STATE_SCHEMA_VERSION = 1;
+export const PROGRAM_STATE_DOC = { collection: "programState", id: "strength" };
 
-  const logged = (previousPlan.sessions || []).some(s => s?.sessionLogged);
-  if (!logged) return { blockWeek: prevWeek, blockNumber: prevBlock };
+// Whole weeks between two Monday week keys. Negative when `toWeekKey` is the
+// earlier of the two, which is how a state dated in the future is detected.
+export function calendarWeeksBetween(fromWeekKey, toWeekKey) {
+  const from = new Date(`${fromWeekKey}T00:00:00`);
+  const to = new Date(`${toWeekKey}T00:00:00`);
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return null;
+  return Math.floor((to - from) / (7 * 86400000));
+}
 
-  return prevWeek >= BLOCK_LENGTH_WEEKS
-    ? { blockWeek: 1, blockNumber: prevBlock + 1 }
-    : { blockWeek: prevWeek + 1, blockNumber: prevBlock };
+const newBlockId = (weekKey, blockNumber) => `blk-${weekKey}-${blockNumber}`;
+
+// ── newProgramState ──────────────────────────────────────────────────────────
+// A fresh block starting at `blockStartWeekKey` (a Monday week key).
+export function newProgramState({
+  blockStartWeekKey,
+  blockNumber = 1,
+  createdAt = new Date().toISOString(),
+  previousBlockId = null,
+  initReason = "new-block",
+} = {}) {
+  return {
+    schemaVersion: PROGRAM_STATE_SCHEMA_VERSION,
+    blockId: newBlockId(blockStartWeekKey, blockNumber),
+    blockNumber,
+    blockStartWeekKey,
+    blockLengthWeeks: BLOCK_LENGTH_WEEKS,
+    createdAt,
+    status: "active",
+    previousBlockId,
+    initReason,
+  };
+}
+
+// ── readProgramState ─────────────────────────────────────────────────────────
+// Where the athlete is in the block for `currentWeekKey`, derived from state
+// alone. Returns null when the state is unusable, so callers migrate rather
+// than guess.
+//
+// `status` is "active" until the calendar passes the last week of the block, at
+// which point it becomes "completed": the block stays parked on week 8
+// (consolidate / reassess — a safe holding pattern) and `needsNewBlock` says a
+// human decision is due. A new block is NEVER started as a side effect of
+// generating a plan.
+export function readProgramState(state, currentWeekKey) {
+  if (!state?.blockStartWeekKey || !currentWeekKey) return null;
+  const weeks = calendarWeeksBetween(state.blockStartWeekKey, currentWeekKey);
+  if (weeks == null) return null;
+
+  const lengthWeeks = Number(state.blockLengthWeeks) || BLOCK_LENGTH_WEEKS;
+  const weekIndex = Math.max(0, weeks);
+  const blockWeek = Math.min(lengthWeeks, Math.max(1, weekIndex + 1));
+  const overrun = weekIndex + 1 > lengthWeeks;
+
+  return {
+    blockId: state.blockId ?? null,
+    blockNumber: Number(state.blockNumber) || 1,
+    blockStartWeekKey: state.blockStartWeekKey,
+    blockLengthWeeks: lengthWeeks,
+    blockWeek,
+    weekIndex,
+    status: overrun ? "completed" : "active",
+    needsNewBlock: overrun,
+    // True when the state was written for a later week than the one being
+    // planned — a clock or back-fill anomaly, reported rather than hidden.
+    aheadOfBlockStart: weeks < 0,
+  };
+}
+
+// ── migrateProgramState ──────────────────────────────────────────────────────
+// Produces the state document for an athlete who has none yet, WITHOUT ever
+// inferring chronology from a missing plan.
+//
+//   • A previous plan that carries both its own weekKey and a block week is
+//     trustworthy evidence of where she is: the block start is back-derived so
+//     she keeps the week she was on.
+//   • Anything else — no plan, a legacy plan, a plan with no weekKey — starts an
+//     explicit week 1 at `currentWeekKey`, and says so in `initReason` so the
+//     assumption is visible in Firestore rather than implied.
+export function migrateProgramState({ previousPlan = null, currentWeekKey, now = new Date() } = {}) {
+  const createdAt = now.toISOString();
+
+  const planWeekKey = previousPlan?.weekKey ?? null;
+  const planBlockWeek = Number(previousPlan?.block?.week);
+  const planBlockNumber = Number(previousPlan?.block?.number) || 1;
+
+  if (!previousPlan?.legacy && planWeekKey && Number.isFinite(planBlockWeek) && planBlockWeek >= 1) {
+    const clamped = Math.min(BLOCK_LENGTH_WEEKS, Math.round(planBlockWeek));
+    const start = new Date(`${planWeekKey}T00:00:00`);
+    if (!Number.isNaN(start.getTime())) {
+      start.setDate(start.getDate() - (clamped - 1) * 7);
+      const y = start.getFullYear();
+      const m = String(start.getMonth() + 1).padStart(2, "0");
+      const d = String(start.getDate()).padStart(2, "0");
+      return newProgramState({
+        blockStartWeekKey: `${y}-${m}-${d}`,
+        blockNumber: planBlockNumber,
+        createdAt,
+        initReason: "migrated-from-plan",
+      });
+    }
+  }
+
+  return newProgramState({
+    blockStartWeekKey: currentWeekKey,
+    blockNumber: 1,
+    createdAt,
+    initReason: "initialised-week-1",
+  });
+}
+
+// ── resolveProgramState ──────────────────────────────────────────────────────
+// The one call a plan generator makes. Returns the state to persist, where the
+// athlete is, and whether the document changed — so a caller writes only when
+// something actually moved.
+//
+// Note what it does NOT do: it never advances a week, and it never starts a new
+// block. The only write it can produce is the initial migration or the
+// active → completed transition, both of which are deterministic.
+export function resolveProgramState({ state = null, previousPlan = null, currentWeekKey, now = new Date() } = {}) {
+  let nextState = state;
+  let migrated = false;
+
+  let position = readProgramState(nextState, currentWeekKey);
+  if (!position) {
+    nextState = migrateProgramState({ previousPlan, currentWeekKey, now });
+    position = readProgramState(nextState, currentWeekKey);
+    migrated = true;
+  }
+
+  let transition = null;
+  if (position.status === "completed" && nextState.status !== "completed") {
+    nextState = { ...nextState, status: "completed", completedAt: now.toISOString() };
+    transition = "completed";
+  }
+
+  return {
+    state: nextState,
+    position,
+    migrated,
+    transition,
+    changed: migrated || transition != null,
+  };
+}
+
+// ── startNextBlock ───────────────────────────────────────────────────────────
+// The explicit new-block transition. Only ever called deliberately (the parent
+// pressing "Start the next block" after the week-8 review) — never as a side
+// effect of generating a plan.
+export function startNextBlock(state, weekKey, now = new Date()) {
+  const blockNumber = (Number(state?.blockNumber) || 1) + 1;
+  return newProgramState({
+    blockStartWeekKey: weekKey,
+    blockNumber,
+    createdAt: now.toISOString(),
+    previousBlockId: state?.blockId ?? null,
+    initReason: "next-block",
+  });
 }
 
 // ─── PROGRESSION GATE ────────────────────────────────────────────────────────
@@ -445,6 +608,10 @@ export function buildSession(sessionId, {
 export function buildWeeklyFramework({
   blockWeek = 1,
   blockNumber = 1,
+  blockId = null,
+  blockStatus = "active",
+  blockStartWeekKey = null,
+  needsNewBlock = false,
   tournamentMode = "none",
   growthWatch = false,
   progressionAllowed = true,
@@ -476,6 +643,10 @@ export function buildWeeklyFramework({
   return {
     blockWeek: phase.blockWeek,
     blockNumber,
+    blockId,
+    blockStatus,
+    blockStartWeekKey,
+    needsNewBlock,
     blockPhase: phase.phase,
     blockIntent: phase.intent,
     allowThirdSet: phase.allowThirdSet && progressionAllowed,
@@ -603,8 +774,14 @@ export function buildWeeklyPlanDoc({
         }
       : { recentGrowthVelocityCmYr: null, intervalDays: null, growthWatch: false, sufficientInterval: false },
     block: {
+      // Identity comes from programState/strength — the plan reports where the
+      // athlete is, it does not decide it.
+      id: framework.blockId ?? null,
       number: framework.blockNumber,
       week: framework.blockWeek,
+      startWeekKey: framework.blockStartWeekKey ?? null,
+      status: framework.blockStatus ?? "active",
+      needsNewBlock: !!framework.needsNewBlock,
       phase: framework.blockPhase,
       intent: framework.blockIntent,
       lengthWeeks: BLOCK_LENGTH_WEEKS,

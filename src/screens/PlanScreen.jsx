@@ -160,7 +160,7 @@ function SessionCard({ session, onToggleExercise, onFinishSession }) {
   );
 }
 
-export default function PlanScreen({ plan: rawPlan, tournaments, loading, error, onGenerate, onToggleExercise, onFinishSession, onRegenerate }) {
+export default function PlanScreen({ plan: rawPlan, tournaments, loading, error, onGenerate, onToggleExercise, onFinishSession, onRegenerate, onStartNextBlock, startingBlock }) {
   const [override, setOverride] = useState(null);
 
   const today = toLocalDateStr(new Date());
@@ -257,6 +257,26 @@ export default function PlanScreen({ plan: rawPlan, tournaments, loading, error,
               <> ({plan.growthContext.recentGrowthVelocityCmYr} cm/year over {plan.growthContext.intervalDays} days.)</>
             )}
           </div>
+        </Card>
+      )}
+
+      {/* block complete — an explicit human decision, never an automatic roll-over */}
+      {plan.block?.needsNewBlock && (
+        <Card style={{ background: "#EEF4FF", border: "1px solid #C3D4F5" }}>
+          <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".05em", color: "#31508F", textTransform: "uppercase", marginBottom: 4 }}>
+            Block {plan.block.number} complete
+          </div>
+          <div style={{ fontSize: 12.5, color: M.ink, lineHeight: 1.5, marginBottom: 10 }}>
+            All {plan.block.lengthWeeks} weeks have run. The plan stays on the week-8 consolidation shape until someone reviews
+            movement quality and progression — a new block never starts on its own.
+          </div>
+          {onStartNextBlock && (
+            <div onClick={startingBlock ? undefined : onStartNextBlock} style={{
+              cursor: startingBlock ? "default" : "pointer", background: M.gradient, color: M.deepGreen,
+              borderRadius: 14, padding: 12, textAlign: "center", fontFamily: M.display, fontWeight: 700,
+              fontSize: 14, boxShadow: M.cta, opacity: startingBlock ? 0.65 : 1,
+            }}>{startingBlock ? "Starting…" : "Start the next block →"}</div>
+          )}
         </Card>
       )}
 

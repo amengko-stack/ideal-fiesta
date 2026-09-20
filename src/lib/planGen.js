@@ -6,7 +6,8 @@ import { calculateMetrics } from "./load.js";
 import { upcomingWeekKey } from "./dates.js";
 import { callClaudeJSON } from "./ai.js";
 import { buildWeeklyStrengthPlanPrompt, toWeeklyPlanData, resolvedPriorityLabels } from "./planGenCore.js";
-import { advanceBlockWeek, readWeeklyPlan } from "./weeklyPlanCore.js";
+import { readWeeklyPlan } from "./weeklyPlanCore.js";
+import { ensureProgramState } from "./programState.js";
 
 // ─── WEEKLY S&C PLAN GENERATION ─────────────────────────────────────────────
 // Firestore + LLM wiring only. Every decision — the deterministic framework,
@@ -24,9 +25,12 @@ export async function generateWeeklyStrengthPlan(athleteId, {
 
   const metrics = calculateMetrics(weekLogs, wellbeing);
 
-  // The block advances on work done, not on the calendar — read last week's
-  // plan so a week in which nothing was logged repeats rather than burning a
-  // block week. A missing or legacy document simply starts the block at week 1.
+  // Where she is in the block comes from athletes/{id}/programState/strength and
+  // is derived from the calendar, so regenerating a plan in the same week cannot
+  // advance it and deleting plans/current cannot reset it. The previous plan is
+  // read only as migration evidence the first time the state document is
+  // created.
+  const weekKey = upcomingWeekKey(now);
   let previousPlan = null;
   if (athleteId) {
     try {
@@ -34,7 +38,15 @@ export async function generateWeeklyStrengthPlan(athleteId, {
       previousPlan = snap.exists() ? readWeeklyPlan(snap.data()) : null;
     } catch { previousPlan = null; }
   }
-  const blockState = advanceBlockWeek(previousPlan?.legacy ? null : previousPlan);
+  const { position } = await ensureProgramState(athleteId, { previousPlan, weekKey, now });
+  const blockState = {
+    blockWeek: position.blockWeek,
+    blockNumber: position.blockNumber,
+    blockId: position.blockId,
+    blockStatus: position.status,
+    blockStartWeekKey: position.blockStartWeekKey,
+    needsNewBlock: position.needsNewBlock,
+  };
 
   const built = buildWeeklyStrengthPlanPrompt({
     profile, weekLogs, sessionHistory, wellbeing, tournament, sessionTime, ctx, metrics, now, blockState,
@@ -46,7 +58,7 @@ export async function generateWeeklyStrengthPlan(athleteId, {
 
   const planData = toWeeklyPlanData(parsed, ctx, new Date().toISOString(), metrics, {
     framework: built.framework,
-    weekKey: upcomingWeekKey(now),
+    weekKey,
     growthContext: built.growthContext,
     weekSummary: built.weekSummary,
     targetComparison: built.targetComparison,

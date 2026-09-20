@@ -17,7 +17,7 @@ import { nearestUpcoming, daysUntil, tournamentModeFor } from './shared/tourname
 import {
   buildWeeklyStrengthPlanPrompt, toWeeklyPlanData, resolvedPriorityLabels, WEEKLY_PLAN_MAX_TOKENS,
 } from './shared/planGenCore.js';
-import { advanceBlockWeek, readWeeklyPlan } from './shared/weeklyPlanCore.js';
+import { readWeeklyPlan } from './shared/weeklyPlanCore.js';
 import {
   isOpen, planPriorityUpserts, planMergeDuplicates,
   planMetricResolutions, planEscalations, planLabelResolutions,
@@ -27,6 +27,7 @@ import { buildDigestData, buildDigestNotesPrompt, digestPushPayload } from './sh
 import { callAnthropicJSON } from './anthropic.js';
 import {
   fetchAthleteRaw, fetchDeferredPriorities, applyPriorityOps, sendPushToRole,
+  ensureProgramStateAdmin,
 } from './adminData.js';
 
 // ─── WEEKLY REVIEW ORCHESTRATOR ──────────────────────────────────────────────
@@ -250,13 +251,25 @@ export async function runWeeklyReviewForAthlete(db, athleteId, { force = false, 
       // plan.metrics.
       const metrics = calculateMetrics(raw.weekLogs, raw.wellbeing);
 
-      // The eight-week block advances on work done, not on the calendar: a week
-      // with nothing logged repeats instead of burning a block week. A legacy
-      // (pre-schema-v2) document starts a fresh block rather than being read as
-      // week 1 of the old one.
+      // Where she is in the block comes from athletes/{id}/programState/strength
+      // and is DERIVED from the calendar, so pressing Run-now twice in the same
+      // week reads the same block week and deleting plans/current does not reset
+      // it. The previous plan is read only as migration evidence, the first time
+      // the state document has to be created.
+      const planWeekKey = upcomingWeekKey(now);
       const previousSnap = await athleteRef.collection('plans').doc('current').get();
       const previousPlan = previousSnap.exists ? readWeeklyPlan(previousSnap.data()) : null;
-      const blockState = advanceBlockWeek(previousPlan?.legacy ? null : previousPlan);
+      const program = await ensureProgramStateAdmin(db, athleteId, {
+        previousPlan, weekKey: planWeekKey, now,
+      });
+      const blockState = {
+        blockWeek: program.position.blockWeek,
+        blockNumber: program.position.blockNumber,
+        blockId: program.position.blockId,
+        blockStatus: program.position.status,
+        blockStartWeekKey: program.position.blockStartWeekKey,
+        needsNewBlock: program.position.needsNewBlock,
+      };
 
       const built = buildWeeklyStrengthPlanPrompt({
         profile: raw.profile,
@@ -282,7 +295,7 @@ export async function runWeeklyReviewForAthlete(db, athleteId, { force = false, 
         framework: built.framework,
         // The run is keyed to the week just finished (claim + digest ids); the
         // plan it produces is for the week starting tomorrow.
-        weekKey: upcomingWeekKey(now),
+        weekKey: planWeekKey,
         growthContext: built.growthContext,
         weekSummary: built.weekSummary,
         targetComparison: built.targetComparison,
@@ -312,7 +325,10 @@ export async function runWeeklyReviewForAthlete(db, athleteId, { force = false, 
 
       await checkpoint('plan', {
         planWeekKey: planData.weekKey,
+        blockId: planData.block?.id ?? null,
         blockWeek: planData.block?.week ?? null,
+        blockStatus: planData.block?.status ?? null,
+        programStateChanged: program.changed,
         sessionCount: (planData.sessions || []).filter(x => x.sessionType !== 'recovery').length,
         exerciseCount: (planData.sessions || []).reduce((sum, x) => sum + (x.exercises || []).length, 0),
         resolvedByPlan: labels.length,

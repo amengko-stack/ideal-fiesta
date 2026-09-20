@@ -110,10 +110,16 @@ export function buildWeeklyStrengthPlanPrompt({
     movementQualityConcern: false,
   });
 
+  // Block position comes from the persistent programState/strength document
+  // (see weeklyPlanCore.resolveProgramState); this file never derives it.
   const block = blockState ?? { blockWeek: 1, blockNumber: 1 };
   const fw = framework ?? buildWeeklyFramework({
     blockWeek: block.blockWeek,
     blockNumber: block.blockNumber,
+    blockId: block.blockId ?? null,
+    blockStatus: block.blockStatus ?? "active",
+    blockStartWeekKey: block.blockStartWeekKey ?? null,
+    needsNewBlock: !!block.needsNewBlock,
     tournamentMode: tournament,
     growthWatch: !!growthContext?.growthWatch,
     progressionAllowed: gate.allowed,
@@ -243,7 +249,8 @@ Exceeding the target is information, not a failure. Never tell the family to add
 EIGHT-WEEK BLOCK POSITION
 ═══════════════════════════════════════════
 - Block ${fw.blockNumber}, week ${fw.blockWeek} of ${BLOCK_LENGTH_WEEKS} — phase: ${fw.blockPhase}
-- Intent: ${fw.blockIntent}
+- Intent: ${fw.blockIntent}${fw.needsNewBlock ? `
+- This block has run its ${BLOCK_LENGTH_WEEKS} weeks and is awaiting a coach review before the next one starts. Keep prescribing the week-8 consolidation shape; do NOT invent a new block or a new progression.` : ""}
 - Third set on key movements: ${fw.allowThirdSet ? "allowed this week" : "NOT allowed this week"}
 - Load increase: ${fw.allowLoadIncrease ? `allowed, up to ${fw.maxLoadIncrementPct}%` : "NOT allowed this week"}
 - Progression gate: ${gate.allowed ? "open — the last session met the quality bar" : `HELD — ${gate.reasons.join("; ")}`}

@@ -32,6 +32,7 @@ import { friendlyAiError } from "../lib/aiErrors.js";
 import { generateMatchAnalysis } from "../lib/matchAnalysis.js";
 import { generateWeeklyStrengthPlan } from "../lib/planGen.js";
 import { readWeeklyPlan, sessionProgress } from "../lib/weeklyPlanCore.js";
+import { startNextStrengthBlock } from "../lib/programState.js";
 import { awardXp } from "../lib/gamificationStore.js";
 import { XP, levelFromXp, xpForSession } from "../lib/gamification.js";
 import { sessionSRPE } from "../lib/load.js";
@@ -82,6 +83,7 @@ export default function MobileApp({ athleteId, isParent, user, onSignOut }) {
   // gone before anyone can read or report it.
   const [seasonError, setSeasonError] = useState(null);
   const [planError, setPlanError] = useState(null);
+  const [startingBlock, setStartingBlock] = useState(false);
   const [sheet, setSheet]       = useState(null); // null | "log" | "checkin" | "tournament" | "import"
   const [injuryTarget, setInjuryTarget] = useState(null); // open injury being edited, or null for a fresh log
   const [earnedBadges, setEarnedBadges] = useState({});
@@ -304,6 +306,24 @@ export default function MobileApp({ athleteId, isParent, user, onSignOut }) {
   // Each session carries its own done map. A legacy (pre-schema-v2) plan has one
   // top-level doneMap and no sessions array, so that shape is still written back
   // the way it was stored rather than being silently migrated.
+  // Starting the next eight-week block is an explicit decision a parent makes
+  // after the week-8 review — never a side effect of generating a plan. It
+  // writes programState/strength only; the plan is regenerated from there.
+  const startNextBlock = async () => {
+    if (startingBlock) return;
+    setStartingBlock(true);
+    try {
+      await startNextStrengthBlock(athleteId);
+      setPlanResult(null);
+      showToast("New block started — generate this week's plan 💪");
+    } catch (e) {
+      console.error("startNextBlock:", e);
+      showToast("Couldn't start the next block — try again 🙈");
+    } finally {
+      setStartingBlock(false);
+    }
+  };
+
   const toggleExercise = (sessionId, exId) => {
     setPlanResult(prev => {
       if (!prev) return prev;
@@ -764,6 +784,8 @@ export default function MobileApp({ athleteId, isParent, user, onSignOut }) {
               onToggleExercise={toggleExercise}
               onFinishSession={finishSession}
               onRegenerate={() => { setPlanResult(null); }}
+              onStartNextBlock={startNextBlock}
+              startingBlock={startingBlock}
             />
           ) : screen === "me" ? (
             <MeScreen

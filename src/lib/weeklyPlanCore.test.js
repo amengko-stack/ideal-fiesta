@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   buildWeeklyFramework, buildSession, buildWeeklyPlanDoc, readWeeklyPlan,
-  advanceBlockWeek, blockPhase, clampBlockWeek, progressionGate,
+  blockPhase, clampBlockWeek, progressionGate,
+  newProgramState, readProgramState, migrateProgramState, resolveProgramState,
+  startNextBlock, calendarWeeksBetween, PROGRAM_STATE_SCHEMA_VERSION, PROGRAM_STATE_DOC,
   mergeSessionAdjustments, clampPlyoVolume, plyometricContacts, workingSetCount,
   sessionProgress, planSessionById, flattenPlanExercises, compareToWeeklyTargets,
   SESSION_TEMPLATES, SUNDAY_RECOVERY, WEEKLY_TARGETS, PLYO_CONTACT_BUDGET,
@@ -160,29 +162,237 @@ describe("eight-week block progression", () => {
   });
 });
 
-describe("advanceBlockWeek — earned, not automatic", () => {
-  it("starts a fresh block at week 1", () => {
-    expect(advanceBlockWeek(null)).toEqual({ blockWeek: 1, blockNumber: 1 });
+// ─── PROGRAM STATE ───────────────────────────────────────────────────────────
+// The block week is DERIVED from the calendar against a persisted block start,
+// never incremented off the previous plan. Everything below is a property that
+// the old plan-derived model got wrong.
+describe("program state — block chronology", () => {
+  const NOW = new Date("2026-09-20T09:00:00.000Z");
+  // Mondays, one week apart.
+  const W1 = "2026-09-21";
+  const W2 = "2026-09-28";
+  const W3 = "2026-10-05";
+  const W8 = "2026-11-09";
+  const W9 = "2026-11-16";
+
+  const freshState = () => newProgramState({ blockStartWeekKey: W1, createdAt: NOW.toISOString() });
+
+  it("lives at athletes/{id}/programState/strength", () => {
+    expect(PROGRAM_STATE_DOC).toEqual({ collection: "programState", id: "strength" });
+    expect(PROGRAM_STATE_SCHEMA_VERSION).toBe(1);
   });
 
-  it("advances when at least one session was logged", () => {
-    expect(advanceBlockWeek({
-      blockWeek: 3, blockNumber: 1,
-      sessions: [{ id: "A", sessionLogged: true }, { id: "B", sessionLogged: false }],
-    })).toEqual({ blockWeek: 4, blockNumber: 1 });
+  it("stores the documented shape", () => {
+    expect(freshState()).toEqual({
+      schemaVersion: 1,
+      blockId: "blk-2026-09-21-1",
+      blockNumber: 1,
+      blockStartWeekKey: W1,
+      blockLengthWeeks: 8,
+      createdAt: NOW.toISOString(),
+      status: "active",
+      previousBlockId: null,
+      initReason: "new-block",
+    });
   });
 
-  it("holds the block week when nothing was logged — a calendar week is not progress", () => {
-    expect(advanceBlockWeek({
-      blockWeek: 3, blockNumber: 1,
-      sessions: [{ id: "A", sessionLogged: false }, { id: "B", sessionLogged: false }],
-    })).toEqual({ blockWeek: 3, blockNumber: 1 });
+  it("counts whole calendar weeks between two week keys", () => {
+    expect(calendarWeeksBetween(W1, W1)).toBe(0);
+    expect(calendarWeeksBetween(W1, W2)).toBe(1);
+    expect(calendarWeeksBetween(W1, W8)).toBe(7);
+    expect(calendarWeeksBetween(W2, W1)).toBe(-1);
+    expect(calendarWeeksBetween("nonsense", W1)).toBeNull();
   });
 
-  it("rolls into the next block after week 8", () => {
-    expect(advanceBlockWeek({
-      blockWeek: 8, blockNumber: 1, sessions: [{ id: "A", sessionLogged: true }],
-    })).toEqual({ blockWeek: 1, blockNumber: 2 });
+  it("an initial block is week 1", () => {
+    const pos = readProgramState(freshState(), W1);
+    expect(pos.blockWeek).toBe(1);
+    expect(pos.blockNumber).toBe(1);
+    expect(pos.status).toBe("active");
+    expect(pos.needsNewBlock).toBe(false);
+  });
+
+  it("a second generation in the SAME week stays on the same block week", () => {
+    const state = freshState();
+    const first = resolveProgramState({ state, currentWeekKey: W1, now: NOW });
+    const second = resolveProgramState({ state: first.state, currentWeekKey: W1, now: NOW });
+    const third = resolveProgramState({ state: second.state, currentWeekKey: W1, now: NOW });
+    expect(first.position.blockWeek).toBe(1);
+    expect(second.position.blockWeek).toBe(1);
+    expect(third.position.blockWeek).toBe(1);
+    // Nothing to persist after the first read — a repeated run is a no-op.
+    expect(second.changed).toBe(false);
+    expect(third.changed).toBe(false);
+    expect(second.state).toEqual(first.state);
+  });
+
+  it("the next calendar week advances exactly one block week", () => {
+    const state = freshState();
+    expect(readProgramState(state, W1).blockWeek).toBe(1);
+    expect(readProgramState(state, W2).blockWeek).toBe(2);
+    expect(readProgramState(state, W3).blockWeek).toBe(3);
+  });
+
+  it("skipping a generation week still lands on the correct later week", () => {
+    const state = freshState();
+    // Nothing ran for weeks 2-4; week 5's run must say week 5, not week 2.
+    expect(readProgramState(state, "2026-10-19").blockWeek).toBe(5);
+    expect(readProgramState(state, "2026-11-02").blockWeek).toBe(7);
+  });
+
+  it("deleting plans/current does not change the block week", () => {
+    const state = freshState();
+    const withPlan = resolveProgramState({
+      state, previousPlan: { weekKey: W3, block: { week: 3, number: 1 } }, currentWeekKey: W3, now: NOW,
+    });
+    const planDeleted = resolveProgramState({ state, previousPlan: null, currentWeekKey: W3, now: NOW });
+    expect(withPlan.position.blockWeek).toBe(3);
+    expect(planDeleted.position.blockWeek).toBe(3);
+    expect(planDeleted.changed).toBe(false);
+  });
+
+  it("a manual Run-now does not double-advance", () => {
+    const state = freshState();
+    const runs = [1, 2, 3, 4].map(() => resolveProgramState({ state, currentWeekKey: W2, now: NOW }));
+    expect(runs.map(r => r.position.blockWeek)).toEqual([2, 2, 2, 2]);
+  });
+
+  it("week 8 never becomes week 9", () => {
+    const state = freshState();
+    expect(readProgramState(state, W8).blockWeek).toBe(8);
+    expect(readProgramState(state, W9).blockWeek).toBe(8);
+    expect(readProgramState(state, "2027-01-04").blockWeek).toBe(8);
+  });
+
+  it("marks the block completed once the calendar passes week 8 — deterministically", () => {
+    const state = freshState();
+    const atWeek8 = resolveProgramState({ state, currentWeekKey: W8, now: NOW });
+    expect(atWeek8.position.status).toBe("active");
+    expect(atWeek8.position.needsNewBlock).toBe(false);
+    expect(atWeek8.transition).toBeNull();
+
+    const past = resolveProgramState({ state, currentWeekKey: W9, now: NOW });
+    expect(past.position.status).toBe("completed");
+    expect(past.position.needsNewBlock).toBe(true);
+    expect(past.position.blockWeek).toBe(8);
+    expect(past.transition).toBe("completed");
+    expect(past.state.status).toBe("completed");
+    expect(past.state.completedAt).toBe(NOW.toISOString());
+    // Still block 1 — generating a plan never starts the next one.
+    expect(past.position.blockNumber).toBe(1);
+    expect(past.state.blockId).toBe("blk-2026-09-21-1");
+
+    // And the transition is idempotent.
+    const again = resolveProgramState({ state: past.state, currentWeekKey: W9, now: NOW });
+    expect(again.transition).toBeNull();
+    expect(again.changed).toBe(false);
+  });
+
+  it("only an explicit startNextBlock begins block 2", () => {
+    const completed = resolveProgramState({ state: freshState(), currentWeekKey: W9, now: NOW }).state;
+    const next = startNextBlock(completed, W9, NOW);
+    expect(next.blockNumber).toBe(2);
+    expect(next.blockStartWeekKey).toBe(W9);
+    expect(next.status).toBe("active");
+    expect(next.previousBlockId).toBe("blk-2026-09-21-1");
+    expect(next.initReason).toBe("next-block");
+    expect(readProgramState(next, W9).blockWeek).toBe(1);
+    expect(readProgramState(next, "2026-11-23").blockWeek).toBe(2);
+  });
+});
+
+describe("program state — migration", () => {
+  const NOW = new Date("2026-09-20T09:00:00.000Z");
+  const W = "2026-09-21";
+
+  it("preserves the intended block week from a schema-v2 plan", () => {
+    const state = migrateProgramState({
+      previousPlan: { weekKey: "2026-09-14", block: { week: 5, number: 2 } },
+      currentWeekKey: W, now: NOW,
+    });
+    expect(state.initReason).toBe("migrated-from-plan");
+    expect(state.blockNumber).toBe(2);
+    // Week 5 on the week of 2026-09-14 → the block started four weeks earlier.
+    expect(state.blockStartWeekKey).toBe("2026-08-17");
+    expect(readProgramState(state, "2026-09-14").blockWeek).toBe(5);
+    // And the following week reads as 6, exactly as it should.
+    expect(readProgramState(state, W).blockWeek).toBe(6);
+  });
+
+  it("starts an explicit week 1 when there is no usable evidence", () => {
+    for (const previousPlan of [
+      null,
+      { legacy: true, weekKey: null },
+      { weekKey: null, block: { week: 4 } },
+      { weekKey: "2026-09-14", block: null },
+      { weekKey: "not-a-date", block: { week: 3 } },
+    ]) {
+      const state = migrateProgramState({ previousPlan, currentWeekKey: W, now: NOW });
+      expect(state.initReason).toBe("initialised-week-1");
+      expect(state.blockStartWeekKey).toBe(W);
+      expect(readProgramState(state, W).blockWeek).toBe(1);
+    }
+  });
+
+  it("never infers chronology from a legacy plan", () => {
+    const state = migrateProgramState({
+      previousPlan: { legacy: true, weekKey: "2026-09-14", block: { week: 7, number: 1 } },
+      currentWeekKey: W, now: NOW,
+    });
+    expect(state.initReason).toBe("initialised-week-1");
+    expect(readProgramState(state, W).blockWeek).toBe(1);
+  });
+
+  it("resolveProgramState migrates once, then stops writing", () => {
+    const first = resolveProgramState({ state: null, previousPlan: null, currentWeekKey: W, now: NOW });
+    expect(first.migrated).toBe(true);
+    expect(first.changed).toBe(true);
+    expect(first.position.blockWeek).toBe(1);
+
+    const second = resolveProgramState({ state: first.state, currentWeekKey: W, now: NOW });
+    expect(second.migrated).toBe(false);
+    expect(second.changed).toBe(false);
+  });
+
+  it("re-migrates rather than crashing on an unusable stored document", () => {
+    for (const junk of [{}, { blockStartWeekKey: null }, { blockStartWeekKey: "nope" }, "string", 7]) {
+      const r = resolveProgramState({ state: junk, currentWeekKey: W, now: NOW });
+      expect(r.migrated).toBe(true);
+      expect(r.position.blockWeek).toBe(1);
+    }
+  });
+
+  it("reports a state dated after the week being planned instead of hiding it", () => {
+    const state = newProgramState({ blockStartWeekKey: "2026-10-05", createdAt: NOW.toISOString() });
+    const pos = readProgramState(state, "2026-09-21");
+    expect(pos.aheadOfBlockStart).toBe(true);
+    expect(pos.blockWeek).toBe(1);
+  });
+});
+
+describe("block identity reaches the plan document", () => {
+  it("carries the block id, start week and status through to plans/current", () => {
+    const fw = buildWeeklyFramework({
+      blockWeek: 8, blockNumber: 2, blockId: "blk-2026-08-17-2",
+      blockStartWeekKey: "2026-08-17", blockStatus: "completed", needsNewBlock: true,
+    });
+    const d = doc(fw);
+    expect(d.block).toMatchObject({
+      id: "blk-2026-08-17-2",
+      number: 2,
+      week: 8,
+      startWeekKey: "2026-08-17",
+      status: "completed",
+      needsNewBlock: true,
+      lengthWeeks: 8,
+    });
+  });
+
+  it("defaults to an active block with no id when nothing is passed", () => {
+    const d = doc(buildWeeklyFramework({ blockWeek: 1 }));
+    expect(d.block.id).toBeNull();
+    expect(d.block.status).toBe("active");
+    expect(d.block.needsNewBlock).toBe(false);
   });
 });
 

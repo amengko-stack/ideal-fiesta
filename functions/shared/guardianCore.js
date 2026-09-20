@@ -2,7 +2,7 @@ import { toLocalDateStr } from "./dates.js";
 import { computeLoad, computeMonotonyStrain, sessionSRPE, mergeWellbeingByDate, readinessScore } from "./load.js";
 import { openInjuries, injuryDuration, recurringAreas, describeInjury } from "./injuries.js";
 import { maturityOffset } from "./maturity.js";
-import { growthVelocity } from "./growth.js";
+import { recentGrowthContext } from "./growth.js";
 
 // ─── LOAD & HEALTH GUARDIAN — PURE CORE ──────────────────────────────────────
 // A daily risk engine that reads training load, wellbeing, injuries and growth
@@ -158,13 +158,17 @@ export const GUARDIAN_THRESHOLDS = Object.freeze({
   recurringMinCount: 3,
 
   // ── growth ─────────────────────────────────────────────────────────────────
-  // cm/year. growthVelocity annualises from only the last TWO height readings,
-  // so the span between them is doing all the work: a 3-week gap with 0.5cm of
-  // tape-measure error already yields ~9 cm/yr of pure noise. Hence both
-  // numbers — 6.0 cm/yr is genuinely fast for a 12-year-old, but only if it is
-  // measured over a window long enough for 6.0 to be a measurement rather than
-  // a rounding artefact. growthVelocity does not expose the span, so this
-  // module recomputes it from the same two readings.
+  // cm/year, read from recentGrowthContext (growth.js), which prefers a 4–8
+  // month comparison and reports the interval it actually used. The span is
+  // doing as much work as the velocity: a 3-week gap with 0.5cm of tape-measure
+  // error already yields ~9 cm/yr of pure noise. 6.0 cm/yr is genuinely fast
+  // for a 12-year-old, but only over a window long enough for 6.0 to be a
+  // measurement rather than a rounding artefact.
+  //
+  // This is the ONLY growth input that decides anything. The Mirwald maturity
+  // offset is a population regression with wide individual error; it carries
+  // zero weight and does not count towards the gate (see growthFactors), so no
+  // change to it can create, escalate or grade an alert.
   growthVelocityHigh: 6.0,
   growthMinSpanDays: 60,
 
@@ -607,6 +611,13 @@ function tissueFactors(injuries, ref) {
 // Growth factors — modifier family. These never fire alone; they make an
 // otherwise borderline load or recovery story worth saying out loud, which is
 // the only role the evidence actually supports.
+//
+// Only OBSERVED growth decides anything here: dated height history, the
+// annualised velocity, and the interval that velocity was measured over. The
+// Mirwald maturity estimate is carried for the parent to read and nothing else
+// — weight 0 and counts:false, exactly like readiness-low — because a
+// population regression with years of individual error cannot be allowed to
+// create an alert, add a family, raise severity or trigger an escalation.
 function growthFactors(athlete, ref) {
   const out = [];
   const measurements = arr(athlete.measurements);
@@ -628,36 +639,38 @@ function growthFactors(athlete, ref) {
       })
     : null;
 
+  // Informational only. counts:false keeps it out of `families`, out of
+  // `weightByFamily`, out of acuteWeight and therefore out of severity and
+  // escalation — while still reaching the factor list the parent and the note
+  // model read. Changing the offset alone can never change what the Guardian
+  // decides.
   if (maturity?.stage === "Mid-PHV") {
     out.push(factor({
-      id: "mid-phv-window", family: "growth", weight: 2,
-      label: "Growth estimate puts her near her fastest phase",
-      // The Mirwald offset is a population regression with wide individual
-      // error, so this is stated as the estimate it is. It contributes to a
-      // combined picture; it never decides what she may train, and the S&C
-      // generator does not read it at all (it uses measured growth velocity).
-      evidence: `Estimated maturity offset ${maturity.offset} years — a rough research estimate, not a measurement. Weigh it alongside her measured height history rather than on its own.`,
+      id: "mid-phv-window", family: "growth", weight: 0, counts: false,
+      label: "Maturity estimate (uncertain — for context only)",
+      evidence: `Estimated maturity offset ${maturity.offset} years — a rough research estimate from height, sitting height, weight and age, not a measurement, and not a developmental stage anyone has observed. It carries no weight in this assessment: read it alongside her measured height history, never on its own.`,
       metrics: { maturityStage: maturity.stage, maturityOffset: maturity.offset },
     }));
   }
 
-  const velocity = growthVelocity(measurements);
-  // growthVelocity uses the last two readings that carry a height; recompute
-  // the span from the same pair, because it does not expose it and the span is
-  // what decides whether the velocity is a measurement or noise.
-  const heights = measurements
-    .filter(m => m.height != null && typeof m.date === "string")
-    .sort((a, b) => a.date.localeCompare(b.date));
-  const spanDays = heights.length >= 2
-    ? daysBetween(heights[heights.length - 2].date, heights[heights.length - 1].date)
-    : null;
+  // The observed reading: longitudinal, interval-aware, and the only growth
+  // input with a vote. recentGrowthContext prefers a 4–8 month comparison and
+  // reports the interval it used, so the span guard below is checking the same
+  // pair the velocity came from rather than a separately recomputed one.
+  const growth = recentGrowthContext(measurements);
+  const velocity = growth?.velocityCmYr ?? null;
+  const spanDays = growth?.intervalDays ?? null;
 
   if (velocity != null && velocity >= T.growthVelocityHigh && spanDays != null && spanDays >= T.growthMinSpanDays) {
     out.push(factor({
       id: "rapid-growth", family: "growth", weight: 2,
       label: "Growing fast right now",
-      evidence: `She has grown at about ${velocity} cm/year over the last ${spanDays} days.`,
-      metrics: { growthVelocity: velocity, growthSpanDays: spanDays },
+      evidence: `She has grown at about ${velocity} cm/year, measured over ${spanDays} days (${growth.priorHeight} cm on ${growth.priorDate} to ${growth.latestHeight} cm on ${growth.latestDate}).`,
+      metrics: {
+        growthVelocity: velocity,
+        growthSpanDays: spanDays,
+        growthWatch: !!growth.growthWatch,
+      },
     }));
   }
 
@@ -668,6 +681,8 @@ function growthFactors(athlete, ref) {
       maturityOffset: maturity?.offset ?? null,
       growthVelocity: velocity,
       growthSpanDays: spanDays,
+      growthWatch:    growth?.growthWatch ?? null,
+      growthSufficientInterval: growth?.sufficientInterval ?? null,
     },
   };
 }

@@ -148,6 +148,34 @@ describe("PlanScreen — tournament week", () => {
   });
 });
 
+describe("PlanScreen — block completion", () => {
+  const completedPlan = () => weeklyPlan({
+    framework: buildWeeklyFramework({
+      blockWeek: 8, blockNumber: 1, blockId: "blk-2026-03-16-1",
+      blockStartWeekKey: "2026-03-16", blockStatus: "completed", needsNewBlock: true,
+    }),
+  });
+
+  it("says the block is complete and that a new one never starts on its own", () => {
+    const html = render({ plan: completedPlan(), onStartNextBlock: () => {} });
+    expect(html).toContain("Block 1 complete");
+    expect(html).toContain("a new block never starts on its own");
+    expect(html).toContain("Start the next block");
+  });
+
+  it("shows no such card while the block is still running", () => {
+    const html = render({ plan: weeklyPlan(), onStartNextBlock: () => {} });
+    expect(html).not.toContain("complete");
+    expect(html).not.toContain("Start the next block");
+  });
+
+  it("omits the action when no handler is supplied", () => {
+    const html = render({ plan: completedPlan() });
+    expect(html).toContain("Block 1 complete");
+    expect(html).not.toContain("Start the next block");
+  });
+});
+
 describe("PlanScreen — legacy plans still render", () => {
   const legacy = {
     plan: [
