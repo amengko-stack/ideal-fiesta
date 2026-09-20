@@ -30,6 +30,7 @@ export const SHARED_MODULES = [
   'tournaments.js',
   'injuries.js',
   'exerciseDb.js',
+  'weeklyPlanCore.js',
   'aiJson.js',
   'athleteContextCore.js',
   'planGenCore.js',

@@ -3,8 +3,8 @@ import Card from "../ui/Card.jsx";
 import { levelFromXp } from "../lib/gamification.js";
 import { TENNIS_GAPS } from "../lib/exerciseDb.js";
 import { FITNESS_TESTS } from "../lib/fitnessTests.js";
-import { growthVelocity } from "../lib/growth.js";
-import { maturityOffset, stageInfo } from "../lib/maturity.js";
+import { recentGrowthContext, growthSummaryLine, GROWTH_WATCH_MESSAGE } from "../lib/growth.js";
+import { maturityOffset, stageInfo, MATURITY_ESTIMATE_LABEL, MATURITY_UNCERTAINTY_NOTE } from "../lib/maturity.js";
 import { identityChipText } from "../lib/athleteIdentity.js";
 import { isMetricTarget, describeTarget, describeMetricValue, matchesSince, toISO } from "../lib/priorityMetrics.js";
 import { openInjuries, resolvedInjuries, describeInjury, recurringAreas } from "../lib/injuries.js";
@@ -34,7 +34,9 @@ export default function MeScreen({ profile, xp, streak, sessionHistory, weekLogs
   const lv = levelFromXp(xp);
   const gaps = profile?.gaps || [];
   const measurements = profile?.measurements || [];
-  const velocity = growthVelocity(measurements);
+  // Longitudinal read (prefers a 4–8 month comparison) rather than the last
+  // two readings, so a three-week gap cannot manufacture a growth spurt.
+  const growth = recentGrowthContext(measurements);
   // measurements are stored newest-first — sort ascending so the chart reads left→right in time
   const heights = measurements.filter(m => m.height != null)
     .sort((a, b) => (a.date || "").localeCompare(b.date || "")).slice(-5);
@@ -97,7 +99,7 @@ export default function MeScreen({ profile, xp, streak, sessionHistory, weekLogs
       {/* focus areas */}
       <Card>
         <div style={{ ...secTitle, marginBottom: 4 }}>Tennis focus areas</div>
-        <div style={{ fontSize: 11.5, color: M.sub, marginBottom: 13 }}>Tap to choose what the Sunday plans work on</div>
+        <div style={{ fontSize: 11.5, color: M.sub, marginBottom: 13 }}>Tap to choose what the weekly S&C plan works on</div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
           {TENNIS_GAPS.map(g => {
             const sel = gaps.includes(g.id);
@@ -271,7 +273,7 @@ export default function MeScreen({ profile, xp, streak, sessionHistory, weekLogs
         </>
       )}
 
-      {/* injuries — visible to everyone; it's Valissa's own body, same reasoning as Growth below */}
+      {/* injuries — visible to everyone; it's the athlete's own body, same reasoning as Growth below */}
       <Card>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
           <span style={{ fontFamily: M.display, fontWeight: 700, fontSize: 15, color: M.ink }}>Injuries & niggles 🩹</span>
@@ -306,13 +308,13 @@ export default function MeScreen({ profile, xp, streak, sessionHistory, weekLogs
         )}
       </Card>
 
-      {/* growth — visible to everyone; Valissa logs her own measurements */}
+      {/* growth — visible to everyone; the athlete logs her own measurements */}
       <Card>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
           <span style={{ fontFamily: M.display, fontWeight: 700, fontSize: 15, color: M.ink }}>Growth 🌱</span>
           <span onClick={onLogGrowth} style={{ marginLeft: "auto", cursor: "pointer", fontFamily: M.display, fontWeight: 700, fontSize: 12.5, color: "#5c7a0a" }}>＋ Log</span>
         </div>
-        <div style={{ fontSize: 11.5, color: M.sub, marginBottom: 14 }}>Height over time — used to tune training load during growth spurts</div>
+        <div style={{ fontSize: 11.5, color: M.sub, marginBottom: 14 }}>Height over time — measure about once a month so growth velocity stays trustworthy</div>
         {heights.length === 0 ? (
           <div onClick={onLogGrowth} style={{ cursor: "pointer", fontSize: 12.5, color: M.sub, textAlign: "center", padding: "8px 0" }}>No measurements yet — tap ＋ Log to add height, weight & sitting height →</div>
         ) : (
@@ -330,14 +332,24 @@ export default function MeScreen({ profile, xp, streak, sessionHistory, weekLogs
                 </div>
               ))}
             </div>
-            {velocity != null && (
+            {growth && (
               <div style={{ fontSize: 11.5, color: M.sub, fontWeight: 600, marginTop: 10, textAlign: "center" }}>
-                Growing ~<span style={{ color: M.streakOrange, fontWeight: 700 }}>{velocity} cm/year</span>
-                {velocity >= 5.5 ? " — growth-spurt window: plans keep loads moderate 🌱" : ""}
+                {growthSummaryLine(growth)}
+                {growth.velocityCmYr != null && (
+                  <> · <span style={{ color: M.streakOrange, fontWeight: 700 }}>{growth.velocityCmYr} cm/year</span></>
+                )}
+              </div>
+            )}
+            {growth?.growthWatch && (
+              <div style={{ fontSize: 11, color: M.muted, lineHeight: 1.45, marginTop: 6, textAlign: "center" }}>
+                {GROWTH_WATCH_MESSAGE}
               </div>
             )}
             {isParent && parentMode && maturity && (
               <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${M.divider}` }}>
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".04em", color: M.sub, textTransform: "uppercase", marginBottom: 6 }}>
+                  {MATURITY_ESTIMATE_LABEL}
+                </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                   <span style={{
                     fontSize: 9.5, fontWeight: 700, color: maturityStageColor[maturity.stage] || M.muted,
@@ -346,11 +358,14 @@ export default function MeScreen({ profile, xp, streak, sessionHistory, weekLogs
                   }}>{maturity.stage}</span>
                   {PARENT_BADGE}
                   <span style={{ fontSize: 11.5, color: M.sub, fontWeight: 600 }}>
-                    ≈{Math.abs(maturity.offset).toFixed(1)} yrs {maturity.offset < 0 ? "from" : "past"} peak growth
+                    ≈{Math.abs(maturity.offset).toFixed(1)} yrs {maturity.offset < 0 ? "from" : "past"} the estimated growth spurt
                   </span>
                 </div>
                 <div style={{ fontSize: 11, color: M.muted, lineHeight: 1.4 }}>
                   {stageInfo(maturity.stage)?.implication}
+                </div>
+                <div style={{ fontSize: 10.5, color: M.muted, lineHeight: 1.4, marginTop: 6, fontStyle: "italic" }}>
+                  {MATURITY_UNCERTAINTY_NOTE} Training is planned from measured growth and logged load, not from this figure.
                 </div>
               </div>
             )}
@@ -417,7 +432,7 @@ export default function MeScreen({ profile, xp, streak, sessionHistory, weekLogs
               <div style={{ paddingRight: 12 }}>
                 <span style={{ fontSize: 13.5, color: M.ink, fontWeight: 600 }}>Weekly review</span>
                 <div style={{ fontSize: 11, color: M.muted, marginTop: 1 }}>
-                  Sunday 9am: the AI reviews the week, tidies the priorities, builds the plan and sends you the digest before training
+                  Sunday 9am: the AI reviews the finished week, tidies the priorities, builds the coming week's S&C plan (Session A Monday, Session B Thursday) and sends you the digest. Sunday itself is a rest day.
                 </div>
               </div>
               <div onClick={onToggleWeeklyReview} style={{

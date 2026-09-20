@@ -292,7 +292,7 @@ export default function LiveMatchScreen({ athleteId, athleteName, profile, resum
   const start = () => {
     const created = createMatch({
       format, noAd, firstServer, mode, ageCategory,
-      valissaName: athleteName || "Valissa",
+      valissaName: athleteName || "Athlete",
       opponentName: opponent.trim() || "Opponent",
     });
     setMatch(created);
@@ -363,7 +363,7 @@ export default function LiveMatchScreen({ athleteId, athleteName, profile, resum
 
             <div style={label}>Who serves first?</div>
             <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
-              <div onClick={() => setFirstServer(1)} style={chip(firstServer === 1)}>{athleteName || "Valissa"}</div>
+              <div onClick={() => setFirstServer(1)} style={chip(firstServer === 1)}>{athleteName || "Athlete"}</div>
               <div onClick={() => setFirstServer(2)} style={chip(firstServer === 2)}>{opponent.trim() || "Opponent"}</div>
             </div>
 

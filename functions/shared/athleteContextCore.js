@@ -2,7 +2,7 @@ import { sessionSRPE, computeLoad } from "./load.js";
 import { toLocalDateStr } from "./dates.js";
 import { nearestUpcoming, daysUntil } from "./tournaments.js";
 import { computeAge, identityBlock, resolveIdentity } from "./athleteIdentity.js";
-import { maturityOffset, stageInfo } from "./maturity.js";
+import { maturityOffset, stageInfo, MATURITY_ESTIMATE_LABEL } from "./maturity.js";
 import { memoryBlock } from "./athleteMemoryCore.js";
 import { openInjuries, injuryLoadFlag, injuryDuration, recurringAreas } from "./injuries.js";
 
@@ -191,7 +191,7 @@ export function assembleAthleteContext(raw, now = new Date()) {
         })
       : null;
     const maturityLine = maturity
-      ? `Maturation: ${maturity.stage} (≈${Math.abs(maturity.offset).toFixed(1)} yrs ${maturity.offset < 0 ? "from" : "past"} peak height velocity) — ${stageInfo(maturity.stage)?.implication ?? ""}`
+      ? `${MATURITY_ESTIMATE_LABEL}: ${maturity.stage} (≈${Math.abs(maturity.offset).toFixed(1)} yrs ${maturity.offset < 0 ? "from" : "past"} the estimated growth spurt) — ${stageInfo(maturity.stage)?.implication ?? ""}`
       : null;
 
     athleteProfile = {

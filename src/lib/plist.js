@@ -120,7 +120,7 @@ export function extractMatchData(plistObj) {
 
   // Player names from matchLog are always reliable
   const firstPoint = matchLog[0] ?? {};
-  const valissaName = firstPoint.pOneName ?? "Valissa";
+  const valissaName = firstPoint.pOneName ?? "Athlete";
   const opponentName = firstPoint.pTwoName ?? "Opponent";
 
   const STAT_FIELDS = [

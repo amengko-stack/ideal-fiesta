@@ -135,7 +135,7 @@ Respond with exactly this JSON structure:
     }
   ],
   "parentNote": "Message for the parent — context, encouragement, what to watch for",
-  "athleteNote": "Direct message for ${context.athleteProfile?.name || "Valissa"} — positive, motivating, 1-2 action points"
+  "athleteNote": "Direct message for ${context.athleteProfile?.name || "the athlete"} — positive, motivating, 1-2 action points"
 }`;
 
   const parsed = await callClaudeJSON({ system: systemPrompt, userContent: userPrompt, maxTokens: 6000 });

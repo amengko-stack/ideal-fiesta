@@ -3,6 +3,7 @@ import { doc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { M } from "../styles/mobileTheme.js";
 import { toLocalDateStr } from "../lib/dates.js";
+import { recentGrowthContext, growthSummaryLine, GROWTH_WATCH_MESSAGE } from "../lib/growth.js";
 
 const label = { fontSize: 11, color: M.sub, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", marginBottom: 9 };
 const input = {
@@ -18,6 +19,17 @@ export default function GrowthSheet({ athleteId, measurements, onSaved, onClose 
   const [weight, setWeight]               = useState("");
   const [sittingHeight, setSittingHeight] = useState("");
   const [saving, setSaving]               = useState(false);
+
+  // Longitudinal read of the history already on file: current height, the
+  // change over roughly the last six months and whether that counts as rapid.
+  // It never names a puberty stage — measured height is all it claims to know.
+  const growth = recentGrowthContext(measurements);
+  const daysSinceLast = (() => {
+    if (!growth?.latestDate) return null;
+    const last = new Date(`${growth.latestDate}T00:00:00`);
+    if (Number.isNaN(last.getTime())) return null;
+    return Math.round((new Date().setHours(0, 0, 0, 0) - last.getTime()) / 86400000);
+  })();
 
   const save = () => {
     if (saving) return;
@@ -54,13 +66,36 @@ export default function GrowthSheet({ athleteId, measurements, onSaved, onClose 
   return (
     <>
       <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 23, color: M.ink, marginBottom: 6 }}>Log measurements 📏</div>
-      <div style={{ fontSize: 13, color: M.sub, marginBottom: 16, lineHeight: 1.45 }}>
-        Fill in whichever you measured today — height feeds the growth chart and helps tune training load.
+      <div style={{ fontSize: 13, color: M.sub, marginBottom: 14, lineHeight: 1.45 }}>
+        Fill in whichever you measured today. Measuring height about once a month keeps the growth trend trustworthy —
+        a three-week gap turns half a centimetre of measurement error into a fake growth spurt.
       </div>
+
+      {growth && (
+        <div style={{ background: M.fillAlt, borderRadius: 14, padding: "12px 14px", marginBottom: 16 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".05em", color: M.sub, textTransform: "uppercase", marginBottom: 5 }}>
+            Height trend
+          </div>
+          <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 15, color: M.ink, lineHeight: 1.35 }}>
+            {growthSummaryLine(growth)}
+          </div>
+          {growth.growthWatch && (
+            <div style={{ fontSize: 11.5, color: M.sub, lineHeight: 1.45, marginTop: 6 }}>{GROWTH_WATCH_MESSAGE}</div>
+          )}
+          {daysSinceLast != null && daysSinceLast >= 35 && (
+            <div style={{ fontSize: 11.5, color: "#5c7a0a", fontWeight: 700, marginTop: 6 }}>
+              Last measured {daysSinceLast} days ago — good time for a fresh height.
+            </div>
+          )}
+        </div>
+      )}
       <div style={label}>Height (cm)</div>
-      <input type="number" inputMode="decimal" value={height} onChange={e => setHeight(e.target.value)} placeholder="e.g. 152" style={input} />
+      <input type="number" inputMode="decimal" value={height} onChange={e => setHeight(e.target.value)} placeholder="e.g. 153" style={input} />
       <div style={label}>Weight (kg)</div>
-      <input type="number" inputMode="decimal" value={weight} onChange={e => setWeight(e.target.value)} placeholder="e.g. 41" style={input} />
+      <input type="number" inputMode="decimal" value={weight} onChange={e => setWeight(e.target.value)} placeholder="e.g. 43" style={input} />
+      <div style={{ fontSize: 11, color: M.muted, lineHeight: 1.45, margin: "-10px 0 18px" }}>
+        Recorded for training context only — weight is never a target here, and the app sets no weight or BMI goal.
+      </div>
       <div style={label}>Sitting height (cm)</div>
       <input type="number" inputMode="decimal" value={sittingHeight} onChange={e => setSittingHeight(e.target.value)} placeholder="e.g. 80" style={input} />
       <div onClick={save} style={{

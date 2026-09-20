@@ -81,7 +81,7 @@ export default function LogSheet({ athleteId, profile, priorities, onSaved, onMo
     loadMemory(athleteId)
       .then(memory => callClaudeText({
         system: shoutoutSystemPrompt(profile, memory.shoutouts || []),
-        userContent: `Valissa just logged: ${activityLabel}, ${dur} minutes, effort ${rpe}/10${focus ? `, focus: ${focus}` : ""}${entry.result ? `, result: ${entry.result === "W" ? "won!" : "lost"}` : ""}. Write a motivational confirmation referencing what she just did.`,
+        userContent: `${profile?.name?.trim() || "The athlete"} just logged: ${activityLabel}, ${dur} minutes, effort ${rpe}/10${focus ? `, focus: ${focus}` : ""}${entry.result ? `, result: ${entry.result === "W" ? "won!" : "lost"}` : ""}. Write a motivational confirmation referencing what she just did.`,
         maxTokens: 120,
       }))
       .then(msg => {

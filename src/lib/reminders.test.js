@@ -79,6 +79,42 @@ describe("stale/unlogged plan reminder", () => {
     expect(kindsOf(r)).toContain("plan-stale");
     expect(r.find(x => x.kind === "plan-stale").audience).toBe("both");
   });
+
+  // Weekly (schema-v2) plans carry the logged flag per session.
+  const weekly = (sessions) => ({
+    generatedAt: "2026-08-01T09:00:00.000Z",
+    schemaVersion: 2,
+    sessions,
+  });
+  const sessionA = (logged) => ({ id: "A", plannedDay: "Monday", sessionType: "full", exercises: [{ id: "x" }], sessionLogged: logged });
+  const sessionB = (logged) => ({ id: "B", plannedDay: "Thursday", sessionType: "full", exercises: [{ id: "y" }], sessionLogged: logged });
+
+  it("still fires when only Session A of the week has been logged", () => {
+    const r = dueReminders({ plan: weekly([sessionA(true), sessionB(false)]) }, TODAY);
+    const card = r.find(x => x.kind === "plan-stale");
+    expect(card).toBeTruthy();
+    expect(card.body).toContain("1 S&C session still to log");
+    expect(card.body).toContain("B · Thursday");
+  });
+
+  it("stops firing once both sessions are logged", () => {
+    const r = dueReminders({ plan: weekly([sessionA(true), sessionB(true)]) }, TODAY);
+    expect(kindsOf(r)).not.toContain("plan-stale");
+  });
+
+  it("ignores Sunday recovery when deciding whether anything is outstanding", () => {
+    const withRecovery = weekly([
+      sessionA(true), sessionB(true),
+      { id: "C", sessionType: "recovery", exercises: [], sessionLogged: false },
+    ]);
+    expect(kindsOf(dueReminders({ plan: withRecovery }, TODAY))).not.toContain("plan-stale");
+  });
+
+  it("never asks for a make-up session", () => {
+    const r = dueReminders({ plan: weekly([sessionA(false), sessionB(false)]) }, TODAY);
+    const card = r.find(x => x.kind === "plan-stale");
+    expect(card.body).not.toMatch(/make.?up|catch up|Sunday/i);
+  });
 });
 
 // getWeekBounds (load.js) anchors Mon-Sun weeks to the REAL current date, not
@@ -152,7 +188,9 @@ describe("training load family — one reminder for ACWR, monotony and sustained
   it("names every driver that fired in the one body", () => {
     const weekLogs = [...weekOf(0, repetitive(400)), ...weekOf(1, flat(300)), ...weekOf(2, flat(300))];
     const [load] = loadOf({ weekLogs });
-    expect(load.body).toContain("ACWR is in the danger zone");
+    expect(load.body).toContain("well above the recent average");
+    expect(load.body).toContain("review progression and recovery");
+    expect(load.body).not.toMatch(/danger|recovery day/i);
     expect(load.body).toContain("repetitive");
     expect(load.body).toContain("3 consecutive weeks");
   });
@@ -183,8 +221,10 @@ describe("training load family — one reminder for ACWR, monotony and sustained
     const [load, ...rest] = loadOf({ weekLogs });
     expect(rest).toEqual([]);
     expect(load.tone).toBe("danger");
-    expect(load.title).toBe("Training load is high");
-    expect(load.body).toContain("ACWR is in the danger zone");
+    expect(load.title).toBe("Training is above recent weeks");
+    expect(load.body).toContain("well above the recent average");
+    expect(load.body).toContain("review progression and recovery");
+    expect(load.body).not.toMatch(/danger|recovery day/i);
     expect(load.body).not.toContain("repetitive");
     expect(load.body).not.toContain("consecutive weeks");
   });

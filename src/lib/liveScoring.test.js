@@ -338,7 +338,7 @@ describe("log entries (MatchTrack format)", () => {
     expect(last.pOneGameScore).toBe(0); // reset after game
     expect(last.whoWonPoint).toBe("1");
     expect(last.whoServed).toBe("1");
-    expect(last.pOneName).toBe("Valissa");
+    expect(last.pOneName).toBe("Athlete");
     expect(last.pTwoName).toBe("Rival");
     expect(s.log[0].pointNumber).toBe(1);
     expect(s.log[0].setNumber).toBe(1);
@@ -535,7 +535,7 @@ describe("finalizeMatch", () => {
     const doc = finalizeMatch(s, { durationMin: 47 });
 
     expect(doc.whoWonMatch).toBe(1);
-    expect(doc.valissaName).toBe("Valissa");
+    expect(doc.valissaName).toBe("Athlete");
     expect(doc.opponentName).toBe("Rival");
     expect(doc.setScores.p1).toEqual([6]);
     expect(doc.setScores.p2).toEqual([0]);

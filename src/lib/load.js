@@ -75,31 +75,137 @@ export function calculateMetrics(logs, wellbeing, ref = new Date()) {
   };
 }
 
-export function getACWRContext(acwr, tournamentStatus, sessionTime) {
+// ── getLoadContext ───────────────────────────────────────────────────────────
+// The load notes handed to the plan prompt. These describe what the numbers
+// DID, never what they predict: the acute:chronic ratio is a trend line, not a
+// validated injury classifier, so it never says "danger", never declares a week
+// "optimal", and never tells a low week to train more. A large swing earns
+// "review progression and recovery" — a prompt to look, not a diagnosis.
+export function getLoadContext(acwr, tournamentStatus, sessionTime) {
   const notes = [];
-  if (tournamentStatus === "pre")       notes.push("Pre-tournament (next 7 days): reduce volume ~35%, familiar exercises only, no new movements");
-  if (tournamentStatus === "week_of")   notes.push("Tournament THIS week: activation only, max 6 exercises, nothing causing soreness");
-  if (tournamentStatus === "post_hard") notes.push("Post heavy tournament: reduce volume ~25%, prioritise mobility and recovery");
-  if (tournamentStatus === "post_easy") notes.push("Post light tournament: normal plan, monitor energy");
+  if (tournamentStatus === "pre")       notes.push("Tournament within ~2 weeks: keep strength work familiar and submaximal, and protect freshness for the court");
+  if (tournamentStatus === "week_of")   notes.push("Tournament this week: one shortened maintenance session early in the week; the second session may become recovery or be dropped");
+  if (tournamentStatus === "post_hard") notes.push("After a heavy tournament: matches were training load — keep the week's strength volume low and prioritise movement quality");
+  if (tournamentStatus === "post_easy") notes.push("After a light tournament: normal week, monitor energy");
 
   if (acwr === null) {
-    notes.push("Not enough load history yet — use conservative volume, focus on movement quality");
-  } else if (acwr > 1.5) {
-    notes.push(`ACWR ${acwr} — DANGER ZONE: significantly reduce volume, recovery and mobility only`);
-  } else if (acwr > 1.3) {
-    notes.push(`ACWR ${acwr} — CAUTION: reduce sets by 1–2, avoid new high-intensity exercises`);
-  } else if (acwr < 0.8) {
-    notes.push(`ACWR ${acwr} — UNDERLOADED: athlete can handle more volume and harder progressions`);
+    notes.push("Not enough load history yet to compare this week against a baseline — keep volume conservative and focus on movement quality");
   } else {
-    notes.push(`ACWR ${acwr} — OPTIMAL (0.8–1.3): normal progression, standard volume`);
+    notes.push(`This week's total training is ${workloadTrendLabel(acwr).toLowerCase()} (ratio ${acwr} against the 4-week mean)`);
+    if (acwr > 1.3 || acwr < 0.8) {
+      notes.push("That is a large change from recent training — review progression and recovery. It is a workload trend, not an injury prediction, and a low figure is never a reason to add training");
+    }
   }
 
   if (sessionTime) {
     const h = parseInt(sessionTime.split(":")[0]);
-    if (h < 10) notes.push("Morning session: CNS not fully activated, add extra warmup time");
+    if (h < 10) notes.push("Morning session: allow extra warm-up time");
     if (h >= 19) notes.push("Evening session: avoid high-intensity plyometrics after 7pm");
   }
   return notes;
+}
+
+// Retained name for callers that still import the old spelling.
+export const getACWRContext = getLoadContext;
+
+// ── rollingSRPE ──────────────────────────────────────────────────────────────
+// Total sRPE over the `days` calendar days ending on `ref` (inclusive). The
+// plain, assumption-free workload number: no week boundaries, no ratios.
+export function rollingSRPE(logs, days, ref = new Date()) {
+  const from = new Date(ref);
+  from.setDate(from.getDate() - (days - 1));
+  const fromStr = toLocalDateStr(from);
+  const toStr = toLocalDateStr(ref);
+  return Math.round(
+    (logs || [])
+      .filter(l => l.date >= fromStr && l.date <= toStr)
+      .reduce((sum, l) => sum + sessionSRPE(l), 0)
+  );
+}
+
+// ── loadTrend ────────────────────────────────────────────────────────────────
+// Descriptive workload trend: the last 7 days against the weekly-equivalent
+// average of the last 28. Reports the difference and leaves the judgement to a
+// human — `label` is a description of the change, not a verdict on it.
+export function loadTrend(logs, ref = new Date()) {
+  const last7DaySRPE = rollingSRPE(logs, 7, ref);
+  const last28DaySRPE = rollingSRPE(logs, 28, ref);
+  const baselineWeeklySRPE = Math.round(last28DaySRPE / 4);
+  const pctFromBaseline = baselineWeeklySRPE > 0
+    ? Math.round(((last7DaySRPE - baselineWeeklySRPE) / baselineWeeklySRPE) * 100)
+    : null;
+  const ratio = baselineWeeklySRPE > 0
+    ? Math.round((last7DaySRPE / baselineWeeklySRPE) * 100) / 100
+    : null;
+  return {
+    last7DaySRPE,
+    last28DaySRPE,
+    baselineWeeklySRPE,
+    pctFromBaseline,
+    ratio,
+    label: workloadTrendLabel(ratio),
+  };
+}
+
+// How each logged `type` rolls up in the weekly summary. Anything unrecognised
+// (including the legacy "cheer" logs) counts as cross-training, which is what
+// it physiologically was — the history stays readable without pretending
+// cheerleading is still part of the week.
+const SUMMARY_BUCKET = {
+  tennis: "tennisMinutes",
+  match: "matchMinutes",
+  strength: "strengthMinutes",
+};
+
+// ── weeklyTrainingSummary ────────────────────────────────────────────────────
+// Minutes by training category for one Mon–Sun week, plus rest days and sRPE.
+// sRPE is a single global internal-load figure; these per-type totals are the
+// context that stops two very different weeks with the same sRPE reading as the
+// same week.
+export function weeklyTrainingSummary(logs, weeksAgo = 0, ref = new Date()) {
+  const { start, end } = getWeekBounds(weeksAgo);
+  const inWeek = (logs || []).filter(l => l.date >= start && l.date < end);
+
+  const summary = {
+    weekStart: start,
+    tennisMinutes: 0,
+    matchMinutes: 0,
+    strengthMinutes: 0,
+    crossTrainingMinutes: 0,
+  };
+  let srpe = 0;
+  const activeDates = new Set();
+  for (const l of inWeek) {
+    const bucket = SUMMARY_BUCKET[l.type] || "crossTrainingMinutes";
+    summary[bucket] += l.duration || 0;
+    srpe += sessionSRPE(l);
+    if (l.date) activeDates.add(l.date);
+  }
+
+  const totalMinutes = summary.tennisMinutes + summary.matchMinutes
+    + summary.strengthMinutes + summary.crossTrainingMinutes;
+
+  // Rest days are only meaningful over days that have actually happened: a week
+  // read on Tuesday would otherwise report five "rest days" it has not reached.
+  const todayStr = toLocalDateStr(ref);
+  const daysElapsed = todayStr >= end ? 7 : todayStr < start ? 0
+    : Math.min(7, Math.round((new Date(`${todayStr}T00:00:00`) - new Date(`${start}T00:00:00`)) / 86400000) + 1);
+
+  return {
+    ...summary,
+    totalMinutes,
+    tennisHours: Math.round((summary.tennisMinutes / 60) * 10) / 10,
+    matchHours: Math.round((summary.matchMinutes / 60) * 10) / 10,
+    strengthHours: Math.round((summary.strengthMinutes / 60) * 10) / 10,
+    crossTrainingHours: Math.round((summary.crossTrainingMinutes / 60) * 10) / 10,
+    onCourtHours: Math.round(((summary.tennisMinutes + summary.matchMinutes) / 60) * 10) / 10,
+    srpe: Math.round(srpe),
+    sessionCount: inWeek.length,
+    strengthSessions: inWeek.filter(l => l.type === "strength").length,
+    trainingDays: activeDates.size,
+    daysElapsed,
+    restDays: Math.max(0, daysElapsed - activeDates.size),
+  };
 }
 
 // Per-week load history, oldest → newest, for trend charts. Each entry carries
@@ -183,21 +289,33 @@ export function monotonyStatus(monotony) {
   return { label: "Good variety", tone: "success" };
 }
 
-// Human load-level label from ACWR. Shared by matchAnalysis.js and
-// seasonReport.js so the two prompts can never drift on thresholds.
-export function loadLevelFromAcwr(acwr) {
-  if (acwr == null) return "Unknown";
-  if (acwr < 0.8)  return "Low";
-  if (acwr <= 1.3) return "Optimal";
-  if (acwr <= 1.5) return "High";
-  return "Very High";
+// ── workloadTrendLabel ───────────────────────────────────────────────────────
+// A neutral description of how the current block compares to the recent one.
+// It deliberately does NOT say "optimal", "high risk" or "underloaded": the
+// acute:chronic ratio is a descriptive trend, and the research behind the old
+// zone labels does not support prescribing from them. Shared by matchAnalysis.js
+// and seasonReport.js so the two prompts can never drift on wording.
+export function workloadTrendLabel(ratio) {
+  if (ratio == null) return "Unknown";
+  if (ratio < 0.8)  return "Below recent average";
+  if (ratio <= 1.3) return "In line with recent average";
+  if (ratio <= 1.5) return "Above recent average";
+  return "Well above recent average";
 }
 
-// UI status for an ACWR value (thresholds match getACWRContext guidance).
-export function acwrStatus(acwr) {
-  if (acwr == null) return { label: "No data", tone: "muted" };
-  if (acwr > 1.5)  return { label: "Ease up", tone: "danger" };
-  if (acwr > 1.3)  return { label: "Careful", tone: "warn" };
-  if (acwr < 0.8)  return { label: "Push more", tone: "limeDim" };
-  return { label: "Balanced", tone: "success" };
+// Retained name for callers that still import the old spelling.
+export const loadLevelFromAcwr = workloadTrendLabel;
+
+// UI chip for a workload ratio. `tone` is a colour slot (how much visual
+// emphasis to give the number), not a risk classification — the label is what
+// the reader acts on, and it only ever describes the direction of the change.
+export function workloadTrendStatus(ratio) {
+  if (ratio == null) return { label: "No data", tone: "muted" };
+  if (ratio > 1.5)  return { label: "Well above recent", tone: "danger" };
+  if (ratio > 1.3)  return { label: "Above recent", tone: "warn" };
+  if (ratio < 0.8)  return { label: "Below recent", tone: "muted" };
+  return { label: "In line with recent", tone: "success" };
 }
+
+// Retained name for callers that still import the old spelling.
+export const acwrStatus = workloadTrendStatus;

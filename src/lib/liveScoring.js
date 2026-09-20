@@ -78,7 +78,7 @@ export function createMatch(config = {}) {
       format,
       noAd: !!config.noAd || FORMATS[format].forcedNoAd,
       firstServer: config.firstServer === 2 ? 2 : 1,
-      valissaName: config.valissaName || "Valissa",
+      valissaName: config.valissaName || "Athlete",
       opponentName: config.opponentName || "Opponent",
       mode: config.mode === "detailed" ? "detailed" : "quick",
       // Always written (never undefined) so the Firestore draft round-trips it, and so

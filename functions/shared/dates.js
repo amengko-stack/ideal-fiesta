@@ -49,6 +49,26 @@ export function previousWeekKey(weekKey) {
   return toLocalDateStr(d);
 }
 
+// The Monday after the one at `weekKey` (YYYY-MM-DD), or null if unparseable.
+export function nextWeekKey(weekKey) {
+  if (!weekKey) return null;
+  const d = new Date(`${weekKey}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setDate(d.getDate() + 7);
+  return toLocalDateStr(d);
+}
+
+// The Monday the COMING training week starts on. Monday–Saturday that is this
+// week's Monday; on Sunday it is tomorrow. The weekly review runs on Sunday and
+// generates the week ahead, so its plan must be keyed to the week it is for —
+// currentWeekKey() on a Sunday is the Monday of the week just finishing, which
+// is the right key for that run's claim and digest but the wrong one for the
+// plan those two produce.
+export function upcomingWeekKey(now = new Date()) {
+  const current = weekStartOf(toLocalDateStr(now));
+  return now.getDay() === 0 ? nextWeekKey(current) : current;
+}
+
 // Is a weekly digest still worth showing? The orchestrator runs on Sunday
 // evening, so for most of Monday–Sunday the newest digest is last week's — the
 // card would blink out of existence every Monday morning if only the current

@@ -1,7 +1,7 @@
 import { textAddressesPriority } from "./priorityKeys.js";
 
 // ─── ON-COURT FOCUS LOOP — PURE CORE ──────────────────────────────────────────
-// The AI raises focus priorities from match data and the Sunday plan addresses
+// The AI raises focus priorities from match data and the weekly S&C plan addresses
 // them for strength training — but tennis practice itself, the bulk of her
 // training time, never gets pointed at them. This module closes that gap: pick
 // the one priority to put in front of her this week, turn it into a concrete

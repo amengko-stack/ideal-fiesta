@@ -1,27 +1,36 @@
-// Fixture inputs for the Sunday-plan prompt golden test.
+// Fixture inputs for the weekly S&C plan prompt golden test.
 //
-// The golden file (sundayPlanPrompt.golden.txt / .system.txt) was captured from
-// planGen.js's inline prompt construction BEFORE it was extracted into
-// planGenCore.js, with the system clock frozen at FIXTURE_NOW. The test asserts
-// buildSundayPlanPrompt reproduces those bytes exactly, which is what proves the
-// extraction changed nothing.
+// The golden files (weeklyPlanPrompt.golden.txt / weeklyPlanSystem.golden.txt /
+// weeklyPlanPrompt.tournament.golden.txt) are the byte-exact output of
+// buildWeeklyStrengthPlanPrompt for these inputs with the clock frozen at
+// FIXTURE_NOW. They exist so an unintended wording change — a reinstated
+// growth-plate blanket rule, a puberty-stage claim, a resurrected "danger zone"
+// — fails CI instead of quietly reaching the athlete.
+//
+// Regenerate deliberately (never to make a red test green without reading the
+// diff first):
+//   node scripts/regen-plan-goldens.mjs
 //
 // Pure data only — no Firestore, no network.
 
 export const FIXTURE_NOW = "2026-03-15T09:00:00.000Z"; // a Sunday
 
+// Height history is the point of this fixture: 148.5 cm → 153 cm across 183
+// days annualises to ~9 cm/year, which is what puts the athlete on growth
+// watch. A sitting height is present so the test can also prove the Mirwald
+// estimate no longer reaches the S&C prompt.
 export const fixtureProfile = {
-  name: "Valissa",
-  dob: "2013-05-04",
+  name: "Marsha",
+  dob: "2014-03-07",
   competitionCategory: "U14",
-  gaps: ["first_serve", "movement_footwork"],
-  height: 154,
-  weight: 41,
+  gaps: ["first_step", "movement_footwork"],
+  height: 153,
+  weight: 43,
   sittingHeight: 80,
   coachNotes: "  Right ankle a bit sore after Thursday.  ",
   measurements: [
-    { date: "2026-03-01", height: 154, weight: 41, sittingHeight: 80 },
-    { date: "2026-02-01", height: 153, weight: 40.5 },
+    { date: "2026-03-14", height: 153, weight: 43, sittingHeight: 80 },
+    { date: "2025-09-12", height: 148.5, weight: 37.5 },
   ],
 };
 
@@ -36,16 +45,18 @@ export const fixtureWeekLogs = [
 
 export const fixtureSessionHistory = [
   {
-    date: "2026-03-08",
+    date: "2026-03-09",
+    plannedSessionId: "A",
     exercises: [
-      { name: "Goblet Squat", sets: 3, reps: 10, weight: "8kg", difficulty: 3, completed: true },
-      { name: "Single-Leg Balance", sets: 2, reps: 30, difficulty: 2, completed: true },
+      { name: "Goblet Squat", sets: 2, reps: 8, weight: "8kg", difficulty: 3, completed: true },
+      { name: "Snap-Down", sets: 2, reps: 5, difficulty: 2, completed: true },
     ],
   },
   {
-    date: "2026-03-01",
+    date: "2026-03-05",
+    plannedSessionId: "B",
     exercises: [
-      { name: "Med Ball Rotational Throw", sets: 3, reps: 8, difficulty: 4, completed: false },
+      { name: "Single Leg RDL", sets: 2, reps: 6, difficulty: 3, completed: true },
     ],
   },
 ];
@@ -124,4 +135,7 @@ export const fixtureArgs = {
   wellbeing: fixtureWellbeing,
   tournament: "none",
   sessionTime: "09:00",
+  // Pinned so the golden files do not depend on how far into the eight-week
+  // block the real athlete happens to be.
+  blockState: { blockWeek: 3, blockNumber: 1 },
 };

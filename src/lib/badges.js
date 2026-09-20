@@ -11,7 +11,7 @@ export const BADGES = [
   { id: "first-win",     emoji: "🏆", name: "First Win",         desc: "Won a recorded match.",                     hint: "Win a match" },
   { id: "checkin-7",     emoji: "✨", name: "Week of Check-ins", desc: "Checked in seven different days.",          hint: "Check in 7 days" },
   { id: "level-5",       emoji: "⭐", name: "Rising Star",       desc: "Reached level 5.",                          hint: "Reach level 5" },
-  { id: "plan-done",     emoji: "📋", name: "Plan Crusher",      desc: "Finished every exercise in a Sunday plan.", hint: "Tick off a full plan" },
+  { id: "plan-done",     emoji: "📋", name: "Plan Crusher",      desc: "Finished every exercise in a week's S&C plan.", hint: "Tick off every session in a week" },
 ];
 
 const PREDICATES = {

@@ -74,7 +74,10 @@ export function playingUpYears(age, categoryId) {
 // Resolves a raw Firestore profile doc into everything the UI and the prompts
 // need. `category` falls back to her chronological division, never to a guess.
 export function resolveIdentity(profile, now = new Date()) {
-  const name      = profile?.name?.trim() || "Valissa";
+  // The athlete's name always comes from the profile document. The fallback is
+  // deliberately generic: a hardcoded name would end up in a generated plan or
+  // push notification addressed to the wrong person.
+  const name      = profile?.name?.trim() || "Athlete";
   const age       = computeAge(profile?.dob, now);
   const category  = profile?.competitionCategory || chronologicalCategory(age) || DEFAULT_CATEGORY;
   const cutoff    = categoryCutoff(category);

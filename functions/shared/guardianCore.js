@@ -52,11 +52,11 @@ export const GUARDIAN_THRESHOLDS = Object.freeze({
   // the ratio is 4A/(A+3P), not the textbook A/P. That compresses the scale:
   // 1.35 here is roughly +52% over the prior three weeks, and the metric
   // asymptotes at 4.0 no matter how big the spike is. It sits deliberately
-  // above the dashboard's own 1.3 "Careful" chip (acwrStatus): the chip is an
-  // always-on indicator a parent can glance past, the Guardian buzzes a phone
-  // at 6am, so it has to be the stricter of the two.
+  // above the dashboard's own 1.3 "Above recent" chip (workloadTrendStatus):
+  // the chip is an always-on indicator a parent can glance past, the Guardian
+  // buzzes a phone at 6am, so it has to be the stricter of the two.
   acwrSpike: 1.35,
-  // The dashboard's "Ease up" line. A ratio this far out is not a hard week,
+  // The dashboard's "Well above recent" line. A ratio this far out is not a hard week,
   // it is a week that does not belong to the same training block as the three
   // before it, so the factor upgrades to the heaviest non-standalone weight.
   acwrSevere: 1.5,
@@ -364,7 +364,7 @@ function loadFactors(weekLogs, ref) {
     out.push(factor({
       id: "acwr-spike", family: "load", weight: severe ? 3 : 2, severe,
       label: severe ? "Sharp jump in training load" : "Training load stepped up",
-      evidence: `This week's load is ${Math.round(thisWeekSRPE)} against a 4-week average of ${Math.round(fourWeekAvg)} (ratio ${acwr}${severe ? ", danger zone" : ""}).`,
+      evidence: `This week's load is ${Math.round(thisWeekSRPE)} against a 4-week average of ${Math.round(fourWeekAvg)} (ratio ${acwr}${severe ? ", well above the recent block" : ""}).`,
       metrics: { acwr, thisWeekSRPE: Math.round(thisWeekSRPE), fourWeekAvg: Math.round(fourWeekAvg) },
     }));
   }
@@ -631,11 +631,12 @@ function growthFactors(athlete, ref) {
   if (maturity?.stage === "Mid-PHV") {
     out.push(factor({
       id: "mid-phv-window", family: "growth", weight: 2,
-      label: "In the fastest part of her growth",
-      // maturity.js's own words for this stage: "most sensitive period for
-      // injury". Until now the app stated that on the Benchmarks tab and never
-      // acted on it anywhere.
-      evidence: `Maturity offset ${maturity.offset} years — she is inside the window where bone growth outpaces muscle length.`,
+      label: "Growth estimate puts her near her fastest phase",
+      // The Mirwald offset is a population regression with wide individual
+      // error, so this is stated as the estimate it is. It contributes to a
+      // combined picture; it never decides what she may train, and the S&C
+      // generator does not read it at all (it uses measured growth velocity).
+      evidence: `Estimated maturity offset ${maturity.offset} years — a rough research estimate, not a measurement. Weigh it alongside her measured height history rather than on its own.`,
       metrics: { maturityStage: maturity.stage, maturityOffset: maturity.offset },
     }));
   }
@@ -1059,7 +1060,7 @@ const GUARDIAN_NOTES_MAX_TOKENS = 600;
 
 export function buildGuardianNotesPrompt(assessment, athleteName) {
   const a = isObj(assessment) ? assessment : {};
-  const name = athleteName || "Valissa";
+  const name = athleteName || "the athlete";
 
   const system =
     "You are an expert youth tennis coach writing the short note a parent reads at 6am, before training. " +
@@ -1171,7 +1172,7 @@ export function buildGuardianAlert({ assessment, notes = null, now = new Date(),
 // tray instead of stacking — this is one ongoing story, not a feed.
 export function guardianPushPayload(alert) {
   const a = isObj(alert) ? alert : {};
-  const name = a.athleteName || "Valissa";
+  const name = a.athleteName || "The athlete";
   const title = a.severity === "urgent" ? `${name} — worth a look before training` : `Heads up on ${name}`;
 
   const note = typeof a.parentNote === "string" ? a.parentNote.trim() : "";

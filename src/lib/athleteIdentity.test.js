@@ -98,9 +98,11 @@ describe("resolveIdentity", () => {
     expect(id.isPlayingUp).toBe(false);
   });
 
-  it("survives an empty profile", () => {
+  it("survives an empty profile without inventing a name", () => {
     const id = resolveIdentity(null, NOW);
-    expect(id.name).toBe("Valissa");
+    // Generic, never a real athlete's name: this string can reach a generated
+    // plan or a push notification.
+    expect(id.name).toBe("Athlete");
     expect(id.age).toBeNull();
     expect(id.isPlayingUp).toBe(false);
   });

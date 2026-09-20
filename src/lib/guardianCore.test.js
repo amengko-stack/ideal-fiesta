@@ -741,6 +741,13 @@ describe("growth family", () => {
     expect(ids(MID_PHV_ATHLETE)).toEqual(["mid-phv-window"]);
     expect(factorsFor(MID_PHV_ATHLETE)[0].weight).toBe(2);
   });
+  it("states the Mirwald offset as an estimate, never as a measured stage", () => {
+    const f = factorsFor(MID_PHV_ATHLETE)[0];
+    expect(f.evidence).toContain("Estimated maturity offset");
+    expect(f.evidence).toContain("not a measurement");
+    expect(f.evidence).not.toMatch(/she is inside the window/i);
+    expect(f.label).not.toMatch(/^At PHV/i);
+  });
   it("does not fire for a Pre-PHV athlete", () => {
     expect(ids(PRE_PHV_ATHLETE)).toEqual([]);
   });
@@ -1409,9 +1416,10 @@ describe("buildGuardianNotesPrompt", () => {
     for (const f of assessment.factors) expect(prompt).toContain(f.evidence);
   });
 
-  it("falls back to a default name and does not throw on a null assessment", () => {
+  it("falls back to a generic name and does not throw on a null assessment", () => {
     const p = buildGuardianNotesPrompt(null, null);
-    expect(p.prompt).toContain("Valissa");
+    expect(p.prompt).toContain("the athlete");
+    expect(p.prompt).not.toContain("Valissa");
   });
 });
 

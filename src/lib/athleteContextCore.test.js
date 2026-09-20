@@ -183,9 +183,9 @@ describe("assembleAthleteContext — profile, maturity and identity", () => {
     expect(ctx.athleteProfile.age).toBe(12);
     expect(ctx.athleteProfile.categoryLabel).toBe("Under-14");
     expect(ctx.athleteProfile.isPlayingUp).toBe(true);
-    expect(ctx.athleteProfile.maturityLine).toContain("Maturation: Mid-PHV");
+    expect(ctx.athleteProfile.maturityLine).toContain("Estimated maturity offset — interpret cautiously: Mid-PHV");
     expect(ctx.athleteProfile.identityText).toContain("ATHLETE: Valissa · female · age 12");
-    expect(ctx.athleteProfile.identityText).toContain("Maturation: Mid-PHV");
+    expect(ctx.athleteProfile.identityText).toContain("Estimated maturity offset — interpret cautiously: Mid-PHV");
   });
 
   it("omits the maturation line when no measurement carries a sitting height", () => {

@@ -24,7 +24,7 @@ const withIds = (snap) => snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
 // ── fetchAthleteRaw ──────────────────────────────────────────────────────────
 // The raw bundle assembleAthleteContext(raw, now) expects, plus `sessions` —
-// the strength-session history buildSundayPlanPrompt renders (planGen.js gets
+// the strength-session history buildWeeklyStrengthPlanPrompt renders (planGen.js gets
 // it from MobileApp's `sessionHistory`; planGenCore already slices to the
 // newest 6, so we read 6).
 //

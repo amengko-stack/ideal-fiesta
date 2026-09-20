@@ -58,7 +58,7 @@ export default function TournamentSheet({ athleteId, onSaved, onClose }) {
         opacity: saving ? 0.6 : 1,
       }}>{saving ? "Saving…" : "Save tournament ⚡"}</div>
       <div style={{ fontSize: 11.5, color: M.sub, textAlign: "center", marginTop: 12, lineHeight: 1.4 }}>
-        Sunday plans automatically taper training as this date gets closer.
+        The weekly S&C plan automatically tapers as this date gets closer.
       </div>
     </>
   );
