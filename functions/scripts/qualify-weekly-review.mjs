@@ -157,6 +157,18 @@ export async function callAnthropicJSON({ model, system, userContent, maxTokens 
 export const __real = ${JSON.stringify(anthropicReal.length)};
 `;
 globalThis.__anthropicCalls = anthropicCalls;
+
+// Both shims are written into functions/ so Node resolves firebase-admin from
+// functions/node_modules. They are removed unconditionally on exit — a failed
+// run must not leave them behind for the next `git status` to trip over.
+const TEMP_SHIMS = [`${REPO}/functions/anthropic.stub.mjs`, `${REPO}/functions/weeklyReview.harness.mjs`];
+const cleanUp = () => {
+  for (const f of TEMP_SHIMS) { try { fs.unlinkSync(f); } catch { /* already gone */ } }
+};
+process.on('exit', cleanUp);
+for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { cleanUp(); process.exit(130); });
+process.on('uncaughtException', (err) => { cleanUp(); console.error(err); process.exit(1); });
+
 fs.writeFileSync(`${REPO}/functions/anthropic.stub.mjs`, STUB);
 
 // Swap the import specifier by writing a temporary shim module next to it.
@@ -283,6 +295,6 @@ console.log(`Plan block:      ${JSON.stringify(plan2.block)}`);
 console.log(`Plan sessions:   ${plan2.sessions.map(s => `${s.id}/${s.plannedDay}/${s.sessionType}/${s.exercises.length}ex`).join('  ')}`);
 console.log(`\n${check.every(c => c.pass) ? 'ALL LOCAL CHECKS PASSED' : 'SOME CHECKS FAILED'}`);
 
-fs.unlinkSync(`${REPO}/functions/anthropic.stub.mjs`);
-fs.unlinkSync(`${REPO}/functions/weeklyReview.harness.mjs`);
+// cleanUp also runs from the `exit` handler registered above.
+cleanUp();
 process.exit(check.every(c => c.pass) ? 0 : 1);
