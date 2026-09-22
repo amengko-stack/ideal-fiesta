@@ -211,7 +211,7 @@ Suppressed for this block (do not prescribe): depth jumps, box jumping, single-l
 ═══════════════════════════════════════════
 RECENT MATCH FINDINGS
 ═══════════════════════════════════════════
-Match vs Kirana on 3/7/2026 (WIN):
+Match vs Kirana on 7 Mar 2026 (WIN):
 Critical findings:
   - [critical] Second serve sat up under pressure at 4-4.
   - [important] Late split-step on wide returns.

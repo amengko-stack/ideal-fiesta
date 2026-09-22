@@ -67,7 +67,7 @@ export async function generateMatchAnalysis(athleteId, match) {
   const userPrompt =
 `${context.athleteProfile?.identityText || identityBlock({})}
 ${memorySection}${seasonPrioritySection}${injurySection}
-MATCH (${divisionLabel}): ${match.whoWonMatch === 1 ? "WIN" : "LOSS"} vs ${match.opponentName || "Opponent"} on ${match.matchStartTime ? new Date(match.matchStartTime).toLocaleDateString() : "unknown date"}
+MATCH (${divisionLabel}): ${match.whoWonMatch === 1 ? "WIN" : "LOSS"} vs ${match.opponentName || "Opponent"} on ${match.matchStartTime ? new Date(match.matchStartTime).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" }) : "unknown date"}
 Score: ${scoreStr}
 
 SERVICE STATS (Valissa / Opponent):

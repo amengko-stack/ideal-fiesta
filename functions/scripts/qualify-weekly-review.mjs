@@ -21,7 +21,7 @@
 
 process.env.TZ = 'Asia/Jakarta';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 // ── Anthropic stub ───────────────────────────────────────────────────────────
@@ -176,7 +176,9 @@ const reviewSrc = fs.readFileSync(`${REPO}/functions/weeklyReview.js`, 'utf8')
   .replace("from './anthropic.js'", "from './anthropic.stub.mjs'");
 fs.writeFileSync(`${REPO}/functions/weeklyReview.harness.mjs`, reviewSrc);
 
-const { runWeeklyReviewForAthlete } = await import(`${REPO}/functions/weeklyReview.harness.mjs`);
+// pathToFileURL: a bare Windows path (C:\...) is not a legal ESM specifier --
+// dynamic import() rejects it with ERR_UNSUPPORTED_ESM_URL_SCHEME.
+const { runWeeklyReviewForAthlete } = await import(pathToFileURL(`${REPO}/functions/weeklyReview.harness.mjs`).href);
 
 // ── seed a realistic athlete ─────────────────────────────────────────────────
 const ATHLETE = 'kDybMQH9lefwHI0dRway';

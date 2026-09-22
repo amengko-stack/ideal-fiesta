@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import LoadScreen from "./LoadScreen.jsx";
-import { getWeekBounds } from "../lib/dates.js";
+import { getWeekBounds, toLocalDateStr } from "../lib/dates.js";
 
 // Static render guard for the Load screen. The thing worth protecting here is
 // the language: the acute:chronic ratio is a descriptive trend, so the screen
@@ -12,7 +12,10 @@ const monday = getWeekBounds(0).start;
 const dayInWeek = (offset) => {
   const d = new Date(`${monday}T00:00:00`);
   d.setDate(d.getDate() + offset);
-  return d.toISOString().slice(0, 10);
+  // toLocalDateStr, not toISOString: the Date above is LOCAL midnight, so in
+  // any UTC+ zone toISOString rolls back a day and Monday's logs fall outside
+  // the week getWeekBounds() just returned.
+  return toLocalDateStr(d);
 };
 
 const render = (weekLogs) => renderToStaticMarkup(<LoadScreen weekLogs={weekLogs} />);

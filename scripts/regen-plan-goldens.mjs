@@ -10,13 +10,15 @@
 
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const FIXTURE_DIR = path.join(repoRoot, 'src', 'lib', '__fixtures__');
 
-const { buildWeeklyStrengthPlanPrompt } = await import(path.join(repoRoot, 'src/lib/planGenCore.js'));
-const { FIXTURE_NOW, fixtureArgs, fixtureCtx } = await import(path.join(FIXTURE_DIR, 'weeklyPlanFixture.js'));
+// pathToFileURL: a bare Windows path (C:\...) is not a legal ESM specifier --
+// dynamic import() rejects it with ERR_UNSUPPORTED_ESM_URL_SCHEME.
+const { buildWeeklyStrengthPlanPrompt } = await import(pathToFileURL(path.join(repoRoot, 'src/lib/planGenCore.js')).href);
+const { FIXTURE_NOW, fixtureArgs, fixtureCtx } = await import(pathToFileURL(path.join(FIXTURE_DIR, 'weeklyPlanFixture.js')).href);
 
 // getWeekBounds() reads the real clock (it takes no reference date), so the
 // week window inside the prompt would otherwise depend on the day this script

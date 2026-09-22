@@ -1,0 +1,5 @@
+# The weekly-plan goldens are compared byte-for-byte against generated prompt
+# output, which always uses \n. Without this, a Windows checkout (core.autocrlf
+# =true) rewrites them to CRLF and every golden test fails locally while still
+# passing in CI — see scripts/regen-plan-goldens.mjs.
+*.golden.txt text eol=lf

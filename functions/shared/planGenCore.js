@@ -334,7 +334,7 @@ ${(() => {
       const rm = ctx?.recentMatch;
       const ma = ctx?.matchAnalysis;
       if (!rm || !ma) return "No recent match within the last 14 days.";
-      const matchDate = rm.matchStartTime ? new Date(rm.matchStartTime).toLocaleDateString() : "unknown date";
+      const matchDate = rm.matchStartTime ? new Date(rm.matchStartTime).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" }) : "unknown date";
       const findingsText = (ma.criticalFindings || []).length > 0
         ? ma.criticalFindings.map(f => `  - [${f.priority}] ${f.finding}`).join("\n")
         : "  None recorded.";
