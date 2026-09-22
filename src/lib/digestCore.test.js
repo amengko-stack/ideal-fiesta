@@ -46,11 +46,25 @@ const ctx = {
   },
 };
 
+// Pre-schema-v2 plan document: one flat exercise list. Kept as the default
+// fixture so the digest is proven to still read plans written before the
+// weekly restructure.
 const planData = {
   plan: [{ name: "A" }, { name: "B" }, { name: "C" }],
   sessionType: "reduced",
   sessionDuration: 45,
   coachNote: "A lighter session while the ankle settles.",
+};
+
+// Schema-v2 weekly plan: two scheduled sessions plus Sunday recovery.
+const weeklyPlanData = {
+  schemaVersion: 2,
+  block: { number: 1, week: 3, phase: "build" },
+  sessions: [
+    { id: "A", plannedDay: "Monday", sessionType: "full", durationMin: 55, exercises: [{ id: "x1" }, { id: "x2" }] },
+    { id: "B", plannedDay: "Thursday", sessionType: "full", durationMin: 55, exercises: [{ id: "y1" }] },
+  ],
+  coachNote: "Third set on the main lifts where technique holds.",
 };
 
 const hygieneResults = {
@@ -91,7 +105,7 @@ describe("buildDigestData — load", () => {
     expect(load.thisWeekSRPE).toBe(1215);
     expect(load.fourWeekAvg).toBe(379);
     expect(load.acwr).toBe(3.21);
-    expect(load.acwrStatus).toEqual({ label: "Ease up", tone: "danger" });
+    expect(load.acwrStatus).toEqual({ label: "Well above recent", tone: "danger" });
   });
 
   it("counts only this week's sessions and splits sRPE by type", () => {
@@ -199,18 +213,45 @@ describe("buildDigestData — injuries and plan", () => {
     expect(build({ ctx: { ...ctx, injuries: null } }).injuries).toEqual({ openCount: 0, flagHeadline: null });
   });
 
-  it("summarises the plan", () => {
+  it("summarises a pre-v2 plan document", () => {
     expect(build().plan).toEqual({
       sessionType: "reduced",
       sessionDuration: 45,
       exerciseCount: 3,
+      sessionCount: 1,
+      blockWeek: null,
+      blockPhase: null,
       coachNote: "A lighter session while the ankle settles.",
     });
   });
 
+  it("summarises a weekly (schema-v2) plan across both sessions", () => {
+    expect(build({ planData: weeklyPlanData }).plan).toEqual({
+      sessionType: "full",
+      sessionDuration: 110,
+      exerciseCount: 3,
+      sessionCount: 2,
+      blockWeek: 3,
+      blockPhase: "build",
+      coachNote: "Third set on the main lifts where technique holds.",
+    });
+  });
+
+  it("ignores Sunday recovery when counting the week's sessions", () => {
+    const withRecovery = {
+      ...weeklyPlanData,
+      sessions: [
+        ...weeklyPlanData.sessions,
+        { id: "C", sessionType: "recovery", durationMin: 0, exercises: [] },
+      ],
+    };
+    expect(build({ planData: withRecovery }).plan.sessionCount).toBe(2);
+  });
+
   it("nulls the plan section when no plan was generated", () => {
     expect(build({ planData: null }).plan).toEqual({
-      sessionType: null, sessionDuration: null, exerciseCount: 0, coachNote: null,
+      sessionType: null, sessionDuration: null, exerciseCount: 0,
+      sessionCount: 0, blockWeek: null, blockPhase: null, coachNote: null,
     });
   });
 });
@@ -253,13 +294,14 @@ describe("buildDigestNotesPrompt", () => {
     const { prompt } = buildDigestNotesPrompt(build(), "Valissa");
     expect(prompt).toContain("week of 2026-03-09 to 2026-03-15");
     expect(prompt).toContain("This week sRPE: 1215 (4-week average 379)");
-    expect(prompt).toContain("ACWR: 3.21 — Ease up");
+    expect(prompt).toContain("ACWR: 3.21 — Well above recent");
     expect(prompt).toContain("Sessions logged: 3 (sRPE by type: tennis 990, other 225)");
     expect(prompt).toContain("Low mood flag: YES");
     expect(prompt).toContain("- 2026-03-14: WIN vs Kirana");
     expect(prompt).toContain("This week's focus: Second serve under pressure");
     expect(prompt).toContain("OPEN INJURIES: 1 — Ankle — avoid loading this area");
-    expect(prompt).toContain("- Session: reduced · 45 min · 3 exercises");
+    expect(prompt).toContain("- Sessions: 1");
+    expect(prompt).toContain("- Shape: reduced · 45 min total · 3 exercises");
   });
 
   it("forbids the model from inventing anything", () => {
@@ -267,9 +309,10 @@ describe("buildDigestNotesPrompt", () => {
     expect(system).toContain("never invent an event");
   });
 
-  it("falls back to the digest's own athlete name, then to Valissa", () => {
+  it("falls back to the digest's own athlete name, then to a generic one", () => {
     expect(buildDigestNotesPrompt(build(), null).prompt).toContain("WEEK IN REVIEW for Valissa");
-    expect(buildDigestNotesPrompt({}, null).prompt).toContain("WEEK IN REVIEW for Valissa");
+    // No real name is ever hardcoded as a fallback — this text reaches a parent.
+    expect(buildDigestNotesPrompt({}, null).prompt).toContain("WEEK IN REVIEW for the athlete");
   });
 
   it("renders em-dashes rather than undefined for a bare digest", () => {
@@ -282,7 +325,7 @@ describe("buildDigestNotesPrompt", () => {
 describe("digestPushPayload", () => {
   it("titles the push with the athlete's name", () => {
     expect(digestPushPayload({ athleteName: "Valissa" }).title).toBe("Valissa's week in review");
-    expect(digestPushPayload({}).title).toBe("Valissa's week in review");
+    expect(digestPushPayload({}).title).toBe("The athlete's week in review");
   });
 
   it("uses the first sentence of parentNote as the body", () => {
@@ -307,7 +350,7 @@ describe("digestPushPayload", () => {
     const digest = build();
     expect(digestPushPayload(digest)).toEqual({
       title: "Valissa's week in review",
-      body: "3 sessions · load 1215 · Ease up · 1 match · reduced session planned.",
+      body: "3 sessions · load 1215 · Well above recent · 1 match · 1 S&C session planned.",
     });
   });
 

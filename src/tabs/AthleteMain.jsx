@@ -130,7 +130,7 @@ export default function AthleteMain({ athleteId, isParent, user, onBack, onSignO
 
         <div className="tabs">
           {[
-            { id: "plan",     Icon: Target,        label: "Sunday Plan" },
+            { id: "plan",     Icon: Target,        label: "S&C Plan" },
             { id: "log",      Icon: ClipboardList, label: "Log Activity" },
             { id: "strength", Icon: Dumbbell,      label: "Log Strength" },
             { id: "matches",    Icon: History,        label: "Matches" },

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { sessionSRPE, computeLoad, computeLoadHistory, mergeWellbeingByDate, calculateMetrics, readinessScore, acwrStatus, loadLevelFromAcwr, computeMonotonyStrain, monotonyStatus } from "./load.js";
+import { sessionSRPE, computeLoad, computeLoadHistory, mergeWellbeingByDate, calculateMetrics, readinessScore, acwrStatus, loadLevelFromAcwr, workloadTrendStatus, workloadTrendLabel, getLoadContext, rollingSRPE, loadTrend, weeklyTrainingSummary, computeMonotonyStrain, monotonyStatus } from "./load.js";
 import { getWeekBounds, toLocalDateStr } from "./dates.js";
 
 describe("sessionSRPE", () => {
@@ -220,34 +220,196 @@ describe("readinessScore with sleep", () => {
   });
 });
 
-describe("loadLevelFromAcwr", () => {
+describe("workloadTrendLabel", () => {
   it("returns Unknown for null", () => {
-    expect(loadLevelFromAcwr(null)).toBe("Unknown");
+    expect(workloadTrendLabel(null)).toBe("Unknown");
   });
-  it("returns Low below 0.8", () => {
-    expect(loadLevelFromAcwr(0.7)).toBe("Low");
+  it("describes the direction of the change and never prescribes", () => {
+    expect(workloadTrendLabel(0.7)).toBe("Below recent average");
+    expect(workloadTrendLabel(0.8)).toBe("In line with recent average");
+    expect(workloadTrendLabel(1.3)).toBe("In line with recent average");
+    expect(workloadTrendLabel(1.4)).toBe("Above recent average");
+    expect(workloadTrendLabel(1.5)).toBe("Above recent average");
+    expect(workloadTrendLabel(1.6)).toBe("Well above recent average");
   });
-  it("returns Optimal between 0.8 and 1.3 inclusive", () => {
-    expect(loadLevelFromAcwr(0.8)).toBe("Optimal");
-    expect(loadLevelFromAcwr(1.3)).toBe("Optimal");
+  it("emits no medicalised or prescriptive label at any ratio", () => {
+    const banned = /optimal|danger|underload|push more|ease up|caution|risk/i;
+    for (const r of [null, 0.2, 0.7, 0.8, 1.0, 1.3, 1.4, 1.5, 1.6, 4]) {
+      expect(workloadTrendLabel(r)).not.toMatch(banned);
+    }
   });
-  it("returns High between 1.3 (exclusive) and 1.5 inclusive", () => {
-    expect(loadLevelFromAcwr(1.4)).toBe("High");
-    expect(loadLevelFromAcwr(1.5)).toBe("High");
-  });
-  it("returns Very High above 1.5", () => {
-    expect(loadLevelFromAcwr(1.6)).toBe("Very High");
+  it("is what loadLevelFromAcwr now resolves to", () => {
+    expect(loadLevelFromAcwr).toBe(workloadTrendLabel);
   });
 });
 
-describe("acwrStatus", () => {
-  it("maps thresholds to labels/tones", () => {
-    expect(acwrStatus(1.6)).toEqual({ label: "Ease up", tone: "danger" });
-    expect(acwrStatus(1.4)).toEqual({ label: "Careful", tone: "warn" });
-    expect(acwrStatus(0.7)).toEqual({ label: "Push more", tone: "limeDim" });
-    expect(acwrStatus(1.0)).toEqual({ label: "Balanced", tone: "success" });
+describe("workloadTrendStatus", () => {
+  it("maps thresholds to neutral labels; tone is colour emphasis only", () => {
+    expect(workloadTrendStatus(1.6)).toEqual({ label: "Well above recent", tone: "danger" });
+    expect(workloadTrendStatus(1.4)).toEqual({ label: "Above recent", tone: "warn" });
+    expect(workloadTrendStatus(0.7)).toEqual({ label: "Below recent", tone: "muted" });
+    expect(workloadTrendStatus(1.0)).toEqual({ label: "In line with recent", tone: "success" });
   });
-  it("handles missing ACWR", () => {
-    expect(acwrStatus(null)).toEqual({ label: "No data", tone: "muted" });
+  it("handles a missing ratio", () => {
+    expect(workloadTrendStatus(null)).toEqual({ label: "No data", tone: "muted" });
+  });
+  it("never tells a low week to train more", () => {
+    for (const r of [0.1, 0.5, 0.79]) {
+      expect(workloadTrendStatus(r).label).not.toMatch(/push|more|increase|underload/i);
+    }
+  });
+  it("is what acwrStatus now resolves to", () => {
+    expect(acwrStatus).toBe(workloadTrendStatus);
+  });
+});
+
+describe("getLoadContext", () => {
+  it("describes the ratio without medicalised zone language", () => {
+    const notes = getLoadContext(1.6, "none", null).join(" | ");
+    expect(notes).toContain("well above recent average");
+    expect(notes).toContain("review progression and recovery");
+    expect(notes).not.toMatch(/danger zone|OPTIMAL|UNDERLOADED/i);
+  });
+  it("says explicitly that a low figure is not an instruction to train more", () => {
+    const notes = getLoadContext(0.5, "none", null).join(" | ");
+    expect(notes).toContain("never a reason to add training");
+    expect(notes).not.toMatch(/can handle more|push more/i);
+  });
+  it("stays neutral in the middle of the range", () => {
+    const notes = getLoadContext(1.0, "none", null).join(" | ");
+    expect(notes).toContain("in line with recent average");
+    expect(notes).not.toContain("review progression and recovery");
+  });
+  it("keeps the tournament guidance, now describing the one-session week", () => {
+    expect(getLoadContext(1.0, "week_of", null).join(" | ")).toContain("one shortened maintenance session");
+  });
+  it("handles no history at all", () => {
+    expect(getLoadContext(null, "none", null).join(" | ")).toContain("Not enough load history");
+  });
+});
+
+describe("rollingSRPE", () => {
+  const ref = new Date(2026, 6, 15, 12, 0, 0); // Wed 2026-07-15
+  const dayStr = (daysAgo) => {
+    const d = new Date(ref);
+    d.setDate(ref.getDate() - daysAgo);
+    return toLocalDateStr(d);
+  };
+
+  it("sums the window inclusive of the reference day", () => {
+    const logs = [
+      { type: "tennis", rpe: 5, duration: 60, date: dayStr(0) },  // 300
+      { type: "tennis", rpe: 5, duration: 60, date: dayStr(6) },  // 300
+      { type: "tennis", rpe: 5, duration: 60, date: dayStr(7) },  // outside a 7-day window
+    ];
+    expect(rollingSRPE(logs, 7, ref)).toBe(600);
+    expect(rollingSRPE(logs, 8, ref)).toBe(900);
+  });
+
+  it("is zero with no logs", () => {
+    expect(rollingSRPE([], 7, ref)).toBe(0);
+  });
+});
+
+describe("loadTrend", () => {
+  const ref = new Date(2026, 6, 15, 12, 0, 0);
+  const dayStr = (daysAgo) => {
+    const d = new Date(ref);
+    d.setDate(ref.getDate() - daysAgo);
+    return toLocalDateStr(d);
+  };
+
+  it("compares the last 7 days to the 28-day weekly-equivalent baseline", () => {
+    // 400 sRPE in each of the four weeks → baseline 400, this week 400.
+    const logs = [0, 7, 14, 21].map(d => ({ type: "tennis", rpe: 5, duration: 80, date: dayStr(d) }));
+    const t = loadTrend(logs, ref);
+    expect(t.last7DaySRPE).toBe(400);
+    expect(t.last28DaySRPE).toBe(1600);
+    expect(t.baselineWeeklySRPE).toBe(400);
+    expect(t.pctFromBaseline).toBe(0);
+    expect(t.ratio).toBe(1);
+    expect(t.label).toBe("In line with recent average");
+  });
+
+  it("reports the percent difference from the baseline", () => {
+    const logs = [
+      { type: "tennis", rpe: 10, duration: 100, date: dayStr(0) }, // 1000 this week
+      { type: "tennis", rpe: 5, duration: 40, date: dayStr(10) },  // 200
+      { type: "tennis", rpe: 5, duration: 40, date: dayStr(20) },  // 200
+    ];
+    const t = loadTrend(logs, ref);
+    expect(t.baselineWeeklySRPE).toBe(350); // 1400 / 4
+    expect(t.pctFromBaseline).toBe(186);
+    expect(t.label).toBe("Well above recent average");
+  });
+
+  it("returns nulls rather than dividing by zero with no history", () => {
+    const t = loadTrend([], ref);
+    expect(t.baselineWeeklySRPE).toBe(0);
+    expect(t.pctFromBaseline).toBeNull();
+    expect(t.ratio).toBeNull();
+    expect(t.label).toBe("Unknown");
+  });
+});
+
+describe("weeklyTrainingSummary", () => {
+  const monday = getWeekBounds(0).start;
+  const dayInWeek = (offset) => {
+    const d = new Date(`${monday}T00:00:00`);
+    d.setDate(d.getDate() + offset);
+    return toLocalDateStr(d);
+  };
+  // A Sunday reference makes the whole week elapsed, so rest days are stable
+  // regardless of which day the suite actually runs on.
+  const sundayRef = new Date(`${dayInWeek(6)}T12:00:00`);
+
+  it("splits minutes by training category", () => {
+    const logs = [
+      { type: "tennis",   rpe: 7, duration: 90, date: dayInWeek(0) },
+      { type: "tennis",   rpe: 6, duration: 120, date: dayInWeek(1) },
+      { type: "match",    rpe: 8, duration: 75, date: dayInWeek(5) },
+      { type: "strength", rpe: 6, duration: 55, date: dayInWeek(0) },
+      { type: "other",    rpe: 4, duration: 40, date: dayInWeek(2), sportName: "Swimming" },
+    ];
+    const sum = weeklyTrainingSummary(logs, 0, sundayRef);
+    expect(sum.tennisMinutes).toBe(210);
+    expect(sum.matchMinutes).toBe(75);
+    expect(sum.strengthMinutes).toBe(55);
+    expect(sum.crossTrainingMinutes).toBe(40);
+    expect(sum.totalMinutes).toBe(380);
+    expect(sum.onCourtHours).toBe(4.8);
+    expect(sum.strengthSessions).toBe(1);
+  });
+
+  it("counts legacy cheer logs as cross-training rather than losing them", () => {
+    const sum = weeklyTrainingSummary(
+      [{ type: "cheer", rpe: 5, duration: 60, date: dayInWeek(0) }], 0, sundayRef
+    );
+    expect(sum.crossTrainingMinutes).toBe(60);
+    expect(sum.totalMinutes).toBe(60);
+  });
+
+  it("counts complete rest days only over days that have elapsed", () => {
+    const logs = [
+      { type: "tennis", rpe: 6, duration: 60, date: dayInWeek(0) },
+      { type: "tennis", rpe: 6, duration: 60, date: dayInWeek(1) },
+    ];
+    const fullWeek = weeklyTrainingSummary(logs, 0, sundayRef);
+    expect(fullWeek.trainingDays).toBe(2);
+    expect(fullWeek.daysElapsed).toBe(7);
+    expect(fullWeek.restDays).toBe(5);
+
+    // Read on the Tuesday, only two days have happened — no phantom rest days.
+    const tuesday = new Date(`${dayInWeek(1)}T12:00:00`);
+    const partWeek = weeklyTrainingSummary(logs, 0, tuesday);
+    expect(partWeek.daysElapsed).toBe(2);
+    expect(partWeek.restDays).toBe(0);
+  });
+
+  it("keeps sRPE as duration × RPE", () => {
+    const sum = weeklyTrainingSummary(
+      [{ type: "tennis", rpe: 7, duration: 90, date: dayInWeek(0) }], 0, sundayRef
+    );
+    expect(sum.srpe).toBe(630);
   });
 });

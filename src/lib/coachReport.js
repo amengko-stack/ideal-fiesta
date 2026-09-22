@@ -9,7 +9,7 @@ const num = (v) => (v == null ? 0 : Number(v) || 0);
 
 export function buildCoachReport(match, analysis = null) {
   const v = match.valissa || {};
-  const name = match.valissaName || "Valissa";
+  const name = match.valissaName || "Athlete";
   const won = match.whoWonMatch === 1;
   const score = (match.setScores?.p1 || [])
     .map((s, i) => `${s}-${match.setScores?.p2?.[i] ?? "?"}`)

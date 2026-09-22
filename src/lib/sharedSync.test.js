@@ -57,7 +57,11 @@ describe("functions/shared drift (byte-identical to src/lib)", () => {
 // only actual code matters here.
 const stripLineComments = (src) =>
   src
-    .split("\n")
+    // Split on a CR-tolerant newline rather than a bare LF: a JS regex dot
+    // never matches CR, so on a CRLF checkout every line keeps a trailing
+    // CR, the line-comment regex below matches nothing, and this guard then
+    // flags prose inside a comment as a forbidden import.
+    .split(/\r?\n/)
     .map((line) => line.replace(/\/\/.*$/, ""))
     .join("\n");
 

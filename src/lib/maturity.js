@@ -64,18 +64,31 @@ export function maturityOffset({ dob, date, heightCm, sittingHeightCm, weightKg 
   };
 }
 
+// The Mirwald offset is a population regression with wide individual error, and
+// it is NOT a training switch: nothing in this app may use it to approve or
+// prohibit an exercise, and the weekly S&C generator does not read it at all
+// (it uses measured longitudinal growth velocity instead — see growth.js).
+// Where it is shown, it is shown under this label.
+export const MATURITY_ESTIMATE_LABEL = "Estimated maturity offset — interpret cautiously";
+
+export const MATURITY_UNCERTAINTY_NOTE =
+  "Estimated from height, sitting height, weight and age using a population regression. Individual error is large, so treat it as a rough research estimate, never as a measured developmental stage or a reason to change what she is allowed to train.";
+
+// Descriptions only. They say what the estimate means, not what to prescribe —
+// prescriptions come from the deterministic S&C framework, measured growth and
+// the athlete's own training history.
 const STAGE_INFO = {
   "Pre-PHV": {
     label: "Pre-PHV",
-    implication: "Foundation phase — emphasise fundamental movement skills, coordination, and technical quality. Growth plates are open; avoid heavy axial loading. Light resistance and bodyweight work are appropriate.",
+    implication: "Foundation phase estimate — the model places her before the growth spurt. Uncertain: confirm against measured height history rather than acting on this figure.",
   },
   "Mid-PHV": {
     label: "Mid-PHV",
-    implication: "Rapid growth phase — most sensitive period for injury. Reduce high-impact and plyometric volume. Monitor flexibility closely as bone growth outpaces muscle length. Prioritise injury prevention and movement quality over performance.",
+    implication: "Rapid growth phase estimate — the model places her around the growth spurt. Uncertain: confirm against measured height history rather than acting on this figure.",
   },
   "Post-PHV": {
     label: "Post-PHV",
-    implication: "Post-growth phase — progressive loading becomes more appropriate. Strength training gains accelerate. Can begin building structured resistance load while maintaining technical standards.",
+    implication: "Post-growth phase estimate — the model places her after the growth spurt. Uncertain: confirm against measured height history rather than acting on this figure.",
   },
 };
 

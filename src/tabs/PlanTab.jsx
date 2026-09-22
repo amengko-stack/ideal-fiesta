@@ -3,10 +3,11 @@ import {
   BarChart2, ClipboardCheck, FileText, MessageSquare, Zap,
 } from "lucide-react";
 import { getWeekBounds } from "../lib/dates.js";
-import { calculateMetrics } from "../lib/load.js";
+import { calculateMetrics, workloadTrendStatus, workloadTrendLabel } from "../lib/load.js";
 import { COLORS } from "../styles/theme.js";
 import { TENNIS_GAPS } from "../lib/exerciseDb.js";
-import { generateSundayPlan } from "../lib/planGen.js";
+import { generateWeeklyStrengthPlan } from "../lib/planGen.js";
+import { readWeeklyPlan, flattenPlanExercises } from "../lib/weeklyPlanCore.js";
 import { friendlyAiError } from "../lib/aiErrors.js";
 
 // ─── PLAN TAB ─────────────────────────────────────────────────────────────────
@@ -28,7 +29,7 @@ export default function PlanTab({ athleteId, profile, weekLogs, sessionHistory, 
     setEscalations([]);
 
     try {
-      const { planData, escalations: escalatedItems } = await generateSundayPlan(athleteId, {
+      const { planData, escalations: escalatedItems } = await generateWeeklyStrengthPlan(athleteId, {
         profile, weekLogs, sessionHistory, wellbeing, tournament, sessionTime,
       });
       setPlanResult(planData);
@@ -43,18 +44,21 @@ export default function PlanTab({ athleteId, profile, weekLogs, sessionHistory, 
   };
 
   const metrics = calculateMetrics(weekLogs, wellbeing);
+  // Normalises both the weekly (schema v2) and the legacy single-session plan,
+  // so a document written before the cutover still renders here.
+  const weeklyPlan = readWeeklyPlan(planResult);
+  const planExercises = flattenPlanExercises(weeklyPlan);
+  const scheduledSessions = (weeklyPlan?.sessions || []).filter(x => x.sessionType !== "recovery");
   const { start: _thisWeekStart } = getWeekBounds(0);
   const thisWeekLogs = weekLogs.filter(l => l.date >= _thisWeekStart);
+  // Colour is visual emphasis only; the LABEL describes the change and never
+  // classifies risk — the ratio is a workload trend, not an injury predictor.
   const acwrColor = metrics.acwr === null ? COLORS.muted
     : metrics.acwr > 1.5 ? COLORS.red
     : metrics.acwr > 1.3 ? COLORS.yellow
     : metrics.acwr < 0.8 ? "#6eb5ff"
     : COLORS.accent;
-  const acwrLabel = metrics.acwr === null ? "No data yet"
-    : metrics.acwr > 1.5 ? "Danger zone"
-    : metrics.acwr > 1.3 ? "Caution"
-    : metrics.acwr < 0.8 ? "Underloaded"
-    : "Optimal";
+  const acwrLabel = workloadTrendStatus(metrics.acwr).label;
 
   // ACWR gauge: maps 0–2+ range onto a 180° arc
   const acwrGauge = (() => {
@@ -164,7 +168,7 @@ export default function PlanTab({ athleteId, profile, weekLogs, sessionHistory, 
       </div>
 
       <div className="card">
-        <div className="card-title"><Zap size={18} /> Generate Sunday Plan</div>
+        <div className="card-title"><Zap size={18} /> Generate weekly S&amp;C plan</div>
         <div className="grid2">
           <div>
             <div className="label">Tournament Status</div>
@@ -177,7 +181,7 @@ export default function PlanTab({ athleteId, profile, weekLogs, sessionHistory, 
             </select>
           </div>
           <div>
-            <div className="label">Session Time (Sunday)</div>
+            <div className="label">Session time</div>
             <input name="sessionTime" type="time" value={sessionTime} onChange={e => setSessionTime(e.target.value)} />
           </div>
         </div>
@@ -200,7 +204,7 @@ export default function PlanTab({ athleteId, profile, weekLogs, sessionHistory, 
             disabled={aiLoading}
             style={{ width: "100%", justifyContent: "center", padding: "13px" }}
           >
-            ⚡ Generate This Sunday's Plan
+            ⚡ Generate this week's S&C plan
           </button>
         </div>
       </div>
@@ -209,7 +213,7 @@ export default function PlanTab({ athleteId, profile, weekLogs, sessionHistory, 
         <div className="card" style={{ borderColor: COLORS.accentDim }}>
           <div className="flex" style={{ gap: 10 }}>
             <div className="spinner" />
-            <span style={{ color: COLORS.muted, fontSize: "0.85rem" }}>AI coach is designing your session…</span>
+            <span style={{ color: COLORS.muted, fontSize: "0.85rem" }}>AI coach is tuning this week's framework…</span>
           </div>
         </div>
       )}
@@ -237,9 +241,7 @@ export default function PlanTab({ athleteId, profile, weekLogs, sessionHistory, 
                 {
                   label: "Load",
                   value: `${planResult.metrics?.thisWeekSRPE ?? "—"} sRPE`,
-                  sub: planResult.metrics?.acwr != null
-                    ? (planResult.metrics.acwr > 1.5 ? "Very High" : planResult.metrics.acwr > 1.3 ? "High" : planResult.metrics.acwr < 0.8 ? "Low" : "Optimal")
-                    : "No data",
+                  sub: workloadTrendLabel(planResult.metrics?.acwr ?? null),
                   color: planResult.metrics?.acwr == null ? COLORS.muted
                     : planResult.metrics.acwr > 1.5 ? COLORS.red
                     : planResult.metrics.acwr > 1.3 ? COLORS.yellow
@@ -253,9 +255,9 @@ export default function PlanTab({ athleteId, profile, weekLogs, sessionHistory, 
                   color: COLORS.text,
                 },
                 {
-                  label: "Session",
-                  value: planResult.sessionType ?? "—",
-                  sub: planResult.sessionDuration ? `${planResult.sessionDuration} min` : "",
+                  label: "Week",
+                  value: weeklyPlan?.block?.week ? `Block wk ${weeklyPlan.block.week}` : "—",
+                  sub: scheduledSessions.map(x => `${x.id} ${x.plannedDay || ""}`.trim()).join(" · ") || "",
                   color: COLORS.accent,
                 },
                 {
@@ -303,8 +305,8 @@ export default function PlanTab({ athleteId, profile, weekLogs, sessionHistory, 
           </div>
 
           <div className="card">
-            <div className="card-title"><ClipboardCheck size={18} /> Today's Session — {planResult.plan.length} Exercises</div>
-            {planResult.plan.map((ex, i) => {
+            <div className="card-title"><ClipboardCheck size={18} /> This week&apos;s S&amp;C — {planExercises.length} Exercises</div>
+            {planExercises.map((ex, i) => {
               const isTime = ex.unit === "seconds";
               return (
                 <div key={i} className="ex-row">
@@ -312,6 +314,7 @@ export default function PlanTab({ athleteId, profile, weekLogs, sessionHistory, 
                   <div style={{ flex: 1 }}>
                     <div className="ex-name">{ex.name}</div>
                     <div className="ex-meta">
+                      {ex.sessionId && <span className="badge badge-gray">Session {ex.sessionId}{ex.plannedDay ? ` · ${ex.plannedDay}` : ""}</span>}
                       <span className="badge badge-gray">{ex.category}</span>
                     </div>
                     {ex.note && <div className="ex-note mt8">→ {ex.note}</div>}

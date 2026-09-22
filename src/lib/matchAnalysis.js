@@ -67,7 +67,7 @@ export async function generateMatchAnalysis(athleteId, match) {
   const userPrompt =
 `${context.athleteProfile?.identityText || identityBlock({})}
 ${memorySection}${seasonPrioritySection}${injurySection}
-MATCH (${divisionLabel}): ${match.whoWonMatch === 1 ? "WIN" : "LOSS"} vs ${match.opponentName || "Opponent"} on ${match.matchStartTime ? new Date(match.matchStartTime).toLocaleDateString() : "unknown date"}
+MATCH (${divisionLabel}): ${match.whoWonMatch === 1 ? "WIN" : "LOSS"} vs ${match.opponentName || "Opponent"} on ${match.matchStartTime ? new Date(match.matchStartTime).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" }) : "unknown date"}
 Score: ${scoreStr}
 
 SERVICE STATS (Valissa / Opponent):
@@ -135,7 +135,7 @@ Respond with exactly this JSON structure:
     }
   ],
   "parentNote": "Message for the parent — context, encouragement, what to watch for",
-  "athleteNote": "Direct message for ${context.athleteProfile?.name || "Valissa"} — positive, motivating, 1-2 action points"
+  "athleteNote": "Direct message for ${context.athleteProfile?.name || "the athlete"} — positive, motivating, 1-2 action points"
 }`;
 
   const parsed = await callClaudeJSON({ system: systemPrompt, userContent: userPrompt, maxTokens: 6000 });

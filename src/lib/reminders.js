@@ -1,4 +1,4 @@
-import { computeLoad, acwrStatus, computeMonotonyStrain, monotonyStatus, calculateMetrics } from "./load.js";
+import { computeLoad, workloadTrendStatus, computeMonotonyStrain, monotonyStatus, calculateMetrics } from "./load.js";
 import { daysUntil, nearestUpcoming } from "./tournaments.js";
 import { weeklyFocus } from "./practiceFocus.js";
 import { toLocalDateStr } from "./dates.js";
@@ -107,13 +107,26 @@ export function dueReminders(state, today, { suppressKinds = [] } = {}) {
   // 2. Stale / generated-but-unlogged plan (NEW). Nag once a plan exists,
   // wasn't generated today (give her the rest of the day it was made before
   // nagging), and its session hasn't been logged yet.
-  if (plan?.generatedAt && !plan.sessionLogged) {
+  // A weekly (schema-v2) plan carries the logged flag per session; a pre-v2
+  // plan has one top-level flag. Either way the card fires while at least one
+  // scheduled session is still unlogged. Note what it does NOT say: a missed
+  // session is not training debt, so this never asks for a make-up session.
+  const planSessions = Array.isArray(plan?.sessions)
+    ? plan.sessions.filter(s => s?.sessionType !== "recovery" && (s?.exercises || []).length > 0)
+    : null;
+  const anySessionUnlogged = planSessions
+    ? planSessions.length > 0 && planSessions.some(s => !s.sessionLogged)
+    : !plan?.sessionLogged;
+  if (plan?.generatedAt && anySessionUnlogged) {
     const generatedDate = new Date(plan.generatedAt);
     if (!Number.isNaN(generatedDate.getTime()) && toLocalDateStr(generatedDate) !== todayStr) {
+      const pending = planSessions ? planSessions.filter(s => !s.sessionLogged) : [];
       push({
         id: `plan-unlogged-${toLocalDateStr(generatedDate)}`, kind: "plan-stale", tone: "info",
-        title: "Plan session not logged yet",
-        body: "This week's plan was generated but the session hasn't been logged.",
+        title: "S&C session not logged yet",
+        body: pending.length > 0
+          ? `This week's plan has ${pending.length} S&C session${pending.length === 1 ? "" : "s"} still to log (${pending.map(s => `${s.id}${s.plannedDay ? ` · ${s.plannedDay}` : ""}`).join(", ")}).`
+          : "This week's plan was generated but the session hasn't been logged.",
         audience: "both",
       });
     }
@@ -131,12 +144,17 @@ export function dueReminders(state, today, { suppressKinds = [] } = {}) {
   const loadDrivers = [];
 
   // 3a. Acute:chronic workload ratio.
-  const acwrSt = acwrStatus(acwr);
+  // The ratio describes how this week compares to the recent block. It is not a
+  // validated injury predictor, so the card reports the change and asks for a
+  // look at progression and recovery — it never prescribes a recovery day.
+  const acwrSt = workloadTrendStatus(acwr);
   if (acwrSt && (acwrSt.tone === "danger" || acwrSt.tone === "warn")) {
     loadDrivers.push({
       tone: acwrSt.tone,
-      title: "Training load is high",
-      body: acwrSt.tone === "danger" ? "ACWR is in the danger zone — make today a recovery day." : "Ease off intensity for a day or two.",
+      title: "Training is above recent weeks",
+      body: acwrSt.tone === "danger"
+        ? "This week's training is well above the recent average — review progression and recovery."
+        : "This week's training is above the recent average — review progression and recovery.",
     });
   }
 
@@ -206,7 +224,7 @@ export function dueReminders(state, today, { suppressKinds = [] } = {}) {
       push({
         id: `tourney-${nearestT.id ?? nearestT.date}-${d <= 7 ? "wk" : "2wk"}`, kind: "tournament", tone: "info",
         title: d === 0 ? "Tournament today! 🏟️" : `Tournament in ${d} day${d === 1 ? "" : "s"}`,
-        body: `${nearestT.name || "Tournament"} — Sunday plans taper automatically.`,
+        body: `${nearestT.name || "Tournament"} — the weekly S&C plan tapers automatically.`,
         audience: "both",
       });
     }

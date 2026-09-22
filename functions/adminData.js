@@ -2,6 +2,7 @@ import admin from 'firebase-admin';
 import { selectRecentMatch } from './shared/athleteContextCore.js';
 import { isServerTimestamp } from './shared/deferredPrioritiesCore.js';
 import { emptyMemory } from './shared/athleteMemoryCore.js';
+import { resolveProgramState, PROGRAM_STATE_DOC } from './shared/weeklyPlanCore.js';
 
 // ─── ADMIN-SDK DATA ADAPTER ──────────────────────────────────────────────────
 // The functions-side twin of the client's Firestore wiring: reads the same
@@ -24,7 +25,7 @@ const withIds = (snap) => snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
 // ── fetchAthleteRaw ──────────────────────────────────────────────────────────
 // The raw bundle assembleAthleteContext(raw, now) expects, plus `sessions` —
-// the strength-session history buildSundayPlanPrompt renders (planGen.js gets
+// the strength-session history buildWeeklyStrengthPlanPrompt renders (planGen.js gets
 // it from MobileApp's `sessionHistory`; planGenCore already slices to the
 // newest 6, so we read 6).
 //
@@ -167,6 +168,34 @@ export async function fetchAthleteRaw(db, athleteId, now = new Date()) {
     seasonReportDoc,
     injuries,
   };
+}
+
+// ── ensureProgramStateAdmin ──────────────────────────────────────────────────
+// Server-side twin of src/lib/programState.js. The block chronology lives in
+// athletes/{id}/programState/strength, NOT in plans/current, so a re-run of the
+// weekly review in the same calendar week reads the same block week and writes
+// nothing — which is what makes "Run now" safe to press twice.
+//
+// It writes only on the first migration or on the active → completed
+// transition; both are deterministic, so a repeated run is a no-op.
+export async function ensureProgramStateAdmin(db, athleteId, { previousPlan = null, weekKey, now = new Date() }) {
+  const ref = athleteRefOf(db, athleteId)
+    .collection(PROGRAM_STATE_DOC.collection)
+    .doc(PROGRAM_STATE_DOC.id);
+
+  let stored = null;
+  try {
+    const snap = await ref.get();
+    stored = snap.exists ? snap.data() : null;
+  } catch (err) {
+    console.error('[programState] read failed:', err.message);
+  }
+
+  const resolved = resolveProgramState({ state: stored, previousPlan, currentWeekKey: weekKey, now });
+  if (resolved.changed) {
+    await ref.set(resolved.state);
+  }
+  return resolved;
 }
 
 // ── fetchDeferredPriorities ──────────────────────────────────────────────────

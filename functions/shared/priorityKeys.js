@@ -6,7 +6,7 @@ import { METRIC_IDS, PRIORITY_METRICS } from "./priorityMetrics.js";
 // the default node environment (same split as athleteMemoryCore.js).
 //
 // Two AI calls write into the same deferredPriorities collection — the match
-// analysis and the Sunday plan — and each invents the wording afresh. Matching
+// analysis and the weekly S&C plan — and each invents the wording afresh. Matching
 // on exact string equality let "Second serve consistency" and "Improve 2nd
 // serve reliability" pile up as separate active rows. Matching runs on `key`
 // first (the AI now picks one from the taxonomy below) and falls back to token
@@ -199,7 +199,7 @@ export function clusterPriorities(docs) {
 
 // ── deferredPrioritySchemaBlock ──────────────────────────────────────────────
 // Pure. The shared instruction block for every prompt that asks the model for
-// deferred priorities (match analysis and the Sunday plan). Kept in one place so
+// deferred priorities (match analysis and the weekly S&C plan). Kept in one place so
 // the two prompts can never drift out of agreement about the taxonomy or the
 // metric ids the auto-resolver understands.
 export function deferredPrioritySchemaBlock() {

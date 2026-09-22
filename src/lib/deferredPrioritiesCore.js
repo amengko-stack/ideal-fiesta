@@ -38,7 +38,7 @@ export const cleanTarget = (t) => (isMetricTarget(t) ? {
 // week's key, and returns the upsert ops.
 //
 // Matching is by development area (priorityKeys.samePriority), not by exact
-// label: the match analysis and the Sunday plan each word the same problem
+// label: the match analysis and the weekly S&C plan each word the same problem
 // differently, and exact-string matching let those pile up as duplicate rows.
 //   - identical wording   → update in place, incrementing weeksDeferredCount
 //                           once per ISO week (guarded by lastCountedWeek)

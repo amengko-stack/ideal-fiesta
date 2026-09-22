@@ -134,12 +134,31 @@ export function buildDigestData({
   };
 
   // ── plan ───────────────────────────────────────────────────────────────────
-  const plan = {
-    sessionType:     planData?.sessionType ?? null,
-    sessionDuration: planData?.sessionDuration ?? null,
-    exerciseCount:   (planData?.plan || []).length,
-    coachNote:       planData?.coachNote ?? null,
-  };
+  // Reads the schema-v2 weekly plan (a sessions array) and still understands a
+  // pre-v2 document (one flat `plan` array), so a digest built the week of the
+  // cutover reports the same fields either way.
+  const planSessions = Array.isArray(planData?.sessions)
+    ? planData.sessions.filter(s => s.sessionType !== "recovery")
+    : null;
+  const plan = planSessions
+    ? {
+        sessionType:     planSessions[0]?.sessionType ?? null,
+        sessionDuration: planSessions.reduce((sum, s) => sum + (s.durationMin || 0), 0) || null,
+        exerciseCount:   planSessions.reduce((sum, s) => sum + (s.exercises || []).length, 0),
+        sessionCount:    planSessions.length,
+        blockWeek:       planData?.block?.week ?? null,
+        blockPhase:      planData?.block?.phase ?? null,
+        coachNote:       planData?.coachNote ?? null,
+      }
+    : {
+        sessionType:     planData?.sessionType ?? null,
+        sessionDuration: planData?.sessionDuration ?? null,
+        exerciseCount:   (planData?.plan || []).length,
+        sessionCount:    planData ? 1 : 0,
+        blockWeek:       null,
+        blockPhase:      null,
+        coachNote:       planData?.coachNote ?? null,
+      };
 
   return {
     weekKey: weekKey ?? null,
@@ -162,7 +181,7 @@ export function buildDigestData({
 // matchAnalysis.js already established for parentNote / athleteNote, so the
 // weekly digest reads like the rest of the app rather than a second voice.
 export function buildDigestNotesPrompt(digestData, athleteName) {
-  const name = athleteName || digestData?.athleteName || "Valissa";
+  const name = athleteName || digestData?.athleteName || "the athlete";
   const d = digestData || {};
   const load = d.load || {};
   const well = d.wellbeing || {};
@@ -210,8 +229,9 @@ FOCUS PRIORITIES:
 
 OPEN INJURIES: ${d.injuries?.openCount ? `${d.injuries.openCount} — ${d.injuries.flagHeadline || "no guidance recorded"}` : "None"}
 
-SUNDAY PLAN PRESCRIBED:
-- Session: ${plan.sessionType || "—"}${plan.sessionDuration ? ` · ${plan.sessionDuration} min` : ""} · ${num(plan.exerciseCount)} exercises
+WEEKLY S&C PLAN PRESCRIBED (Sunday is a recovery day):
+- Sessions: ${num(plan.sessionCount)}${plan.blockWeek ? ` · block week ${plan.blockWeek}${plan.blockPhase ? ` (${plan.blockPhase})` : ""}` : ""}
+- Shape: ${plan.sessionType || "—"}${plan.sessionDuration ? ` · ${plan.sessionDuration} min total` : ""} · ${num(plan.exerciseCount)} exercises
 - Coach note: ${plan.coachNote || "—"}
 
 Respond with exactly this JSON structure:
@@ -229,7 +249,7 @@ Respond with exactly this JSON structure:
 // yet) it degrades to the stats the digest always has.
 export function digestPushPayload(digest) {
   const d = digest || {};
-  const name = d.athleteName || "Valissa";
+  const name = d.athleteName || "The athlete";
   const title = `${name}'s week in review`;
 
   const note = typeof d.parentNote === "string" ? d.parentNote.trim() : "";
@@ -246,7 +266,8 @@ export function digestPushPayload(digest) {
   if ((d.matches || []).length > 0) {
     parts.push(`${d.matches.length} match${d.matches.length === 1 ? "" : "es"}`);
   }
-  if (d.plan?.sessionType) parts.push(`${d.plan.sessionType} session planned`);
+  if (d.plan?.sessionCount) parts.push(`${d.plan.sessionCount} S&C session${d.plan.sessionCount === 1 ? "" : "s"} planned`);
+  else if (d.plan?.sessionType) parts.push(`${d.plan.sessionType} session planned`);
 
   return { title, body: `${parts.join(" · ")}.` };
 }

@@ -1,0 +1,80 @@
+name: Functions package
+
+# Cloud Functions deploys ONLY the functions/ directory, which is its own npm
+# package with its own lockfile. The root `npm test` runs the pure cores from
+# src/lib against the ROOT dependency tree, so it cannot see the failures that
+# actually break a deploy: a shared module that was never synced, a relative
+# import that does not resolve, or a firebase-admin / firebase-functions
+# version the entrypoint cannot load.
+#
+# This workflow installs the real deployable tree and proves it works. It needs
+# no Firebase and no Anthropic credentials, and starts no emulator: the
+# entrypoint resolves its credentials lazily, defining a gen-1 trigger touches
+# nothing, and the qualification harness runs the orchestrator against an
+# in-memory Firestore double with a stubbed model client.
+#
+# It does not replace the root tests/build in deploy.yml — it is the gate those
+# checks structurally cannot provide.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  functions-package:
+    name: Verify the deployable functions/ package
+    runs-on: ubuntu-latest
+    steps:
+      # Pinned to a full commit SHA, matching deploy.yml's convention.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node
+        # node-version matches functions/package.json engines.node — the
+        # runtime Cloud Functions will actually execute this code on.
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+
+      # `ci` rather than `install`: it fails on a lockfile that does not match
+      # package.json, which is itself a package-incompatibility signal.
+      - name: Install the functions dependency tree
+        run: npm --prefix functions ci
+
+      # functions/shared/ is generated from src/lib by scripts/sync-functions-shared.mjs.
+      # Re-running the sync must be a no-op; anything else means the deployable
+      # copies are stale and the deployed function would run older logic than
+      # the app. (src/lib/sharedSync.test.js asserts the same invariant from the
+      # root suite — this repeats it here so the gate is self-contained.)
+      - name: Check functions/shared is in sync with src/lib
+        run: |
+          node ./scripts/sync-functions-shared.mjs
+          if ! git diff --quiet -- functions/shared; then
+            echo "::error::functions/shared is stale — run 'npm run sync:shared' and commit the result."
+            git --no-pager diff --stat -- functions/shared
+            exit 1
+          fi
+          echo "functions/shared matches src/lib."
+
+      # Resolves every declared dependency, every relative import in the
+      # deployed files, and imports both the entrypoint and weeklyReview.js.
+      - name: Verify the deployable package
+        run: node scripts/verify-package.mjs
+        working-directory: functions
+
+      # Runs the real runWeeklyReviewForAthlete against an in-memory Firestore
+      # double and a stubbed Anthropic client. Exit 0 only if the plan is schema
+      # v2, the block week comes from programState/strength, Session A lands on
+      # Monday and B on Thursday, Sunday is recovery, no Mirwald-derived
+      # escalation occurs, history is untouched, a repeated run neither advances
+      # the block nor duplicates records, and the next calendar week advances by
+      # exactly one.
+      - name: Qualify the weekly-review orchestrator
+        run: node scripts/qualify-weekly-review.mjs
+        working-directory: functions

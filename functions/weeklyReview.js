@@ -10,13 +10,14 @@ process.env.TZ = process.env.TZ || 'Asia/Jakarta';
 import functions from 'firebase-functions';
 import admin from 'firebase-admin';
 
-import { currentWeekKey, toLocalDateStr } from './shared/dates.js';
+import { currentWeekKey, toLocalDateStr, upcomingWeekKey } from './shared/dates.js';
 import { assembleAthleteContext } from './shared/athleteContextCore.js';
 import { calculateMetrics } from './shared/load.js';
 import { nearestUpcoming, daysUntil, tournamentModeFor } from './shared/tournaments.js';
 import {
-  buildSundayPlanPrompt, toPlanData, resolvedPriorityLabels, SUNDAY_PLAN_MAX_TOKENS,
+  buildWeeklyStrengthPlanPrompt, toWeeklyPlanData, resolvedPriorityLabels, WEEKLY_PLAN_MAX_TOKENS,
 } from './shared/planGenCore.js';
+import { readWeeklyPlan } from './shared/weeklyPlanCore.js';
 import {
   isOpen, planPriorityUpserts, planMergeDuplicates,
   planMetricResolutions, planEscalations, planLabelResolutions,
@@ -26,11 +27,15 @@ import { buildDigestData, buildDigestNotesPrompt, digestPushPayload } from './sh
 import { callAnthropicJSON } from './anthropic.js';
 import {
   fetchAthleteRaw, fetchDeferredPriorities, applyPriorityOps, sendPushToRole,
+  ensureProgramStateAdmin,
 } from './adminData.js';
 
 // ─── WEEKLY REVIEW ORCHESTRATOR ──────────────────────────────────────────────
-// Sunday 09:00 Asia/Jakarta, ahead of the morning session. A fixed,
-// strictly ordered pipeline — gather → hygiene → plan → memory → digest → push —
+// Sunday 09:00 Asia/Jakarta. Sunday itself is now a complete rest day; the run
+// stays on Sunday because that is the right moment to review the week that just
+// finished and build the week ahead — Session A (Monday) and Session B
+// (Thursday) — before Monday arrives. A fixed, strictly ordered pipeline —
+// gather → hygiene → plan → memory → digest → push —
 // with three one-shot LLM calls (Sonnet for the plan, Haiku for the memory
 // update and the digest notes). Not a tool loop: the steps never vary, which is
 // what makes cost, latency and testing bounded.
@@ -41,9 +46,9 @@ import {
 
 const PLAN_MODEL = 'claude-sonnet-4-5';
 const SMALL_MODEL = 'claude-haiku-4-5-20251001';
-// The session the plan is written for. Training is in the morning, and the run
-// fires at 09:00 — an hour of lead time. Matches the client's default
-// (MobileApp.jsx) so a scheduled plan and a hand-triggered one agree.
+// The time of day the week's S&C sessions are written for. Training is in the
+// morning. Matches the client's default (MobileApp.jsx) so a scheduled plan and
+// a hand-triggered one agree.
 const SESSION_TIME = '10:00';
 
 // A run left 'running' for longer than this is presumed dead (crash, timeout,
@@ -231,6 +236,9 @@ export async function runWeeklyReviewForAthlete(db, athleteId, { force = false, 
     ctx = assembleAthleteContext(raw, now);
 
     // ── f. PLAN (Sonnet) ─────────────────────────────────────────────────────
+    // Builds the COMING week: Session A (Monday) and Session B (Thursday), plus
+    // Sunday as a recovery day. The deterministic framework in
+    // shared/weeklyPlanCore.js decides the shape; Sonnet only adjusts it.
     let planData = null;
     if (done('plan')) {
       const planSnap = await athleteRef.collection('plans').doc('current').get();
@@ -238,11 +246,32 @@ export async function runWeeklyReviewForAthlete(db, athleteId, { force = false, 
       stepStatus.plan = 'skipped';
     } else {
       const tournament = tournamentModeForRun(raw.tournaments, now);
-      // Same metrics object generateSundayPlan computes (planGen.js line 17) and
-      // hands to BOTH the prompt and toPlanData — PlanScreen renders plan.metrics.
+      // Same metrics object generateWeeklyStrengthPlan computes and hands to
+      // BOTH the prompt and toWeeklyPlanData — the Plan screen renders
+      // plan.metrics.
       const metrics = calculateMetrics(raw.weekLogs, raw.wellbeing);
 
-      const { system, prompt, maxTokens } = buildSundayPlanPrompt({
+      // Where she is in the block comes from athletes/{id}/programState/strength
+      // and is DERIVED from the calendar, so pressing Run-now twice in the same
+      // week reads the same block week and deleting plans/current does not reset
+      // it. The previous plan is read only as migration evidence, the first time
+      // the state document has to be created.
+      const planWeekKey = upcomingWeekKey(now);
+      const previousSnap = await athleteRef.collection('plans').doc('current').get();
+      const previousPlan = previousSnap.exists ? readWeeklyPlan(previousSnap.data()) : null;
+      const program = await ensureProgramStateAdmin(db, athleteId, {
+        previousPlan, weekKey: planWeekKey, now,
+      });
+      const blockState = {
+        blockWeek: program.position.blockWeek,
+        blockNumber: program.position.blockNumber,
+        blockId: program.position.blockId,
+        blockStatus: program.position.status,
+        blockStartWeekKey: program.position.blockStartWeekKey,
+        needsNewBlock: program.position.needsNewBlock,
+      };
+
+      const built = buildWeeklyStrengthPlanPrompt({
         profile: raw.profile,
         weekLogs: raw.weekLogs,
         sessionHistory: raw.sessions,
@@ -252,19 +281,27 @@ export async function runWeeklyReviewForAthlete(db, athleteId, { force = false, 
         ctx,
         now,
         metrics,
+        blockState,
       });
 
       const parsed = await callAnthropicJSON({
         model: PLAN_MODEL,
-        system,
-        userContent: prompt,
-        maxTokens: maxTokens ?? SUNDAY_PLAN_MAX_TOKENS,
+        system: built.system,
+        userContent: built.prompt,
+        maxTokens: built.maxTokens ?? WEEKLY_PLAN_MAX_TOKENS,
       });
 
-      planData = {
-        ...toPlanData(parsed, ctx, new Date().toISOString(), metrics),
+      planData = toWeeklyPlanData(parsed, ctx, new Date().toISOString(), metrics, {
+        framework: built.framework,
+        // The run is keyed to the week just finished (claim + digest ids); the
+        // plan it produces is for the week starting tomorrow.
+        weekKey: planWeekKey,
+        growthContext: built.growthContext,
+        weekSummary: built.weekSummary,
+        targetComparison: built.targetComparison,
+        trend: built.trend,
         generatedBy: 'weeklyReview',
-      };
+      });
       await athleteRef.collection('plans').doc('current').set(planData);
 
       // Upsert the priorities this plan deferred. `thisWeek` is currentWeekKey()
@@ -277,18 +314,23 @@ export async function runWeeklyReviewForAthlete(db, athleteId, { force = false, 
         planPriorityUpserts(openBeforeUpserts, parsed.deferredPriorities || [], weekKey)
       );
 
-      // Resolve the priorities today's exercises actually address. Matched
-      // against the ctx snapshot the prompt was built from, exactly as
-      // generateSundayPlan does (planGen.js lines 37-41).
-      const labels = resolvedPriorityLabels(parsed.exercises, ctx.deferredPriorities);
+      // Resolve the priorities this week's prescribed work actually addresses.
+      // Matched against the ctx snapshot the prompt was built from, exactly as
+      // generateWeeklyStrengthPlan does.
+      const labels = resolvedPriorityLabels(parsed, ctx.deferredPriorities);
       for (const label of labels) {
         const open = openOnly(await fetchDeferredPriorities(db, athleteId));
         await applyPriorityOps(db, athleteId, planLabelResolutions(open, label));
       }
 
       await checkpoint('plan', {
-        sessionType: planData.sessionType ?? null,
-        exerciseCount: (planData.plan || []).length,
+        planWeekKey: planData.weekKey,
+        blockId: planData.block?.id ?? null,
+        blockWeek: planData.block?.week ?? null,
+        blockStatus: planData.block?.status ?? null,
+        programStateChanged: program.changed,
+        sessionCount: (planData.sessions || []).filter(x => x.sessionType !== 'recovery').length,
+        exerciseCount: (planData.sessions || []).reduce((sum, x) => sum + (x.exercises || []).length, 0),
         resolvedByPlan: labels.length,
       });
       stepStatus.plan = 'done';
@@ -454,9 +496,11 @@ async function runForAllAthletes(db, { force }) {
 }
 
 // ─── SCHEDULED: Sunday 09:00 Asia/Jakarta ────────────────────────────────────
-// Training happens in the morning, so the plan has to exist before it — this
-// runs an hour ahead of the 10:00 session the prompt is written for, and well
-// clear of the 19:30 check-in reminder. Retries twice with a 5-minute floor:
+// Sunday is a complete structured-training rest day, and the schedule stays on
+// Sunday anyway: it is the natural moment to review the finished week and build
+// the next one (Session A on Monday, Session B on Thursday) before Monday
+// arrives. It also stays well clear of the 19:30 check-in reminder. Retries
+// twice with a 5-minute floor:
 // the per-step checkpoints make a retry cheap (it resumes at the failed step),
 // which is why this rethrows instead of swallowing.
 export const weeklyReview = functions

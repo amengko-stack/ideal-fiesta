@@ -63,10 +63,109 @@ export const EXERCISE_DB = [
   { id: "worlds_greatest",    name: "World's Greatest Stretch",   cat: "Mobility",    movement: "Multi-Directional", tennis: ["lateral_agility","rotational_power","stability"],ageFlag:"green",progressionChain:["worlds_greatest"], defaultSets: 1, defaultReps: 6 },
   { id: "hip_circles",        name: "Hip Circles",                cat: "Mobility",    movement: "Rotational",        tennis: ["rotational_power","lateral_agility"],     ageFlag: "green",  progressionChain: ["hip_circles"], defaultSets: 1, defaultReps: 10 },
   { id: "ankle_circles",      name: "Ankle Circles & Hops",       cat: "Mobility",    movement: "Bilateral Lower",   tennis: ["first_step","footwork"],                 ageFlag: "green",  progressionChain: ["ankle_circles"], defaultSets: 1, defaultReps: 10 },
+  // ── WEEKLY S&C BLOCK ADDITIONS ──────────────────────────────────────────────
+  // Everything below was added for the Session A / Session B block. `aliases`
+  // exists so a plan that names an exercise slightly differently ("DB RDL",
+  // "Dumbbell Romanian Deadlift") still resolves to one database entry instead
+  // of silently becoming a new, unvetted movement.
+  // WARM-UP / MOVEMENT PREP
+  { id: "easy_skip",          name: "Easy Skipping",              cat: "Warmup",      movement: "Linear",            tennis: ["footwork","first_step"],                  ageFlag: "green",  progressionChain: ["easy_skip"], defaultSets: 1, defaultReps: 60, aliases: ["easy skip", "easy skipping / jog", "skipping"] },
+  { id: "ankle_rock",         name: "Ankle Rock",                 cat: "Mobility",    movement: "Bilateral Lower",   tennis: ["first_step","footwork","stability"],      ageFlag: "green",  progressionChain: ["ankle_rock"], defaultSets: 1, defaultReps: 8, aliases: ["ankle rocks", "ankle mobility"] },
+  { id: "squat_to_stand",     name: "Squat-to-Stand",             cat: "Mobility",    movement: "Bilateral Lower",   tennis: ["deceleration","stability"],               ageFlag: "green",  progressionChain: ["squat_to_stand"], defaultSets: 1, defaultReps: 6, aliases: ["squat to stand"] },
+  { id: "walking_lunge_rot",  name: "Walking Lunge + Rotation",   cat: "Mobility",    movement: "Multi-Directional", tennis: ["rotational_power","lateral_agility"],     ageFlag: "green",  progressionChain: ["walking_lunge_rot"], defaultSets: 1, defaultReps: 5, aliases: ["walking lunge with rotation", "walking lunge + rotation"] },
+  { id: "a_march",            name: "A-March",                    cat: "Warmup",      movement: "Linear",            tennis: ["linear_speed","footwork"],                ageFlag: "green",  progressionChain: ["a_march","a_skip"], defaultSets: 2, defaultReps: 10 },
+  { id: "a_skip",             name: "A-Skip",                     cat: "Warmup",      movement: "Linear",            tennis: ["linear_speed","footwork","first_step"],   ageFlag: "green",  progressionChain: ["a_march","a_skip"], defaultSets: 2, defaultReps: 10, aliases: ["a-march/a-skip"] },
+  { id: "lateral_shuffle",    name: "Lateral Shuffle",            cat: "Warmup",      movement: "Lateral",           tennis: ["lateral_agility","footwork"],             ageFlag: "green",  progressionChain: ["lateral_shuffle"], defaultSets: 2, defaultReps: 10 },
+  { id: "lateral_squat",      name: "Lateral Squat",              cat: "Mobility",    movement: "Lateral",           tennis: ["lateral_agility","lateral_power"],        ageFlag: "green",  progressionChain: ["lateral_squat","side_lunge"], defaultSets: 1, defaultReps: 5 },
+  // LANDING
+  { id: "snap_down",          name: "Snap-Down",                  cat: "Landing",     movement: "Vertical",          tennis: ["deceleration","stability"],               ageFlag: "green",  progressionChain: ["snap_down","jump_and_stick"], defaultSets: 2, defaultReps: 5, aliases: ["snap down", "snapdown"] },
+  { id: "jump_and_stick",     name: "Jump & Stick",               cat: "Landing",     movement: "Vertical",          tennis: ["deceleration","stability","first_step"],  ageFlag: "green",  progressionChain: ["snap_down","jump_and_stick"], defaultSets: 2, defaultReps: 4, contactsPerRep: 1, aliases: ["jump and stick", "jump + stick", "jump-and-stick"] },
+  { id: "lateral_bound_stick",name: "Lateral Bound & Stick",      cat: "Landing",     movement: "Lateral",           tennis: ["lateral_power","deceleration","stability"],ageFlag: "green", progressionChain: ["lateral_bound_stick"], defaultSets: 2, defaultReps: 4, contactsPerRep: 1, aliases: ["lateral bound and stick", "lateral bound + stick", "lateral bound"] },
+  // SPEED / DECELERATION
+  { id: "accel_5m",           name: "5 m Acceleration",           cat: "Speed",       movement: "Linear",            tennis: ["first_step","linear_speed"],              ageFlag: "green",  progressionChain: ["accel_5m"], defaultSets: 4, defaultReps: 1, aliases: ["5m acceleration", "5 m accel", "acceleration 5m", "5-10 m acceleration"] },
+  { id: "decel_stop",         name: "Controlled Deceleration Stop", cat: "Speed",     movement: "Linear",            tennis: ["deceleration","stability"],               ageFlag: "green",  progressionChain: ["decel_stop","cod_cue_stop"], defaultSets: 4, defaultReps: 1, aliases: ["5 m acceleration to controlled stop", "deceleration stop", "controlled stop"] },
+  { id: "cod_cue_stop",       name: "Cued Change of Direction",   cat: "Speed",       movement: "Multi-Directional", tennis: ["lateral_agility","deceleration","footwork"],ageFlag: "yellow",progressionChain: ["decel_stop","cod_cue_stop"], defaultSets: 3, defaultReps: 1, aliases: ["accelerate to cued change of direction", "cued cod"] },
+  // ROTATIONAL POWER
+  { id: "mb_side_scoop",      name: "Medicine Ball Side Scoop Throw", cat: "Power",   movement: "Rotational",        tennis: ["rotational_power","serve_power"],         ageFlag: "green",  progressionChain: ["mb_side_scoop"], defaultSets: 2, defaultReps: 4, aliases: ["side scoop throw", "medicine ball side scoop", "med ball side scoop toss"] },
+  // STRENGTH
+  { id: "db_rdl",             name: "Dumbbell Romanian Deadlift", cat: "Strength",    movement: "Bilateral Lower",   tennis: ["hamstring","rotational_power","deceleration"],ageFlag: "green",progressionChain: ["hip_hinge","db_rdl"], defaultSets: 2, defaultReps: 8, aliases: ["db rdl", "dumbbell rdl", "romanian deadlift"] },
+  { id: "split_squat",        name: "Split Squat",                cat: "Strength",    movement: "Single-Leg",        tennis: ["deceleration","lateral_power","stability"],ageFlag: "green", progressionChain: ["split_squat","bulgarian_split"], defaultSets: 2, defaultReps: 6 },
+  { id: "db_row",             name: "Dumbbell Row",               cat: "Strength",    movement: "Upper Pull",        tennis: ["shoulder_stability","serve_power"],       ageFlag: "green",  progressionChain: ["db_row"], defaultSets: 2, defaultReps: 10, aliases: ["row", "bent-over row", "dumbbell bent-over row"] },
+  { id: "sa_row",             name: "Single-Arm Row",             cat: "Strength",    movement: "Upper Pull",        tennis: ["shoulder_stability","core_stability"],    ageFlag: "green",  progressionChain: ["db_row","sa_row"], defaultSets: 2, defaultReps: 8, aliases: ["single arm row", "one-arm row", "single-arm dumbbell row"] },
+  { id: "incline_pushup",     name: "Incline Push Up",            cat: "Strength",    movement: "Upper Push",        tennis: ["serve_power","stability"],                ageFlag: "green",  progressionChain: ["incline_pushup","floor_pushup"], defaultSets: 2, defaultReps: 8, aliases: ["incline push-up", "incline push up"] },
+  { id: "hip_thrust",         name: "Hip Thrust",                 cat: "Strength",    movement: "Bilateral Lower",   tennis: ["rotational_power","first_step","stability"],ageFlag: "green",progressionChain: ["bridge","hip_thrust"], defaultSets: 2, defaultReps: 10, aliases: ["hip bridge / hip thrust", "barbell-free hip thrust"] },
+  { id: "tibialis_raise",     name: "Tibialis Raise",             cat: "Strength",    movement: "Bilateral Lower",   tennis: ["deceleration","footwork","first_step"],   ageFlag: "green",  progressionChain: ["tibialis_raise"], defaultSets: 2, defaultReps: 12, aliases: ["tib raise", "anterior tibialis raise"] },
+  // SHOULDER / SCAPULAR
+  { id: "band_external_rot",  name: "Band External Rotation",     cat: "Strength",    movement: "Upper Pull",        tennis: ["shoulder_stability","serve_power"],       ageFlag: "green",  progressionChain: ["band_external_rot"], defaultSets: 2, defaultReps: 12, aliases: ["band external rotation", "external rotation"] },
+  { id: "serratus_wall_slide",name: "Serratus Wall Slide",        cat: "Mobility",    movement: "Upper Push",        tennis: ["shoulder_stability","serve_power"],       ageFlag: "green",  progressionChain: ["serratus_wall_slide"], defaultSets: 2, defaultReps: 8, aliases: ["wall slide", "serratus slide"] },
+  { id: "y_raise",            name: "Lower-Trapezius Y Raise",    cat: "Strength",    movement: "Upper Pull",        tennis: ["shoulder_stability","serve_power"],       ageFlag: "green",  progressionChain: ["y_raise"], defaultSets: 2, defaultReps: 8, aliases: ["y raise", "lower trap raise", "lower-trapezius / y raise"] },
   // RECOVERY
   { id: "foam_rolling",       name: "Foam Rolling",               cat: "Recovery",    movement: "Recovery",          tennis: ["recovery"],                              ageFlag: "green",  progressionChain: ["foam_rolling"], defaultSets: 1, defaultReps: 1 },
   { id: "static_stretch",     name: "Static Stretching",          cat: "Recovery",    movement: "Recovery",          tennis: ["recovery","hamstring"],                  ageFlag: "green",  progressionChain: ["static_stretch"], defaultSets: 1, defaultReps: 1 },
 ];
+
+// ─── APPROVED-EXERCISE GATE ────────────────────────────────────────────────────
+// The weekly S&C generator picks from this database and nothing else. Anything
+// the model names that does not resolve here is replaced by the deterministic
+// template entry rather than prescribed — an invented movement has had no
+// safety review, no regression path and no progression history.
+
+// Suppressed for the current eight-week block only (they stay in the database
+// so historical sessions still resolve, and so a later block can re-enable them
+// by changing this list rather than re-adding entries):
+//   • depth jumps and box jumping — high ground-reaction landings this block is
+//     not yet building towards;
+//   • continuous hop/pogo circuits — plyometrics run to fatigue, which is the
+//     opposite of the 20–30 quality-contact budget;
+//   • near-maximal eccentric and ballistic lifting (Nordic curl, KB swing,
+//     slam ball) — the block is explicitly submaximal and technique-led;
+//   • running conditioning — the acceleration work here is speed, not fitness.
+export const BLOCK_SUPPRESSED_EXERCISE_IDS = [
+  "depth_jump", "box_jump", "box_jump_sl", "broad_jump_sl",
+  "pogo_jumps", "lateral_hops", "skater_jump", "ski_jump",
+  "nordic_curl", "kb_swing", "slam_ball",
+  "shuttle_run", "parachute_run",
+];
+
+// Canonical slug for an exercise name — the same transform toWeeklyPlanData
+// uses to build plan ids, so the two can never disagree about identity.
+export function exerciseSlug(name) {
+  return String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
+const BY_KEY = (() => {
+  const map = new Map();
+  for (const ex of EXERCISE_DB) {
+    map.set(ex.id, ex);
+    map.set(exerciseSlug(ex.name), ex);
+    for (const alias of ex.aliases || []) map.set(exerciseSlug(alias), ex);
+  }
+  return map;
+})();
+
+// findExercise(nameOrId) → the database entry, or null. Matches on id, on the
+// slugged name, and on any declared alias.
+export function findExercise(nameOrId) {
+  if (!nameOrId) return null;
+  const raw = String(nameOrId).trim();
+  return BY_KEY.get(raw) || BY_KEY.get(exerciseSlug(raw)) || null;
+}
+
+// isApprovedExercise(nameOrId, {allowSuppressed}) → boolean. Suppressed entries
+// are NOT approved for the current block unless a caller explicitly opts in
+// (history rendering does; plan generation never does).
+export function isApprovedExercise(nameOrId, { allowSuppressed = false } = {}) {
+  const found = findExercise(nameOrId);
+  if (!found) return false;
+  return allowSuppressed || !BLOCK_SUPPRESSED_EXERCISE_IDS.includes(found.id);
+}
+
+// The names the prompt is allowed to choose from, in database order.
+export function approvedExerciseNames({ allowSuppressed = false } = {}) {
+  return EXERCISE_DB
+    .filter(e => allowSuppressed || !BLOCK_SUPPRESSED_EXERCISE_IDS.includes(e.id))
+    .map(e => e.name);
+}
 
 export const TENNIS_GAPS = [
   { id: "lateral_agility",   label: "Lateral Agility",      desc: "Slow side-to-side movement, poor wide ball coverage" },

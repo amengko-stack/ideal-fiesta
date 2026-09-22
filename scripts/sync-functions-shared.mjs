@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // Copies an explicit allowlist of pure modules from src/lib/ into
 // functions/shared/ so Cloud Functions (which only deploys the functions/
 // directory — see firebase.json's functions[0].source) can import them.
@@ -30,6 +29,7 @@ export const SHARED_MODULES = [
   'tournaments.js',
   'injuries.js',
   'exerciseDb.js',
+  'weeklyPlanCore.js',
   'aiJson.js',
   'athleteContextCore.js',
   'planGenCore.js',
@@ -88,7 +88,10 @@ function main() {
 }
 
 // Only run when executed directly (not when imported for SHARED_MODULES, e.g.
-// by the drift test).
-if (import.meta.url === `file://${process.argv[1]}`) {
+// by the drift test). Compare real paths, not a hand-built file:// string:
+// on Windows process.argv[1] is a backslash path, so `file://${argv[1]}` never
+// equals import.meta.url (file:///C:/dir/file.mjs) and the sync silently
+// no-opped -- including in firebase.json's functions predeploy hook.
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   main();
 }

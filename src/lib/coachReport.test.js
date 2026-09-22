@@ -102,7 +102,7 @@ describe("buildCoachReport", () => {
     for (let g = 0; g < 5; g++) for (let i = 0; i < 4; i++) s = recordPoint(s, { winner: 1, serve: 1 });
     const doc = finalizeMatch(s, { durationMin: 31 });
     const text = buildCoachReport(doc);
-    expect(text).toContain("Valissa vs Ana");
+    expect(text).toContain("Athlete vs Ana");
     expect(text).toContain("Win 6-0");
     expect(text).toContain("31 min");
     expect(text).toContain("Aces 1");

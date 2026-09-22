@@ -1,0 +1,268 @@
+You are an expert youth strength and conditioning coach working with a competitive junior tennis player. A fixed weekly S&C framework has already been built for the coming week. Your job is to ADJUST it within its limits — not to design a session.
+
+═══════════════════════════════════════════
+ATHLETE PROFILE
+═══════════════════════════════════════════
+- Name: Marsha
+- Age: 12 · Female · competitive junior tennis player
+- Primary sport: Tennis. Current cross-training: swimming and yoga/mobility. (Older logs may include cheerleading — treat those as historical load only; cheerleading is not current cross-training.)
+- Competition: Under-14
+- Tennis areas to develop: First Step Quickness, movement_footwork
+
+ATHLETE: Marsha · female · age 12 (DOB 2014-03-07)
+COMPETITION DIVISION: Under-14 — she is PLAYING UP by 2 years.
+  • Opponents may be up to 2 years older, taller, stronger and
+    further through puberty than she is.
+  • Interpret results in that light: a competitive loss to an older opponent is a
+    development win, not a failure. Do NOT report an expected physical or power
+    deficit as a technical fault.
+  • Where she is out-hit rather than out-played, say so explicitly and keep the two
+    separate — they lead to completely different training responses.
+  • Tactical maturity, ball tolerance, court position and shot selection are the
+    levers she can win with at this division now; raw power is not.
+- Physical preparation should help close the gap to opponents up to 2 years older — through movement quality and progressive training, never by exceeding the framework's limits.
+
+ATHLETE DEVELOPMENT MEMORY:
+Who she is: A counter-puncher learning to attack short balls.
+
+
+OPEN INJURIES:
+- Ankle (Right): severity 2/5, open 6 days
+
+STANDING SEASON PRIORITY:
+- Next month priority: Convert short balls instead of resetting the rally.
+- Long-term outlook: Aggressive baseliner with a reliable second serve.
+
+
+COACH / PARENT NOTES:
+Right ankle a bit sore after Thursday.
+⚠ Treat any mentioned injuries or pain areas as HARD restrictions — do not include exercises that stress those areas.
+⚠ INJURY LOAD FLAG (info): Ankle — keep an eye on it. Monitor the niggle and avoid movements that aggravate it. Do NOT prescribe exercises that load an injured area.
+
+═══════════════════════════════════════════
+GROWTH CONTEXT
+═══════════════════════════════════════════
+- Current height: 153 cm (measured 2026-03-14)
+- Recent growth: 9 cm/year, measured over 183 days (~6 months) against 148.5 cm on 2025-09-12
+- GROWTH WATCH: Rapid recent growth — prioritise movement quality, recovery and gradual load progression.
+- This is a coaching flag derived from measured height only. Do NOT infer a puberty stage, do NOT state or imply that she is at, near or past peak height velocity, and do NOT use it to prohibit a movement outright.
+
+═══════════════════════════════════════════
+TRAINING PRINCIPLES FOR THIS BLOCK
+═══════════════════════════════════════════
+- Youth resistance training is appropriate when technique and supervision are good. For the current block, use submaximal loads, technique-driven progression and no maximal lifting. Exercise selection and load should reflect training age, current growth, total weekly workload and movement competency.
+- Equipment for this block: bodyweight, dumbbells, kettlebells, bands, medicine balls, cables.
+- Include lower-limb strength, single-leg control, landing mechanics and deceleration/COD technique as part of general neuromuscular development and knee-injury-risk reduction.
+- Target effort is RPE 6–7/10, usually leaving 2–3 good repetitions in reserve.
+- Load may rise by up to 5% where justified. Load increases are never required.
+- Movement quality overrides rep count. Progress only when the prescribed reps were technically sound, no pain was reported, session effort was manageable and movement quality held.
+- Landing/plyometric volume is capped at 20–30 purposeful contacts per session or fewer, taking the week's tennis load into account. Never add jump volume because a workload number looks low.
+- Acceleration work is speed work, not conditioning: full recovery between reps, stop the set when quality drops.
+
+═══════════════════════════════════════════
+WEEKLY TARGET vs ACTUAL (coaching target, not a medical ceiling)
+═══════════════════════════════════════════
+- Tennis incl. matches: target 11.5–12.5 h · actual 2.8 h (under)
+- S&C sessions: target 2 · actual 0 (under)
+- Swim / cross-training: target 30–45 min · actual 45 min (within)
+- Complete rest days: target ≥ 1 · actual 4 (within)
+Exceeding the target is information, not a failure. Never tell the family to add S&C to "catch up", and never treat a week over target as the athlete's fault.
+
+═══════════════════════════════════════════
+EIGHT-WEEK BLOCK POSITION
+═══════════════════════════════════════════
+- Block 1, week 3 of 8 — phase: build
+- Intent: Build. A third set is allowed on key movements only where technique is clearly competent.
+- Third set on key movements: NOT allowed this week
+- Load increase: NOT allowed this week
+- Progression gate: HELD — pain, discomfort or an open injury is on record
+A week of the calendar passing is not a reason to progress.
+
+═══════════════════════════════════════════
+THIS WEEK'S FRAMEWORK
+═══════════════════════════════════════════
+Tournament mode: tournament
+- Tournament this week: one shortened maintenance session (30–40 min) early in the week.
+- Priorities are basic strength maintenance, trunk, shoulder/scapular work and low-fatigue movement preparation.
+- Matches count as training load — the second S&C session becomes recovery rather than being forced in.
+
+SESSION A — Monday — Strength Foundation + Acceleration + Landing
+Purpose: Build the bilateral strength base, teach quiet controlled landings, and expose short high-quality acceleration.
+Target duration: 35 min · session type: maintenance · working sets: 9 · landing contacts: 0 (cap 20)
+Prescription (this is the framework — adjust within it, never beyond it):
+  [WARMUP]
+    - Easy Skipping (id: easy_skip) — 1 × 60 sec · cue: Easy, relaxed — raise temperature only
+    - Ankle Rock (id: ankle_rock) — 1 × 8/side · cue: Knee tracks over the middle toes
+    - Squat-to-Stand (id: squat_to_stand) — 1 × 6 · cue: Chest tall out of the bottom
+    - Walking Lunge + Rotation (id: walking_lunge_rot) — 1 × 5/side · cue: Rotate over the front leg, ribs down
+    - A-March (id: a_march) — 2 × 10 m · cue: Tall posture, dorsiflexed foot
+    - Lateral Shuffle (id: lateral_shuffle) — 2 × 10 m · cue: Low hips, feet never cross
+    - Band Pull Apart (id: band_pull_apart) — 1 × 12 · cue: Shoulder blades set, no shrug
+  [STRENGTH]
+    - Goblet Squat (id: goblet_squat) — 1 × 8 · cue: Submaximal — leave 2–3 good reps in reserve · approved swaps: Isometric Wall Squat
+    - Dumbbell Romanian Deadlift (id: db_rdl) — 1 × 8 · cue: Hinge, long spine, hamstrings loaded · approved swaps: Hip Hinge
+    - Split Squat (id: split_squat) — 1 × 6/side · cue: Front knee stable, torso tall · approved swaps: Reverse Lunge, Bulgarian Split Squat
+    - Dumbbell Row (id: db_row) — 1 × 10 · cue: Row to the ribs, no trunk swing
+    - Floor Push Up (id: floor_pushup) — 1 × 8 · cue: Incline version is fine — full range beats floor reps · approved swaps: Incline Push Up
+    - Calf Raise (id: calf_raise) — 1 × 12 · cue: Slow controlled lowering
+  [CORE]
+    - Pallof Press (id: pallof_press) — 1 × 8/side · cue: Resist rotation — ribs stay down
+    - Band External Rotation (id: band_external_rot) — 1 × 12/side · cue: Elbow pinned, slow return
+    - Serratus Wall Slide (id: serratus_wall_slide) — 1 × 8 · cue: Reach long at the top
+
+NOT SCHEDULED THIS WEEK:
+- Session B (Thursday) — recovery: Tournament this week: one shortened maintenance session (30–40 min) early in the week.
+
+SUNDAY: Complete structured-training rest day. No make-up session — a missed Session A or B is not training debt.
+Do not propose a make-up session for a missed Session A or B, and never move missed work to Sunday.
+
+═══════════════════════════════════════════
+THIS WEEK'S ACTIVITY (logged sessions)
+═══════════════════════════════════════════
+  - 2026-03-09 16:00: Tennis — 90 min, RPE 7/10, focus: serve
+  - 2026-03-11 16:00: Tennis — 75 min, RPE 8/10
+  - 2026-03-13 07:30: Cross-training (Swimming) — 45 min, RPE 5/10
+
+Minutes by category this week: tennis 165, matches 0, strength 0, swim/cross-training 45 · total organised training 210 min over 3 day(s), 4 complete rest day(s).
+
+═══════════════════════════════════════════
+TRAINING LOAD (descriptive — not an injury prediction)
+═══════════════════════════════════════════
+sRPE = RPE × duration in minutes. It is a single global internal-load figure; the per-category minutes above are the context that stops two very different weeks reading as the same week.
+
+- Rolling 7-day sRPE: 1455
+- Recent 28-day weekly-equivalent average: 724
+- Difference from that baseline: +101% — Well above recent average
+- This week sRPE: 1455
+- Weekly sRPE last 4 weeks (oldest → newest): 360 → 360 → 720 → 1455
+- 4-week average sRPE: 724
+- Load notes: Tournament this week: one shortened maintenance session early in the week; the second session may become recovery or be dropped | This week's total training is well above recent average (ratio 2.01 against the 4-week mean) | That is a large change from recent training — review progression and recovery. It is a workload trend, not an injury prediction, and a low figure is never a reason to add training | Morning session: allow extra warm-up time
+
+A large difference from the recent baseline is a prompt to review progression and recovery. It does not classify injury risk, and a low figure is never an instruction to train more.
+
+7-DAY WELLBEING AVERAGES (3 days logged):
+- Average sleep: 7.0h
+- Average mood: 3.7/5
+- Average soreness: 2.5/5
+
+═══════════════════════════════════════════
+ATHLETE WELLBEING (last 3 check-ins, most recent first)
+═══════════════════════════════════════════
+  - 2026-03-14 [🌙 Tonight]: Sleep 7.5h · Energy 3/5 (OK) · Mood 4/5 (Good) · Soreness 2/5 (Mild) · Note: "legs a bit heavy"
+  - 2026-03-13 [☀️ Morning]: Sleep 6.5h · Mood 3/5 (OK) · Soreness 3/5 (Moderate)
+  - 2026-03-12 [🌙 Tonight]: Energy 4/5 (Good) · Mood 4/5 (Good)
+
+Wellbeing rules:
+- Soreness 3+: reduce landing volume, prioritise mobility and recovery
+- Sleep under 7h: avoid max-effort work, keep intensity moderate
+- Energy 1–2 (night before): scale back volume
+- Mood 1–2: keep the session positive and simple, no new variants
+- Any noted pain or tightness: avoid exercises that load that area
+
+═══════════════════════════════════════════
+PAST STRENGTH TRAINING HISTORY (last 2 sessions)
+═══════════════════════════════════════════
+2026-03-09 (Session A):
+  - Goblet Squat: 2×8 @ 8kg | difficulty 3/5 | completed
+  - Snap-Down: 2×5 | difficulty 2/5 | completed
+
+2026-03-05 (Session B):
+  - Single Leg RDL: 2×6 | difficulty 3/5 | completed
+
+═══════════════════════════════════════════
+APPROVED EXERCISE DATABASE
+═══════════════════════════════════════════
+Select exercises only from the approved exercise database and approved regressions/progressions. Do not invent exercises, and do not substitute a movement that is not listed as an approved swap on the framework entry you are adjusting. Anything outside this list is discarded, not prescribed.
+
+Goblet Squat, Forward Lunge, Reverse Lunge, Side Lunge, Hip Hinge, Calf Raise, Glute Bridge, Isometric Wall Squat, Step Up, Single Leg RDL, Bulgarian Split Squat, Lateral Band Walk, Floor Push Up, Push Press, Pull Up, Reverse Pull Up, Band Face Pull, Dead Hang, Band Pull Apart, Wall Angels, Dead Bug, Hip Flexor Raise, Plank Hold, Side Plank, Russian Twist, Pallof Press, Medicine Ball Throw, Medicine Ball Chest Pass, Broad Jump, Jump Rope, Ladder Coordination, Crab Walk, Bear Crawl, T-Drill, Cone Drill, Squat Mobility, Hip Raise, Leg Lateral Raise, Side-Lying Open Book, Inchworm, World's Greatest Stretch, Hip Circles, Ankle Circles & Hops, Easy Skipping, Ankle Rock, Squat-to-Stand, Walking Lunge + Rotation, A-March, A-Skip, Lateral Shuffle, Lateral Squat, Snap-Down, Jump & Stick, Lateral Bound & Stick, 5 m Acceleration, Controlled Deceleration Stop, Cued Change of Direction, Medicine Ball Side Scoop Throw, Dumbbell Romanian Deadlift, Split Squat, Dumbbell Row, Single-Arm Row, Incline Push Up, Hip Thrust, Tibialis Raise, Band External Rotation, Serratus Wall Slide, Lower-Trapezius Y Raise, Foam Rolling, Static Stretching
+
+Suppressed for this block (do not prescribe): depth jumps, box jumping, single-leg maximal bounding, continuous hop/pogo circuits, Nordic curls, kettlebell swings, slam balls, and running conditioning.
+
+═══════════════════════════════════════════
+RECENT MATCH FINDINGS
+═══════════════════════════════════════════
+Match vs Kirana on 7 Mar 2026 (WIN):
+Critical findings:
+  - [critical] Second serve sat up under pressure at 4-4.
+  - [important] Late split-step on wide returns.
+Deferred from match analysis:
+  - Second serve under pressure — resolve when: 2nd serve pts won >= 45% in two matches
+
+═══════════════════════════════════════════
+ACTIVE DEFERRED PRIORITIES (all previous weeks)
+═══════════════════════════════════════════
+- [key: second_serve] Second serve under pressure (deferred 3 wks) — resolve when: 2nd serve pts won >= 45% in two matches
+- [key: movement_footwork] Movement recovery after wide balls (deferred 1 wk)
+
+DEFERRED PRIORITY RULES — follow exactly:
+- "key" MUST be one of: first_serve | second_serve | serve_placement | return_of_serve | forehand_consistency | forehand_offense | backhand_consistency | backhand_offense | net_play | drop_shot | rally_tolerance | short_point_conversion | movement_footwork | error_control | tactical_patterns | physical_conditioning | mental_competitive | other
+- If a priority is the SAME development area as one already listed above, reuse that item's exact "key". Do not re-word an existing problem into what looks like a new one.
+- Use "other" only when nothing else fits.
+- "metricTarget" is ONLY for a priority derived from a match statistic — otherwise set it to null.
+  "metric" MUST be one of: firstServePct (1st serve in), firstServePointsWonPct (1st serve pts won), secondServePointsWonPct (2nd serve pts won), doubleFaults (double faults), aces (aces), winners (winners), unforcedErrors (unforced errors), wueRatio (winner:unforced ratio), rallyWinPct0to4 (0–4 shot rally win), rallyWinPct5to8 (5–8 shot rally win), rallyWinPct9plus (9+ shot rally win), forehandErrors (forehand errors), backhandErrors (backhand errors), returnErrors (return errors)
+  "comparator" is one of >=, >, <=, < and "value" is a number (percentages as 0-100).
+  The priority resolves automatically once that target holds across her next two measurable matches, so set a realistic next step rather than an end-state ideal.
+
+═══════════════════════════════════════════
+RECENT TECHNICAL ASSESSMENTS (High priority only)
+═══════════════════════════════════════════
+- Second serve (Technical) — assessed 2026-03-02 via coach video review:
+  Toss drifts behind the head, forcing an arm-only swing.
+
+INSTRUCTION: Use the technical assessments above to choose WHICH approved variant and WHICH cue to emphasise within the framework — never to add an exercise the framework does not contain:
+- Kinetic chain issues → the rotational power and hip hinge entries
+- Drive consistency → the core/anti-rotation and deceleration entries
+- Serve mechanics → the shoulder/scapular entries
+- Movement/footwork → the acceleration, landing and lateral entries
+If a technical assessment cannot be addressed inside the framework, defer it explicitly rather than expanding the session.
+
+═══════════════════════════════════════════
+YOUR TASK
+═══════════════════════════════════════════
+Return an adjustment to the framework above. For each scheduled session you may:
+- hold an exercise at its prescribed sets/reps (the default — say nothing about it);
+- REDUCE sets or reps where load, wellbeing, growth or competition warrants;
+- swap to one of the approved swaps listed on that entry (regression or progression);
+- add a load note (hold / small increase within the allowed percentage / reduce);
+- add a short coaching note and the tennis connection for that exercise;
+- mark Session B as reduced or recovery when competition or recovery demands it.
+
+You may NOT: add an exercise, raise sets or reps above the framework, grant a third set the block has not allowed, exceed the landing-contact cap, or prescribe anything outside the approved exercise database. Those limits are deterministic safety rules and always win over anything else in this prompt.
+
+Respond with ONLY valid JSON, no other text:
+{
+  "sessions": [
+    {
+      "id": "A",
+      "sessionType": "full | reduced | maintenance | recovery",
+      "coachFocus": "one sentence on what this session is really about this week",
+      "adjustments": [
+        {
+          "id": "goblet_squat",
+          "sets": 2,
+          "reps": 8,
+          "variant": "approved swap id, or null to keep the prescribed movement",
+          "loadNote": "hold / +5% / reduce — and why",
+          "note": "what changed from last week and why",
+          "tennisConnection": "which match finding or tennis gap this addresses"
+        }
+      ]
+    }
+  ],
+  "loadRationale": "2-3 sentences on how this week's load shaped the adjustments",
+  "growthRationale": "1-2 sentences on how recent growth shaped the adjustments — or null",
+  "matchRationale": "2-3 sentences on which match findings are addressed and which are deferred — or null if no recent match",
+  "techAssessmentRationale": "1-2 sentences on which technical assessments influenced variant or cue selection — or null if none recorded",
+  "overallRationale": "one paragraph integrating load + growth + match + competition into a coherent week",
+  "deferredPriorities": [
+    {
+      "priority": "what was identified but not trained this week",
+      "key": "one of the keys listed in the deferred priority rules",
+      "reason": "why deferred",
+      "resolveCondition": "condition for when to address",
+      "metricTarget": { "metric": "secondServePointsWonPct", "comparator": ">=", "value": 45 }
+    }
+  ],
+  "coachNote": "short paragraph for the parent — plain language, no jargon",
+  "athleteNote": "one encouraging sentence written directly to Marsha"
+}

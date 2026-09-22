@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { maturityOffset, stageInfo } from "./maturity.js";
+import { maturityOffset, stageInfo, MATURITY_ESTIMATE_LABEL, MATURITY_UNCERTAINTY_NOTE } from "./maturity.js";
+import { buildWeeklyStrengthPlanPrompt } from "./planGenCore.js";
+import { buildWeeklyFramework } from "./weeklyPlanCore.js";
 
 const MS_PER_YEAR = 365.25 * 24 * 60 * 60 * 1000;
 
@@ -88,5 +90,87 @@ describe("stageInfo", () => {
     expect(stageInfo("Unknown")).toBeNull();
     expect(stageInfo(null)).toBeNull();
     expect(stageInfo(undefined)).toBeNull();
+  });
+});
+
+describe("Mirwald is an uncertain research estimate, not a training switch", () => {
+  const midPhv = agedInputs(13, { heightCm: 160, sittingHeightCm: 80, weightKg: 48 });
+
+  it("labels the estimate as uncertain wherever it is shown", () => {
+    expect(MATURITY_ESTIMATE_LABEL).toBe("Estimated maturity offset — interpret cautiously");
+    expect(MATURITY_UNCERTAINTY_NOTE).toMatch(/population regression/i);
+    expect(MATURITY_UNCERTAINTY_NOTE).toMatch(/never as a measured developmental stage/i);
+  });
+
+  it("describes the estimate without prescribing training from it", () => {
+    for (const stage of ["Pre-PHV", "Mid-PHV", "Post-PHV"]) {
+      const { implication } = stageInfo(stage);
+      expect(implication).toMatch(/estimate/i);
+      expect(implication).toMatch(/uncertain/i);
+      // No prescription, and in particular no blanket prohibition.
+      expect(implication).not.toMatch(/avoid heavy axial loading/i);
+      expect(implication).not.toMatch(/reduce high-impact/i);
+      expect(implication).not.toMatch(/growth plates are open/i);
+    }
+  });
+
+  it("never reaches the weekly S&C prompt, even with a full sitting-height history", () => {
+    const profile = {
+      name: "Test Athlete",
+      dob: "2013-01-01",
+      height: 160, weight: 48, sittingHeight: 80,
+      measurements: [
+        { date: "2026-03-14", height: 160, weight: 48, sittingHeight: 80 },
+        { date: "2025-09-12", height: 156, weight: 45, sittingHeight: 78 },
+      ],
+    };
+    // The estimate itself is computable from these inputs...
+    expect(maturityOffset({ ...midPhv, date: new Date("2026-03-15T00:00:00Z") })).not.toBeNull();
+    // ...but the S&C prompt is built from measured growth, not from it.
+    const { prompt, system } = buildWeeklyStrengthPlanPrompt({
+      profile, weekLogs: [], sessionHistory: [], wellbeing: [],
+      tournament: "none", sessionTime: "10:00", ctx: null,
+      now: new Date("2026-03-15T09:00:00.000Z"),
+    });
+    for (const text of [prompt, system]) {
+      expect(text).not.toMatch(/Pre-PHV|Mid-PHV|Post-PHV/);
+      expect(text).not.toMatch(/maturity offset/i);
+      expect(text).not.toMatch(/peak height velocity classification/i);
+    }
+    expect(prompt).toContain("Recent growth: 8 cm/year");
+  });
+
+  it("plans the whole week with no sitting height on file at all", () => {
+    const profile = {
+      name: "Test Athlete",
+      dob: "2014-03-07",
+      measurements: [
+        { date: "2026-03-14", height: 153, weight: 43 },
+        { date: "2025-09-12", height: 148.5, weight: 37.5 },
+      ],
+    };
+    expect(maturityOffset({
+      dob: profile.dob, heightCm: 153, weightKg: 43, date: new Date("2026-03-15T00:00:00Z"),
+    })).toBeNull();
+
+    const built = buildWeeklyStrengthPlanPrompt({
+      profile, weekLogs: [], sessionHistory: [], wellbeing: [],
+      tournament: "none", sessionTime: "10:00", ctx: null,
+      now: new Date("2026-03-15T09:00:00.000Z"),
+      blockState: { blockWeek: 1, blockNumber: 1 },
+    });
+    expect(built.framework.sessions.map(s => s.id)).toEqual(["A", "B"]);
+    expect(built.growthContext.velocityCmYr).toBeCloseTo(9, 1);
+    expect(built.growthContext.growthWatch).toBe(true);
+    expect(built.framework.sessions[0].exercises.length).toBeGreaterThan(0);
+  });
+
+  it("does not gate any exercise on the maturity estimate", () => {
+    // The framework builder takes no maturity input at all — its signature is
+    // the proof that the estimate cannot approve or prohibit a movement.
+    const fw = buildWeeklyFramework({ blockWeek: 1 });
+    const withNonsense = buildWeeklyFramework({ blockWeek: 1, maturityStage: "Mid-PHV" });
+    expect(withNonsense.sessions.map(s => s.exercises.map(e => e.id)))
+      .toEqual(fw.sessions.map(s => s.exercises.map(e => e.id)));
   });
 });

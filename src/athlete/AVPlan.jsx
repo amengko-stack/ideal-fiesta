@@ -1,7 +1,10 @@
 import { COLORS } from "../styles/theme.js";
+import { readWeeklyPlan, flattenPlanExercises } from "../lib/weeklyPlanCore.js";
 
 // ─── AV: MY PLAN (read-only) ──────────────────────────────────────────────────
-export default function AVPlan({ plan, loading }) {
+export default function AVPlan({ plan: rawPlan, loading }) {
+  // Normalises both the weekly (schema v2) and the legacy single-session plan.
+  const plan = readWeeklyPlan(rawPlan);
   if (loading) return <div className="empty" style={{ paddingTop: 60 }}><div className="spinner" /></div>;
 
   if (!plan) return (
@@ -30,7 +33,7 @@ export default function AVPlan({ plan, loading }) {
         </div>
       )}
 
-      {(plan.plan || []).map((ex, i) => (
+      {flattenPlanExercises(plan).map((ex, i) => (
         <div
           key={i}
           style={{
@@ -41,7 +44,7 @@ export default function AVPlan({ plan, loading }) {
         >
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 700, fontSize: "1rem", marginBottom: 6 }}>{ex.name}</div>
-            <span className="badge badge-gray">{ex.category}</span>
+            <span className="badge badge-gray">{ex.plannedDay ? `${ex.plannedDay} · ${ex.category}` : ex.category}</span>
             {ex.note && <div style={{ fontSize: "0.78rem", color: COLORS.accentDim, marginTop: 8, lineHeight: 1.5 }}>→ {ex.note}</div>}
           </div>
           <div style={{ textAlign: "right", flexShrink: 0 }}>

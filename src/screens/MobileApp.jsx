@@ -30,7 +30,9 @@ import { mergeWellbeingByDate } from "../lib/load.js";
 import { generateSeasonReport } from "../lib/seasonReport.js";
 import { friendlyAiError } from "../lib/aiErrors.js";
 import { generateMatchAnalysis } from "../lib/matchAnalysis.js";
-import { generateSundayPlan } from "../lib/planGen.js";
+import { generateWeeklyStrengthPlan } from "../lib/planGen.js";
+import { readWeeklyPlan, sessionProgress } from "../lib/weeklyPlanCore.js";
+import { startNextStrengthBlock } from "../lib/programState.js";
 import { awardXp } from "../lib/gamificationStore.js";
 import { XP, levelFromXp, xpForSession } from "../lib/gamification.js";
 import { sessionSRPE } from "../lib/load.js";
@@ -81,6 +83,7 @@ export default function MobileApp({ athleteId, isParent, user, onSignOut }) {
   // gone before anyone can read or report it.
   const [seasonError, setSeasonError] = useState(null);
   const [planError, setPlanError] = useState(null);
+  const [startingBlock, setStartingBlock] = useState(false);
   const [sheet, setSheet]       = useState(null); // null | "log" | "checkin" | "tournament" | "import"
   const [injuryTarget, setInjuryTarget] = useState(null); // open injury being edited, or null for a fresh log
   const [earnedBadges, setEarnedBadges] = useState({});
@@ -213,23 +216,48 @@ export default function MobileApp({ athleteId, isParent, user, onSignOut }) {
     onSaved("Match deleted 🗑️");
   };
 
-  const finishSession = (difficulty) => {
+  // Finishing Session A must never mark Session B done: completion is stored per
+  // session, and only the session named here is written back.
+  const finishSession = (sessionId, difficulty, painNote = "") => {
     if (!planResult) return;
+    const plan = readWeeklyPlan(planResult);
+    const session = (plan.sessions || []).find(x => x.id === sessionId);
+    if (!session) return;
+
     const now = new Date();
-    const exercises = (planResult.plan || []).map(ex => ({
+    const exercises = (session.exercises || []).map(ex => ({
       id: ex.id, name: ex.name,
-      sets: ex.sets ?? null, reps: ex.reps ?? null, weight: "",
-      difficulty, completed: !!planResult.doneMap?.[ex.id], notes: "",
+      sets: ex.sets ?? null, reps: ex.reps ?? null,
+      unit: ex.unit ?? "reps", perSide: !!ex.perSide,
+      weight: ex.loadNote ?? "",
+      difficulty, completed: !!session.doneMap?.[ex.id], notes: "",
     }));
+
     // Same shape the classic StrengthLogTab writes — the plan generator's
-    // exercise-progression memory reads this collection.
+    // exercise-progression memory reads this collection — plus which planned
+    // session it was, so next week's progression gate can find it.
     addDoc(collection(db, "athletes", athleteId, "sessions"), {
-      date: toLocalDateStr(now), time: now.toTimeString().slice(0, 5), exercises,
+      date: toLocalDateStr(now), time: now.toTimeString().slice(0, 5),
+      plannedSessionId: sessionId,
+      weekKey: plan.weekKey ?? null,
+      blockWeek: plan.block?.week ?? null,
+      difficulty,
+      ...(painNote ? { painNote } : {}),
+      exercises,
     }).catch(e => console.error("finishSession save:", e));
-    setDoc(doc(db, "athletes", athleteId, "plans", "current"), { sessionLogged: true }, { merge: true })
+
+    // Firestore cannot merge into one element of an array, so the sessions
+    // array is rewritten whole — with only this session's flags changed.
+    const sessions = (planResult.sessions || []).map(x =>
+      x.id === sessionId
+        ? { ...x, sessionLogged: true, difficulty, loggedAt: now.toISOString(), ...(painNote ? { painNote } : {}) }
+        : x
+    );
+    const patch = sessions.length > 0 ? { sessions } : { sessionLogged: true };
+    setDoc(doc(db, "athletes", athleteId, "plans", "current"), patch, { merge: true })
       .catch(e => console.error("sessionLogged flag:", e));
-    setPlanResult(prev => (prev ? { ...prev, sessionLogged: true } : prev));
-    onSaved("Session logged — the AI will build on it next week 💪");
+    setPlanResult(prev => (prev ? { ...prev, ...patch } : prev));
+    onSaved(`Session ${sessionId} logged — the AI will build on it next week 💪`);
   };
 
   const generateSeason = async () => {
@@ -257,7 +285,7 @@ export default function MobileApp({ athleteId, isParent, user, onSignOut }) {
     setPlanLoading(true);
     setPlanError(null);
     try {
-      const { planData } = await generateSundayPlan(athleteId, {
+      const { planData } = await generateWeeklyStrengthPlan(athleteId, {
         profile, weekLogs, sessionHistory, wellbeing,
         tournament: mode, sessionTime: "10:00",
       });
@@ -275,13 +303,44 @@ export default function MobileApp({ athleteId, isParent, user, onSignOut }) {
     }
   };
 
-  const toggleExercise = (exId) => {
+  // Each session carries its own done map. A legacy (pre-schema-v2) plan has one
+  // top-level doneMap and no sessions array, so that shape is still written back
+  // the way it was stored rather than being silently migrated.
+  // Starting the next eight-week block is an explicit decision a parent makes
+  // after the week-8 review — never a side effect of generating a plan. It
+  // writes programState/strength only; the plan is regenerated from there.
+  const startNextBlock = async () => {
+    if (startingBlock) return;
+    setStartingBlock(true);
+    try {
+      await startNextStrengthBlock(athleteId);
+      setPlanResult(null);
+      showToast("New block started — generate this week's plan 💪");
+    } catch (e) {
+      console.error("startNextBlock:", e);
+      showToast("Couldn't start the next block — try again 🙈");
+    } finally {
+      setStartingBlock(false);
+    }
+  };
+
+  const toggleExercise = (sessionId, exId) => {
     setPlanResult(prev => {
       if (!prev) return prev;
-      const doneMap = { ...(prev.doneMap || {}), [exId]: !prev.doneMap?.[exId] };
-      setDoc(doc(db, "athletes", athleteId, "plans", "current"), { doneMap }, { merge: true })
+      if (!Array.isArray(prev.sessions)) {
+        const doneMap = { ...(prev.doneMap || {}), [exId]: !prev.doneMap?.[exId] };
+        setDoc(doc(db, "athletes", athleteId, "plans", "current"), { doneMap }, { merge: true })
+          .catch(err => console.error("doneMap save:", err));
+        return { ...prev, doneMap };
+      }
+      const sessions = prev.sessions.map(s =>
+        s.id === sessionId
+          ? { ...s, doneMap: { ...(s.doneMap || {}), [exId]: !s.doneMap?.[exId] } }
+          : s
+      );
+      setDoc(doc(db, "athletes", athleteId, "plans", "current"), { sessions }, { merge: true })
         .catch(err => console.error("doneMap save:", err));
-      return { ...prev, doneMap };
+      return { ...prev, sessions };
     });
   };
 
@@ -601,7 +660,14 @@ export default function MobileApp({ athleteId, isParent, user, onSignOut }) {
           wins: matchesSnap.docs.filter(d => d.data().whoWonMatch === 1).length,
           checkinDays: new Set(wb.map(w => w.date)).size,
           level: levelFromXp(xpVal).level,
-          planCompleted: !!(planDoc && (planDoc.plan || []).length > 0 && (planDoc.plan || []).every(ex => planDoc.doneMap?.[ex.id])),
+          // Earned when every SCHEDULED S&C session of the week is fully ticked
+          // off — one finished session is not the week.
+          planCompleted: (() => {
+            if (!planDoc) return false;
+            const scheduled = (readWeeklyPlan(planDoc).sessions || [])
+              .filter(x => x.sessionType !== "recovery" && (x.exercises || []).length > 0);
+            return scheduled.length > 0 && scheduled.every(x => sessionProgress(x).complete);
+          })(),
         };
         const satisfied = evaluateBadges(stats);
         const fresh = satisfied.filter(id => !stored[id]);
@@ -714,11 +780,12 @@ export default function MobileApp({ athleteId, isParent, user, onSignOut }) {
               tournaments={tournaments}
               loading={planLoading}
               error={planError}
-              doneMap={planResult?.doneMap}
               onGenerate={generatePlan}
               onToggleExercise={toggleExercise}
               onFinishSession={finishSession}
               onRegenerate={() => { setPlanResult(null); }}
+              onStartNextBlock={startNextBlock}
+              startingBlock={startingBlock}
             />
           ) : screen === "me" ? (
             <MeScreen

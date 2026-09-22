@@ -1,7 +1,8 @@
 import { M } from "../styles/mobileTheme.js";
 import Card from "../ui/Card.jsx";
 import TrendChart from "../ui/TrendChart.jsx";
-import { computeLoad, computeLoadHistory, acwrStatus, sessionSRPE, computeMonotonyStrain, monotonyStatus } from "../lib/load.js";
+import { computeLoad, computeLoadHistory, workloadTrendStatus, sessionSRPE, computeMonotonyStrain, monotonyStatus, weeklyTrainingSummary, loadTrend } from "../lib/load.js";
+import { compareToWeeklyTargets, OVER_TARGET_TENNIS_MESSAGE } from "../lib/weeklyPlanCore.js";
 import { getWeekBounds } from "../lib/dates.js";
 
 const fmtWeekLabel = (weekStart) => {
@@ -17,13 +18,26 @@ const SPORT = [
   { key: "other",    label: "Other",    color: M.other },
 ];
 
+// The ratio compares this week to the recent block. It is a descriptive trend,
+// not a validated injury classifier, so these lines describe the change and ask
+// for a look — they never prescribe a recovery day, and a quiet week is never
+// told to train more.
 const TIP = {
-  danger:  "Way high — take it easy today. Recovery is training too. 🧘",
-  warn:    "Trending high — ease off intensity for a day or two.",
-  limeDim: "You can handle a bit more — good week to progress.",
-  success: "Nicely balanced — keep the rhythm going! 🎾",
+  danger:  "Well above the recent few weeks — worth reviewing progression and recovery. 🧘",
+  warn:    "Above the recent few weeks — worth reviewing progression and recovery.",
+  limeDim: "Below the recent few weeks.",
+  success: "In line with the recent few weeks. 🎾",
   muted:   "Log a few sessions to see your load picture.",
 };
+
+const TARGET_TONE = { under: M.sub, within: M.success, over: M.streakOrange };
+
+const MINUTE_ROWS = [
+  { key: "tennisMinutes",       label: "Tennis training", color: M.tennis },
+  { key: "matchMinutes",        label: "Matches",         color: M.match },
+  { key: "strengthMinutes",     label: "Strength (S&C)",  color: M.strength },
+  { key: "crossTrainingMinutes", label: "Swim / cross-training", color: M.other },
+];
 
 const sportOf = (type) => SPORT.find(s => s.key === type) || SPORT[4];
 
@@ -35,7 +49,7 @@ const sessionName = (log) =>
 export default function LoadScreen({ weekLogs }) {
   const logs = weekLogs || [];
   const { thisWeekSRPE, acwr } = computeLoad(logs);
-  const status = acwrStatus(acwr);
+  const status = workloadTrendStatus(acwr);
   const tone = M.tone[status.tone];
 
   const { monotony, strain } = computeMonotonyStrain(logs);
@@ -53,6 +67,13 @@ export default function LoadScreen({ weekLogs }) {
   const current = history[3].srpeByType;
   const breakdown = SPORT.filter(s => current[s.key] > 0);
   const maxSport = Math.max(...breakdown.map(s => current[s.key]), 1);
+
+  // Per-category minutes and rest days. sRPE is one global internal-load number;
+  // this is the context that stops two very different weeks reading the same.
+  const summary = weeklyTrainingSummary(logs);
+  const targets = compareToWeeklyTargets(summary);
+  const trend = loadTrend(logs);
+  const maxMinutes = Math.max(...MINUTE_ROWS.map(r => summary[r.key]), 1);
 
   const { start: weekStart } = getWeekBounds(0);
   const thisWeek = logs
@@ -84,6 +105,62 @@ export default function LoadScreen({ weekLogs }) {
           background: "#F1F8F3", borderLeft: `3px solid ${tone}`, borderRadius: "0 10px 10px 0",
           padding: "11px 13px", fontSize: 12.5, color: "#4a5a52", marginTop: 16, lineHeight: 1.45, fontWeight: 500,
         }}>{TIP[status.tone]}</div>
+        <div style={{ fontSize: 11.5, color: M.sub, marginTop: 10, lineHeight: 1.45 }}>
+          Last 7 days {trend.last7DaySRPE} vs a recent 4-week weekly average of {trend.baselineWeeklySRPE}
+          {trend.pctFromBaseline != null ? ` (${trend.pctFromBaseline > 0 ? "+" : ""}${trend.pctFromBaseline}%)` : ""}.
+        </div>
+      </Card>
+
+      {/* this week by category — target vs actual */}
+      <Card>
+        <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 15, color: M.ink, marginBottom: 2 }}>This week&apos;s training</div>
+        <div style={{ fontSize: 11.5, color: M.sub, marginBottom: 12, lineHeight: 1.45 }}>
+          Minutes by category, plus how the week compares to the current development target. A target, not a ceiling.
+        </div>
+        {MINUTE_ROWS.map(row => (
+          <div key={row.key} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+            <div style={{ width: 118, fontSize: 12, color: M.ink }}>{row.label}</div>
+            <div style={{ flex: 1, height: 8, borderRadius: 99, background: M.fillDim, overflow: "hidden" }}>
+              <div style={{ width: `${Math.round((summary[row.key] / maxMinutes) * 100)}%`, height: "100%", background: row.color, borderRadius: 99 }} />
+            </div>
+            <div style={{ width: 54, textAlign: "right", fontFamily: M.display, fontWeight: 700, fontSize: 12.5, color: M.ink }}>
+              {summary[row.key]} min
+            </div>
+          </div>
+        ))}
+        <div style={{ display: "flex", gap: 14, marginTop: 12, paddingTop: 12, borderTop: `1px solid ${M.divider}` }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 18, color: M.ink }}>{summary.totalMinutes}</div>
+            <div style={{ fontSize: 10.5, color: M.sub, fontWeight: 600 }}>total organised min</div>
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 18, color: M.ink }}>{summary.restDays}</div>
+            <div style={{ fontSize: 10.5, color: M.sub, fontWeight: 600 }}>complete rest days</div>
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 18, color: M.ink }}>{summary.srpe}</div>
+            <div style={{ fontSize: 10.5, color: M.sub, fontWeight: 600 }}>sRPE</div>
+          </div>
+        </div>
+        {targets && (
+          <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${M.divider}` }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".05em", color: M.sub, textTransform: "uppercase", marginBottom: 7 }}>Target vs actual</div>
+            {[targets.tennis, targets.strength, targets.crossTraining, targets.restDays].map(row => (
+              <div key={row.label} style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "4px 0" }}>
+                <div style={{ flex: 1, fontSize: 12.5, color: M.ink }}>{row.label}</div>
+                <div style={{ fontSize: 11.5, color: M.sub }}>target {row.targetLabel}</div>
+                <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 13, color: TARGET_TONE[row.status] || M.ink, minWidth: 58, textAlign: "right" }}>
+                  {row.actualLabel}
+                </div>
+              </div>
+            ))}
+            {targets.tennisOverTargetMessage && (
+              <div style={{ marginTop: 10, padding: "10px 12px", background: M.fillAlt, borderRadius: 12, fontSize: 12, color: M.ink, lineHeight: 1.5 }}>
+                {OVER_TARGET_TENNIS_MESSAGE}
+              </div>
+            )}
+          </div>
+        )}
       </Card>
 
       {/* monotony & strain */}
@@ -134,9 +211,12 @@ export default function LoadScreen({ weekLogs }) {
         </div>
       </Card>
 
-      {/* 12-week ACWR trend */}
+      {/* 12-week workload trend */}
       <Card style={{ padding: "18px 16px" }}>
-        <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 15, color: M.ink, marginBottom: 6 }}>12-week ACWR</div>
+        <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 15, color: M.ink, marginBottom: 2 }}>12-week workload trend</div>
+        <div style={{ fontSize: 11.5, color: M.sub, marginBottom: 10, lineHeight: 1.45 }}>
+          Each week against the four weeks around it. 1.0 means the week matched its recent average — it is a trend line, not a risk score.
+        </div>
         <TrendChart points={acwrPoints} />
       </Card>
 

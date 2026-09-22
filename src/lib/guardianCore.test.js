@@ -78,6 +78,17 @@ const PRE_PHV_ATHLETE = {
   dob: "2016-08-09",
   measurements: [{ date: "2026-08-01", height: 150, sittingHeight: 75, weight: 35 }],
 };
+// OBSERVED growth: 154 → 160 cm across 153 dated days (~14.3 cm/yr). This is
+// the only growth input that carries weight, so every fixture below that needs
+// a real `growth` family is built from measured height history rather than from
+// a Mirwald estimate. dob 2016 keeps it Pre-PHV so no maturity factor appears.
+const RAPID_GROWTH_ATHLETE = {
+  dob: "2016-08-09",
+  measurements: [
+    { date: "2026-03-01", height: 154, sittingHeight: 75, weight: 35 },
+    { date: "2026-08-01", height: 160, sittingHeight: 75, weight: 35 },
+  ],
+};
 
 describe("GUARDIAN_THRESHOLDS", () => {
   it("is frozen so server and client can never drift on a number", () => {
@@ -737,12 +748,103 @@ describe("growth family", () => {
   const factorsFor = (athlete) => assessGuardian({ wellbeing: CALM_DAY, athlete }, TODAY).factors;
   const ids = (athlete) => idsOf(factorsFor(athlete));
 
-  it("fires mid-phv-window — the app's only encoded growth-risk statement, which never alerted before", () => {
+  it("carries mid-phv-window as evidence only — zero weight, excluded from the gate", () => {
     expect(ids(MID_PHV_ATHLETE)).toEqual(["mid-phv-window"]);
-    expect(factorsFor(MID_PHV_ATHLETE)[0].weight).toBe(2);
+    const f = factorsFor(MID_PHV_ATHLETE)[0];
+    expect(f.weight).toBe(0);
+    expect(f.counts).toBe(false);
+  });
+  it("states the Mirwald offset as an estimate, never as a measured stage", () => {
+    const f = factorsFor(MID_PHV_ATHLETE)[0];
+    expect(f.evidence).toContain("Estimated maturity offset");
+    expect(f.evidence).toContain("not a measurement");
+    expect(f.evidence).toContain("carries no weight in this assessment");
+    expect(f.evidence).not.toMatch(/she is inside the window/i);
+    expect(f.label).not.toMatch(/^At PHV/i);
   });
   it("does not fire for a Pre-PHV athlete", () => {
     expect(ids(PRE_PHV_ATHLETE)).toEqual([]);
+  });
+
+  // ── MIRWALD CANNOT DECIDE ANYTHING ────────────────────────────────────────
+  // The offset is a population regression with years of individual error. It
+  // may be shown; it may not vote. Every branch of the gate is checked here
+  // against a change in the estimate ALONE.
+  describe("the maturity estimate has no vote", () => {
+    const MOOD_LOW = wbDays([{ mood: 2 }, { mood: 2 }, { mood: 2 }]);
+
+    it("cannot create a growth family or any alert on its own", () => {
+      const a = assessGuardian({ wellbeing: CALM_DAY, athlete: MID_PHV_ATHLETE }, TODAY);
+      expect(idsOf(a.factors)).toEqual(["mid-phv-window"]);
+      expect(a.families).toEqual([]);
+      expect(evaluateGate(a.factors).weightByFamily).toEqual({});
+      expect(a.acuteWeight).toBe(0);
+      expect(a.fires).toBe(false);
+      expect(a.severity).toBeNull();
+    });
+
+    it("cannot tip a single-family recovery story over the line", () => {
+      const withEstimate = assessGuardian({ wellbeing: MOOD_LOW, athlete: MID_PHV_ATHLETE }, TODAY);
+      const without = assessGuardian({ wellbeing: MOOD_LOW }, TODAY);
+      expect(withEstimate.fires).toBe(false);
+      expect(withEstimate.reason).toBe("single-family");
+      // Identical decision either way — the estimate changed nothing.
+      expect(withEstimate.families).toEqual(without.families);
+      expect(withEstimate.acuteWeight).toBe(without.acuteWeight);
+      expect(withEstimate.severity).toBe(without.severity);
+    });
+
+    it("cannot raise severity on a story that does fire", () => {
+      const injuries = [{ id: "i1", bodyArea: "Knee", severity: 3, status: "open", onsetDate: dayStr(TODAY, -3) }];
+      const withEstimate = assessGuardian({ wellbeing: MOOD_LOW, injuries, athlete: MID_PHV_ATHLETE }, TODAY);
+      const without = assessGuardian({ wellbeing: MOOD_LOW, injuries }, TODAY);
+      expect(withEstimate.fires).toBe(true);
+      expect(withEstimate.severity).toBe(without.severity);
+      expect(withEstimate.acuteWeight).toBe(without.acuteWeight);
+      expect(withEstimate.families).toEqual(without.families);
+      expect(withEstimate.storyKey).toBe(without.storyKey);
+    });
+
+    it("changing the estimate across all three stages changes no decision", () => {
+      const decisionFor = (athlete) => {
+        const a = assessGuardian({ wellbeing: MOOD_LOW, athlete }, TODAY);
+        return { fires: a.fires, reason: a.reason, families: a.families, acuteWeight: a.acuteWeight, severity: a.severity };
+      };
+      const none = decisionFor(undefined);
+      expect(decisionFor(PRE_PHV_ATHLETE)).toEqual(none);
+      expect(decisionFor(MID_PHV_ATHLETE)).toEqual(none);
+      // Post-PHV (age 16, 170/85/60 → offset 3.08).
+      expect(decisionFor({
+        dob: "2010-08-09",
+        measurements: [{ date: "2026-08-01", height: 170, sittingHeight: 85, weight: 60 }],
+      })).toEqual(none);
+    });
+
+    it("cannot trigger a Growth Watch — that comes from measured height only", () => {
+      // One dated height on file, so a growth context exists — it simply has no
+      // velocity to report, and therefore no watch.
+      const estimateOnly = assessGuardian({ wellbeing: CALM_DAY, athlete: MID_PHV_ATHLETE }, TODAY);
+      expect(estimateOnly.metrics.maturityStage).toBe("Mid-PHV");
+      expect(estimateOnly.metrics.growthVelocity).toBeNull();
+      expect(estimateOnly.metrics.growthWatch).toBe(false);
+      expect(idsOf(estimateOnly.factors)).not.toContain("rapid-growth");
+
+      const observed = assessGuardian({ wellbeing: CALM_DAY, athlete: RAPID_GROWTH_ATHLETE }, TODAY);
+      expect(observed.metrics.maturityStage).toBe("Pre-PHV");
+      expect(idsOf(observed.factors)).toEqual(["rapid-growth"]);
+      expect(observed.metrics.growthWatch).toBe(true);
+    });
+
+    it("does not create a false growth signal when there is no height history", () => {
+      const a = assessGuardian({ wellbeing: MOOD_LOW, athlete: { dob: "2013-08-09" } }, TODAY);
+      expect(a.metrics.maturityStage).toBeNull();
+      expect(a.metrics.growthVelocity).toBeNull();
+      expect(a.metrics.growthSpanDays).toBeNull();
+      expect(a.metrics.growthWatch).toBeNull();
+      expect(idsOf(a.factors)).not.toContain("rapid-growth");
+      expect(idsOf(a.factors)).not.toContain("mid-phv-window");
+      expect(a.families).toEqual(["recovery"]);
+    });
   });
 
   it("yields NO growth family at all when maturityOffset returns null for want of a sitting height", () => {
@@ -765,6 +867,15 @@ describe("growth family", () => {
     it("fires on fast growth measured over a long enough span", () => {
       // 6cm over 153 days → 14.3 cm/yr.
       expect(ids(grew("2026-03-01", "2026-08-01", 150, 156))).toContain("rapid-growth");
+    });
+
+    it("reports the interval the velocity was measured over", () => {
+      const a = assessGuardian({ wellbeing: CALM_DAY, athlete: grew("2026-03-01", "2026-08-01", 150, 156) }, TODAY);
+      const f = a.factors.find(x => x.id === "rapid-growth");
+      expect(a.metrics.growthSpanDays).toBe(153);
+      expect(f.metrics.growthSpanDays).toBe(153);
+      expect(f.evidence).toContain("measured over 153 days");
+      expect(f.evidence).toContain("150 cm on 2026-03-01 to 156 cm on 2026-08-01");
     });
 
     it("does NOT fire over a 30-day span, even at 7.3 cm/yr — that is tape-measure noise, not growth", () => {
@@ -824,23 +935,35 @@ describe("the gate — combinations, not factors", () => {
       ],
     };
     const a = assessGuardian({ wellbeing: CALM_DAY, athlete }, TODAY);
-    // Both growth factors are present, and they still collapse to one family.
+    // Both growth factors are present, and they still collapse to one family —
+    // and only the measured one is in it, so the estimate is not what is being
+    // held back here.
     expect(idsOf(a.factors).sort()).toEqual(["mid-phv-window", "rapid-growth"]);
     expect(a.families).toEqual(["growth"]);
+    // The family's entire weight comes from the measured factor.
+    expect(evaluateGate(a.factors).weightByFamily).toEqual({ growth: 2 });
     expect(a.fires).toBe(false);
     expect(a.reason).toBe("single-family");
   });
 
-  it("lets growth tip a borderline recovery story over the line — without paying for it in severity", () => {
-    const a = assessGuardian({ wellbeing: MOOD_3_LOW, athlete: MID_PHV_ATHLETE }, TODAY);
+  it("lets MEASURED growth tip a borderline recovery story over the line — without paying for it in severity", () => {
+    const a = assessGuardian({ wellbeing: MOOD_3_LOW, athlete: RAPID_GROWTH_ATHLETE }, TODAY);
     expect(a.families).toEqual(["growth", "recovery"]);
     expect(a.fires).toBe(true);
-    // Growth is the reason this fires at all — one family alone never does — and
-    // it is still named in the evidence the parent reads. It just contributes
-    // nothing to the number severity is banded on, so the story stays `watch`.
+    // Observed growth is the reason this fires at all — one family alone never
+    // does — and it is still named in the evidence the parent reads. It just
+    // contributes nothing to the number severity is banded on, so the story
+    // stays `watch`.
     expect(a.acuteWeight).toBe(2);
-    expect(idsOf(a.factors)).toContain("mid-phv-window");
+    expect(idsOf(a.factors)).toContain("rapid-growth");
     expect(a.severity).toBe("watch");
+  });
+
+  it("does NOT let the maturity estimate tip that same borderline story", () => {
+    const a = assessGuardian({ wellbeing: MOOD_3_LOW, athlete: MID_PHV_ATHLETE }, TODAY);
+    expect(a.families).toEqual(["recovery"]);
+    expect(a.fires).toBe(false);
+    expect(a.reason).toBe("single-family");
   });
 
   // ── THE PRODUCTION CASE ────────────────────────────────────────────────────
@@ -848,7 +971,7 @@ describe("the gate — combinations, not factors", () => {
     // The first real run fired here, at maximum severity, on the athlete's very
     // first assessment. Mid-PHV was a permanent +2 on a scale that topped out at
     // 6, so two ordinary trigger families arrived pre-loaded at `urgent`.
-    const a = assessGuardian({ wellbeing: MOOD_3_LOW, injuries: MODERATE_INJ, athlete: MID_PHV_ATHLETE }, TODAY);
+    const a = assessGuardian({ wellbeing: MOOD_3_LOW, injuries: MODERATE_INJ, athlete: RAPID_GROWTH_ATHLETE }, TODAY);
     expect(a.fires).toBe(true);
     expect(a.families).toEqual(["growth", "recovery", "tissue"]);
     expect(a.acuteWeight).toBe(4);              // recovery 2 + tissue 2; growth adds 0
@@ -1084,12 +1207,12 @@ describe("cooldownDecision", () => {
   //  growth + recovery + tissue — acute weight 4, concern (growth adds a family, not weight)
   const withGrowth = (day) =>
     assessGuardian(
-      { wellbeing: lowMood(at(day)), injuries: openKnee(at(day)), athlete: MID_PHV_ATHLETE },
+      { wellbeing: lowMood(at(day)), injuries: openKnee(at(day)), athlete: RAPID_GROWTH_ATHLETE },
       at(day),
     );
   //  growth + recovery          — acute weight 2, watch (tissue gone, growth new)
   const recoveryGrowth = (day) =>
-    assessGuardian({ wellbeing: lowMood(at(day)), athlete: MID_PHV_ATHLETE }, at(day));
+    assessGuardian({ wellbeing: lowMood(at(day)), athlete: RAPID_GROWTH_ATHLETE }, at(day));
 
   it("fires when the cooldown doc is empty", () => {
     const d = cooldownDecision({}, assessment(), at("2026-08-05"));
@@ -1409,9 +1532,10 @@ describe("buildGuardianNotesPrompt", () => {
     for (const f of assessment.factors) expect(prompt).toContain(f.evidence);
   });
 
-  it("falls back to a default name and does not throw on a null assessment", () => {
+  it("falls back to a generic name and does not throw on a null assessment", () => {
     const p = buildGuardianNotesPrompt(null, null);
-    expect(p.prompt).toContain("Valissa");
+    expect(p.prompt).toContain("the athlete");
+    expect(p.prompt).not.toContain("Valissa");
   });
 });
 
@@ -1479,12 +1603,12 @@ describe("buildGuardianAlert", () => {
   });
 
   it("marks a watch-level alert as push-ineligible — a 6am buzz IS risk framing", () => {
-    // Low mood plus Mid-PHV: two families, but only one of them acute, so this
-    // is the bottom of the ladder. It is also the shape the floor drop to 2
-    // newly admits, which is exactly why it must not reach a phone.
+    // Low mood plus measured fast growth: two families, but only one of them
+    // acute, so this is the bottom of the ladder. It is also the shape the floor
+    // drop to 2 newly admits, which is exactly why it must not reach a phone.
     const watch = assessGuardian({
       wellbeing: wbDays([{ mood: 2 }, { mood: 2 }, { mood: 2 }]),
-      athlete: MID_PHV_ATHLETE,
+      athlete: RAPID_GROWTH_ATHLETE,
     }, TODAY);
     expect(watch.severity).toBe("watch");
     expect(buildGuardianAlert({ assessment: watch, now: TODAY }).push)
@@ -1508,7 +1632,7 @@ describe("buildGuardianAlert", () => {
     const withGrowth = assessGuardian({
       wellbeing: wbDays([{ mood: 2 }, { mood: 2 }, { mood: 2 }]),
       injuries: [{ id: "i1", bodyArea: "Knee", severity: 3, status: "open", onsetDate: dayStr(TODAY, -3) }],
-      athlete: MID_PHV_ATHLETE,
+      athlete: RAPID_GROWTH_ATHLETE,
     }, TODAY);
     const { prompt } = buildGuardianNotesPrompt(withGrowth, "Valissa");
     expect(prompt).toContain("acute signal weight 4");
