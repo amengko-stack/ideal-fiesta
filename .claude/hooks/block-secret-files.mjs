@@ -18,9 +18,14 @@ process.stdin.on('end', () => {
   if (!filePath) return;
 
   const normalized = filePath.replace(/\\/g, '/');
+  // Anchored on (^|/) so a bare repo-root path is caught: the first version
+  // required a leading slash, which let through the exact file that leaked
+  // before -- serviceAccountKey.json at the root. Case-insensitive because
+  // Windows paths are, and .env also matches .env.local / .env.production,
+  // which hold the same secrets.
   const isSecretFile =
-    /\/serviceAccountKey[^/]*\.json$/i.test(normalized) ||
-    /(^|\/)\.env$/.test(normalized);
+    /(^|\/)serviceAccountKey[^/]*\.json$/i.test(normalized) ||
+    /(^|\/)\.env(\.[^/]*)?$/i.test(normalized);
 
   if (isSecretFile) {
     console.log(JSON.stringify({
