@@ -489,11 +489,16 @@ describe("test suite stays free of Firebase", () => {
   // stopped being a unit test.
   //
   // Static reachability is the cheap proxy for that, and it is wrong in exactly
-  // one case: a test that deliberately stubs the Firestore boundary in order to
-  // run a real pipeline end to end. maturityAiIsolation.test.js is that case —
-  // it runs the actual generateMatchAnalysis and generateSeasonReport to prove
-  // the maturity estimate reaches neither prompt, which it cannot do without
-  // importing them.
+  // one kind of case: a test that deliberately stubs the Firestore boundary in
+  // order to run a real pipeline end to end. There are two:
+  //   • maturityAiIsolation.test.js runs the actual generateMatchAnalysis and
+  //     generateSeasonReport to prove the maturity estimate reaches neither
+  //     prompt, which it cannot do without importing them;
+  //   • orchestrator.test.js drives the Run-now button's real client path —
+  //     the wrapper plus the real firebase/functions callable SDK — against
+  //     the literal production HTTP 500, which it cannot do without importing
+  //     orchestrator.js. It stubs firebase.js with a throwaway app and stubs
+  //     fetch, so nothing is initialised from the real config.
   //
   // So the exemption is not a name on a list: the file has to prove it stubs
   // the module, under BOTH specifiers used across the codebase ("../firebase"
@@ -516,8 +521,8 @@ describe("test suite stays free of Firebase", () => {
 
   it("keeps the stubbed-boundary exemption rare and deliberate", () => {
     // If this number starts climbing, the boundary is leaking into tests that
-    // should be pure. Today there is exactly one.
+    // should be pure. Today there are exactly two, both named above.
     const exempt = testFiles.filter(f => reachesFirebase(path.join(LIB, f)));
-    expect(exempt).toEqual(["maturityAiIsolation.test.js"]);
+    expect(exempt).toEqual(["maturityAiIsolation.test.js", "orchestrator.test.js"]);
   });
 });

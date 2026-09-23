@@ -43,7 +43,7 @@ import { emptyMemory, deleteMemoryPattern } from "../lib/athleteMemory.js";
 import { dueReminders } from "../lib/reminders.js";
 import { supersededReminderKinds } from "../lib/guardianCore.js";
 import { isPushSupported, pushPermission, enablePush, disablePush, refreshPushToken, onForegroundMessage } from "../lib/push.js";
-import { runWeeklyReviewNow, runGuardianNow } from "../lib/orchestrator.js";
+import { reportWeeklyReviewRun, runGuardianNow } from "../lib/orchestrator.js";
 
 // Why enabling reminders failed, in words the family can act on. Keyed by the
 // `reason` push.js returns instead of throwing.
@@ -428,17 +428,13 @@ export default function MobileApp({ athleteId, isParent, user, onSignOut }) {
 
   // The full pipeline takes a couple of minutes; the running flag both blocks a
   // double-tap and gives the button something honest to say meanwhile.
+  // Which toast to show is decided in orchestrator.js, fail-closed: "complete"
+  // only when the function's summary says the run completed.
   const runWeeklyReview = async () => {
     if (weeklyReviewRunning) return;
     setWeeklyReviewRunning(true);
     try {
-      await runWeeklyReviewNow(athleteId);
-      showToast("Weekly review complete 🗞️");
-      refresh();
-    } catch (e) {
-      console.error("runWeeklyReview:", e);
-      // orchestrator.js has already turned the callable error into a sentence.
-      showToast(`Couldn't run the review — ${e.message}`);
+      await reportWeeklyReviewRun(athleteId, { showToast, onComplete: refresh });
     } finally {
       setWeeklyReviewRunning(false);
     }

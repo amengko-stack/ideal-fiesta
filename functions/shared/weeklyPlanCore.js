@@ -618,6 +618,13 @@ export function buildSession(sessionId, {
     // first week a third set becomes available.
     const atCeiling = thirdSetAllowed && (!t.targetFromBlockWeek || phase.blockWeek >= t.targetFromBlockWeek);
     const sets = thirdSetAllowed && t.targetSets ? t.targetSets : t.sets;
+    // Only the distance-based entries (accel_5m, decel_stop) carry a distance.
+    // Every other exercise must OMIT the key rather than hold `undefined`:
+    // this object is persisted verbatim into plans/current, and Firestore
+    // rejects the whole document on a single explicit undefined — which is how
+    // the 2026-09-23 production Run-now failed. Readers already treat an
+    // absent distanceM exactly as they treated undefined (`!= null`).
+    const distanceM = atCeiling && t.targetDistanceM ? t.targetDistanceM : t.distanceM;
     return {
       ...t,
       id: t.key,
@@ -626,7 +633,7 @@ export function buildSession(sessionId, {
       sets,
       reps: t.reps,
       unit: t.unit || "reps",
-      distanceM: atCeiling && t.targetDistanceM ? t.targetDistanceM : t.distanceM,
+      ...(distanceM !== undefined ? { distanceM } : {}),
       repRange: thirdSetAllowed && t.targetReps ? t.targetReps : String(t.reps),
     };
   });

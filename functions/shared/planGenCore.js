@@ -539,7 +539,9 @@ export function toWeeklyPlanData(parsed, ctx, generatedAt, metrics = null, {
       trend,
     },
     metrics,
-    matchInformedBy: rm ? { opponentName: rm.opponentName, matchStartTime: rm.matchStartTime } : null,
+    // `?? null`: a match doc with no opponent name would otherwise put an
+    // explicit undefined into plans/current, which Firestore rejects outright.
+    matchInformedBy: rm ? { opponentName: rm.opponentName ?? null, matchStartTime: rm.matchStartTime ?? null } : null,
     coachNote: p.coachNote ?? "",
     athleteNote: p.athleteNote ?? "",
     rationales: {
