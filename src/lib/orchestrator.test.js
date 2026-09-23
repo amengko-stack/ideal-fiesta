@@ -29,6 +29,7 @@ const {
   reportWeeklyReviewRun, runWeeklyReviewNow, isCompletedWeeklyReview, weeklyReviewFailureMessage,
   WEEKLY_REVIEW_COMPLETE_TOAST, WEEKLY_REVIEW_FAILED, WEEKLY_REVIEW_FAILED_AFTER_PLAN,
   WEEKLY_REVIEW_UNCONFIRMED, WEEKLY_REVIEW_IN_PROGRESS,
+  WEEKLY_REVIEW_CHECKING, WEEKLY_REVIEW_NOT_STARTED, followWeeklyReviewRun,
   reportGuardianRun, runGuardianNow, isCompletedGuardianCheck,
   GUARDIAN_COMPLETE_TOAST, GUARDIAN_FAILED, GUARDIAN_UNCONFIRMED, GUARDIAN_IN_PROGRESS,
 } = await import("./orchestrator.js");
@@ -61,17 +62,22 @@ const respond = (status, body) => {
   }));
 };
 
-// Presses the button once and reports what the family would have seen.
-async function pressRunNow() {
+// Presses the button once and reports what the family would have seen. When
+// contact is lost the button follows the run record; unless a test says
+// otherwise that follow finds nothing conclusive.
+const followUnknown = vi.fn(async () => ({ outcome: "unknown", run: null }));
+async function pressRunNow({ follow = followUnknown } = {}) {
   const toasts = [];
   const onComplete = vi.fn();
-  const returned = await reportWeeklyReviewRun(ATHLETE, { showToast: (m) => toasts.push(m), onComplete });
+  const returned = await reportWeeklyReviewRun(ATHLETE, { showToast: (m) => toasts.push(m), onComplete, follow });
   return { toasts, onComplete, returned };
 }
 
 const expectFailureUi = ({ toasts, onComplete, returned }, message) => {
   expect(returned).toBe(false);
-  expect(toasts).toEqual([message]);
+  // A lost connection shows the "checking…" note first, then the verdict.
+  expect(toasts.at(-1)).toBe(message);
+  expect(toasts.length).toBeLessThanOrEqual(2);
   expect(toasts.join(" ")).not.toContain("complete");
   expect(onComplete).not.toHaveBeenCalled();
 };
@@ -373,6 +379,114 @@ describe("Run now — the Profile button reaches the success toast only through 
     };
     walk(SRC);
     expect(hits.map(h => h.replace(/\\/g, "/"))).toEqual(["lib/orchestrator.js"]);
+  });
+});
+
+// ─── LOST CONTACT — FOLLOW THE RUN RECORD ────────────────────────────────────
+// 2026-09-23 production: two Run-nows each completed on the server (HTTP 200
+// after ~66 s) while the phone dropped the connection at ~60 s, so all the
+// family ever saw was "lost contact". Now the button asks the run record.
+describe("Run now — a lost connection is followed to the real outcome", () => {
+  const lostConnection = () => fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
+
+  it("shows 'checking…' and then SUCCESS when the run record says complete", async () => {
+    lostConnection();
+    const follow = vi.fn(async () => ({ outcome: "complete", run: { status: "complete" } }));
+    const ui = await pressRunNow({ follow });
+    expect(ui.toasts).toEqual([WEEKLY_REVIEW_CHECKING, WEEKLY_REVIEW_COMPLETE_TOAST]);
+    expect(ui.returned).toBe(true);
+    expect(ui.onComplete).toHaveBeenCalledTimes(1);
+    expect(follow).toHaveBeenCalledWith(ATHLETE, expect.objectContaining({ since: expect.any(Number) }));
+  });
+
+  it("an uncaught server crash is followed the same way", async () => {
+    respond(500, { error: { status: "INTERNAL", message: "INTERNAL" } });
+    const follow = vi.fn(async () => ({ outcome: "complete", run: { status: "complete" } }));
+    expect((await pressRunNow({ follow })).toasts.at(-1)).toBe(WEEKLY_REVIEW_COMPLETE_TOAST);
+  });
+
+  it.each([
+    ["error before the plan was saved", { outcome: "error", run: { status: "error", steps: { hygiene: { completedAt: 1 } } } }, WEEKLY_REVIEW_FAILED],
+    ["error after the plan was saved", { outcome: "error", run: { status: "error", steps: { plan: { completedAt: 1 } } } }, WEEKLY_REVIEW_FAILED_AFTER_PLAN],
+    ["no run ever started", { outcome: "not-started", run: null }, WEEKLY_REVIEW_NOT_STARTED],
+    ["still unknown at the deadline", { outcome: "unknown", run: null }, WEEKLY_REVIEW_UNCONFIRMED],
+  ])("%s → failure copy, never success", async (_, result, message) => {
+    lostConnection();
+    const ui = await pressRunNow({ follow: vi.fn(async () => result) });
+    expect(ui.toasts).toEqual([WEEKLY_REVIEW_CHECKING, message]);
+    expect(ui.returned).toBe(false);
+    expect(ui.onComplete).not.toHaveBeenCalled();
+  });
+
+  it("does NOT follow when the server answered — its answer is the verdict", async () => {
+    const follow = vi.fn();
+    respond(500, PRODUCTION_500);
+    await pressRunNow({ follow });
+    respond(200, { result: { athleteId: ATHLETE, weekKey: "2026-09-21", status: "run-in-progress", steps: {} } });
+    await pressRunNow({ follow });
+    respond(200, { unexpected: true });
+    await pressRunNow({ follow });
+    expect(follow).not.toHaveBeenCalled();
+  });
+});
+
+describe("followWeeklyReviewRun — which record, and when to stop", () => {
+  const SINCE = Date.parse("2026-09-23T15:35:55Z");
+  // A fake clock the sleeps advance, so no real time passes.
+  const clock = () => {
+    let t = SINCE + 60_000; // contact is typically lost ~60 s after the press
+    return { now: () => t, sleep: async (ms) => { t += ms; } };
+  };
+  const rec = (offsetMs, status, extra = {}) => ({ id: "2026-09-21", startedAt: { toMillis: () => SINCE + offsetMs }, status, ...extra });
+
+  it("finds THIS run by start time and reports complete", async () => {
+    const c = clock();
+    const r = await followWeeklyReviewRun(ATHLETE, { since: SINCE, ...c, readRuns: async () => [rec(2_000, "complete")] });
+    expect(r.outcome).toBe("complete");
+  });
+
+  it("keeps polling while the run is still going, then reports how it ended", async () => {
+    const c = clock();
+    const states = ["running", "running", "complete"];
+    const readRuns = vi.fn(async () => [rec(2_000, states.shift() ?? "complete")]);
+    const r = await followWeeklyReviewRun(ATHLETE, { since: SINCE, ...c, readRuns });
+    expect(r.outcome).toBe("complete");
+    expect(readRuns).toHaveBeenCalledTimes(3);
+  });
+
+  it("never mistakes the PREVIOUS run for this one, even one that just completed", async () => {
+    // A run that completed right before the press started >60 s before it.
+    const c = clock();
+    const r = await followWeeklyReviewRun(ATHLETE, { since: SINCE, ...c, readRuns: async () => [rec(-66_000, "complete")] });
+    expect(r.outcome).toBe("not-started");
+  });
+
+  it("tolerates a phone clock a little ahead of the server's", async () => {
+    const c = clock();
+    const r = await followWeeklyReviewRun(ATHLETE, { since: SINCE, ...c, readRuns: async () => [rec(-20_000, "complete")] });
+    expect(r.outcome).toBe("complete");
+  });
+
+  it("reports an errored run with its record, so the copy can tell whether the plan was saved", async () => {
+    const c = clock();
+    const r = await followWeeklyReviewRun(ATHLETE, { since: SINCE, ...c, readRuns: async () => [rec(2_000, "error", { steps: { plan: { completedAt: 1 } } })] });
+    expect(r.outcome).toBe("error");
+    expect(r.run.steps.plan.completedAt).toBe(1);
+  });
+
+  it("read failures mean keep trying, and the deadline ends it as unknown — never success", async () => {
+    const c = clock();
+    const readRuns = vi.fn(async () => { throw new Error("offline"); });
+    const r = await followWeeklyReviewRun(ATHLETE, { since: SINCE, ...c, readRuns, timeoutMs: 120_000 });
+    expect(r.outcome).toBe("unknown");
+    expect(readRuns.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it("a run stuck 'running' past the function's own limit ends as unknown", async () => {
+    const c = clock();
+    const r = await followWeeklyReviewRun(ATHLETE, { since: SINCE, ...c, readRuns: async () => [rec(2_000, "running")] });
+    expect(r.outcome).toBe("unknown");
+    expect(c.now() - SINCE).toBeGreaterThanOrEqual(570_000);
   });
 });
 

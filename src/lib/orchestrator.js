@@ -1,5 +1,6 @@
 import { getFunctions, httpsCallable } from "firebase/functions";
-import { app } from "../firebase.js";
+import { collection, query, orderBy, limit, getDocsFromServer } from "firebase/firestore";
+import { app, db } from "../firebase.js";
 
 // ─── ORCHESTRATOR CALLABLES — CLIENT HELPERS ─────────────────────────────────
 // Thin wrappers over the scheduled pipelines' "run it now" callables:
@@ -229,7 +230,8 @@ export async function runWeeklyReviewNow(athleteId) {
     ({ data } = await callable(athleteId ? { athleteId } : {}));
   } catch (e) {
     console.error("runWeeklyReviewNow:", e);
-    throw userFacingError(weeklyReviewFailureMessage({ error: e }), { cause: e });
+    const lost = noAnswer(e, isObject(e?.details) ? e.details : null);
+    throw userFacingError(weeklyReviewFailureMessage({ error: e }), { cause: e, lostContact: lost });
   }
   if (!isCompletedWeeklyReview(data)) {
     console.error("runWeeklyReviewNow: resolved without a completed run:", data);
@@ -238,19 +240,102 @@ export async function runWeeklyReviewNow(athleteId) {
   return data;
 }
 
+// ─── FOLLOWING A RUN THE CONNECTION LOST ─────────────────────────────────────
+// A Run-now takes about a minute, and the callable holds ONE silent HTTP
+// request open the whole time. On a phone that is fragile: on 2026-09-23 two
+// production runs both completed on the server (HTTP 200 after ~66 s) while
+// the app lost the connection at ~60 s and could only say "lost contact". So
+// when contact is lost, the app asks the run's own record instead —
+// athletes/{id}/orchestratorRuns, which the pipeline checkpoints as it goes
+// and which the family can read — and reports what actually happened.
+//
+// The record is found by start time, not by week key: the server derives the
+// key in its own time zone and the phone in Jakarta time, and the two differ
+// for the first hours of a Monday. A run counts only if it started at or after
+// the press, less RUN_CLOCK_SKEW_MS for phone/server clock difference. That
+// window is far shorter than any real run (~60 s+), so the previous run can
+// never be mistaken for this one.
+export const WEEKLY_REVIEW_CHECKING = "Lost contact — checking whether the weekly review finished…";
+export const WEEKLY_REVIEW_NOT_STARTED = "The weekly review didn't start — the connection dropped first. It's safe to try again.";
+const RUN_CLOCK_SKEW_MS = 30 * 1000;
+// The function's own limit is 540 s; past that the run cannot still be going.
+const FOLLOW_TIMEOUT_MS = 570 * 1000;
+const FOLLOW_INTERVAL_MS = 5 * 1000;
+// A run record appears within seconds of the request reaching the server. None
+// this long after the press means the request never got there.
+const NOT_STARTED_AFTER_MS = 45 * 1000;
+
+const toMs = (ts) => (ts && typeof ts.toMillis === "function" ? ts.toMillis()
+  : typeof ts?.seconds === "number" ? ts.seconds * 1000
+  : ts instanceof Date ? ts.getTime()
+  : typeof ts === "number" ? ts : null);
+
+// The newest few run records, straight from the server (never the offline
+// cache, which would happily return last week's record while offline).
+async function readRecentWeeklyRuns(athleteId) {
+  const snap = await getDocsFromServer(query(
+    collection(db, "athletes", athleteId, "orchestratorRuns"),
+    orderBy("startedAt", "desc"),
+    limit(3),
+  ));
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+// followWeeklyReviewRun(athleteId, { since }) → { outcome, run }
+//   outcome: "complete" | "error" | "not-started" | "unknown"
+// Never rejects; read failures just mean "keep looking" until the deadline.
+export async function followWeeklyReviewRun(athleteId, {
+  since,
+  readRuns = readRecentWeeklyRuns,
+  sleep = (ms) => new Promise(r => setTimeout(r, ms)),
+  now = () => Date.now(),
+  timeoutMs = FOLLOW_TIMEOUT_MS,
+  intervalMs = FOLLOW_INTERVAL_MS,
+} = {}) {
+  const deadline = since + timeoutMs;
+  for (;;) {
+    let runs = null;
+    try { runs = await readRuns(athleteId); } catch (e) { console.error("followWeeklyReviewRun:", e); }
+    if (Array.isArray(runs)) {
+      const run = runs.find(r => (toMs(r?.startedAt) ?? -Infinity) >= since - RUN_CLOCK_SKEW_MS);
+      if (run?.status === "complete") return { outcome: "complete", run };
+      if (run?.status === "error") return { outcome: "error", run };
+      if (!run && now() - since >= NOT_STARTED_AFTER_MS) return { outcome: "not-started", run: null };
+    }
+    if (now() >= deadline) return { outcome: "unknown", run: null };
+    await sleep(intervalMs);
+  }
+}
+
 // reportWeeklyReviewRun — the Profile → "Run weekly review now" button's whole
 // contract, kept here (not inline in MobileApp.jsx) so the tests drive the
 // same code the button does. The success toast exists in exactly one place
-// and is reachable only through a completed summary. Resolves true/false and
-// never rejects, so the caller's running flag always clears.
-export async function reportWeeklyReviewRun(athleteId, { showToast, onComplete } = {}) {
+// and is reachable only through a completed summary — the callable's, or, when
+// the connection was lost, the run record's own "complete". Resolves
+// true/false and never rejects, so the caller's running flag always clears.
+export async function reportWeeklyReviewRun(athleteId, { showToast, onComplete, follow = followWeeklyReviewRun, now = () => Date.now() } = {}) {
+  const pressedAt = now();
   try {
     await runWeeklyReviewNow(athleteId);
   } catch (e) {
     console.error("runWeeklyReview:", e);
-    // userMessage is set only by runWeeklyReviewNow; anything else that throws
-    // is a bug, and its text is no more fit for the screen than the backend's.
-    showToast?.(e?.userMessage || WEEKLY_REVIEW_FAILED);
+    if (!e?.lostContact) {
+      // userMessage is set only by runWeeklyReviewNow; anything else that throws
+      // is a bug, and its text is no more fit for the screen than the backend's.
+      showToast?.(e?.userMessage || WEEKLY_REVIEW_FAILED);
+      return false;
+    }
+    showToast?.(WEEKLY_REVIEW_CHECKING);
+    const { outcome, run } = await follow(athleteId, { since: pressedAt });
+    if (outcome === "complete") {
+      showToast?.(WEEKLY_REVIEW_COMPLETE_TOAST);
+      onComplete?.();
+      return true;
+    }
+    showToast?.(outcome === "error"
+      ? (run?.steps?.plan?.completedAt ? WEEKLY_REVIEW_FAILED_AFTER_PLAN : WEEKLY_REVIEW_FAILED)
+      : outcome === "not-started" ? WEEKLY_REVIEW_NOT_STARTED
+      : WEEKLY_REVIEW_UNCONFIRMED);
     return false;
   }
   showToast?.(WEEKLY_REVIEW_COMPLETE_TOAST);
