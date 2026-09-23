@@ -7,8 +7,8 @@
 // would key itself to the wrong week and read "today" as yesterday.
 process.env.TZ = process.env.TZ || 'Asia/Jakarta';
 
-import functions from 'firebase-functions';
-import admin from 'firebase-admin';
+import * as functions from 'firebase-functions/v1';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 
 import { currentWeekKey, toLocalDateStr, upcomingWeekKey } from './shared/dates.js';
 import { assembleAthleteContext } from './shared/athleteContextCore.js';
@@ -29,6 +29,7 @@ import {
   fetchAthleteRaw, fetchDeferredPriorities, applyPriorityOps, sendPushToRole,
   ensureProgramStateAdmin,
 } from './adminData.js';
+import { ANTHROPIC_SECRETS } from './secrets.js';
 
 // ─── WEEKLY REVIEW ORCHESTRATOR ──────────────────────────────────────────────
 // Sunday 09:00 Asia/Jakarta. Sunday itself is now a complete rest day; the run
@@ -67,8 +68,6 @@ export const FAMILY_UIDS = [
 ];
 
 const STEPS = ['hygiene', 'plan', 'memory', 'digest', 'push'];
-
-const FieldValue = admin.firestore.FieldValue;
 
 // Firestore Timestamp | Date | millis → millis (null when unreadable).
 // Exported for the same reason as STALE_RUN_MS: guardian.js reads claim
@@ -512,12 +511,12 @@ async function runForAllAthletes(db, { force }) {
 // the per-step checkpoints make a retry cheap (it resumes at the failed step),
 // which is why this rethrows instead of swallowing.
 export const weeklyReview = functions
-  .runWith({ timeoutSeconds: 540, memory: '512MB' })
+  .runWith({ timeoutSeconds: 540, memory: '512MB', secrets: ANTHROPIC_SECRETS })
   .pubsub.schedule('0 9 * * 0')
   .timeZone('Asia/Jakarta')
   .retryConfig({ retryCount: 2, minBackoffDuration: '300s' })
   .onRun(async () => {
-    const db = admin.firestore();
+    const db = getFirestore();
     const { results, failures } = await runForAllAthletes(db, { force: false });
 
     console.log('[weeklyReview] summary:', JSON.stringify(results));
@@ -531,15 +530,16 @@ export const weeklyReview = functions
 
 // ─── CALLABLE: Run now ───────────────────────────────────────────────────────
 // Manual/testing trigger for the parent's "Run now" button. force: true bypasses
-// weeklyReviewEnabled AND takes over this week's claim, so a run can be repeated
-// while the feature is still being tuned. A forced run still sends the digest
-// push — the parent pressing the button is expecting it.
+// weeklyReviewEnabled AND re-runs a week whose claim is complete, failed or
+// stale — but never one a live run holds (claimRun answers 'run-in-progress').
+// A forced run still sends the digest push — the parent pressing the button is
+// expecting it.
 //
 // Returns the single athlete's summary { athleteId, status, weekKey, steps } when
 // there is exactly one result (the normal case: one athlete), otherwise
 // { weekKey, results }.
 export const runWeeklyReviewNow = functions
-  .runWith({ timeoutSeconds: 540, memory: '512MB' })
+  .runWith({ timeoutSeconds: 540, memory: '512MB', secrets: ANTHROPIC_SECRETS })
   .https.onCall(async (data, context) => {
     // The Firestore emulator has no real auth; without this bypass the
     // integration test in functions/test-orchestrator.md could not call this at
@@ -554,7 +554,7 @@ export const runWeeklyReviewNow = functions
       );
     }
 
-    const db = admin.firestore();
+    const db = getFirestore();
     const athleteId = data?.athleteId;
 
     let results;

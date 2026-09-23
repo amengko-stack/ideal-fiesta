@@ -4,7 +4,9 @@ import { rawTextOf, cleanAndParseJson } from './shared/aiJson.js';
 // The functions-side twin of src/lib/ai.js. The browser posts to /api/chat (the
 // `api` function in index.js) because it must never see the API key; a Cloud
 // Function already runs where the key lives, so it calls the Messages API
-// directly with Node 20's global fetch.
+// directly with Node's global fetch. The key is a Secret Manager secret
+// mounted as process.env.ANTHROPIC_API_KEY (see secrets.js) — every function
+// that reaches this module must list it in runWith({ secrets }).
 //
 // Two deliberate differences from the /api/chat proxy:
 //   - NO 6000-token clamp. That clamp exists to stop a *client* asking for an
@@ -47,7 +49,7 @@ async function callAnthropicRaw({ model, system, userContent, maxTokens = 4000 }
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) {
     throw new Error(
-      'ANTHROPIC_API_KEY is not set — put it in functions/.env or the Firebase console, then redeploy.'
+      'ANTHROPIC_API_KEY is not set — run `firebase functions:secrets:set ANTHROPIC_API_KEY` and make sure this function lists it in runWith({ secrets }), then redeploy.'
     );
   }
   if (!model) throw new Error('callAnthropic: `model` is required');

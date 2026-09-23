@@ -16,11 +16,19 @@
 //   3. every relative import in the deployed .js files points at a file that
 //      exists (this is what catches an unsynced functions/shared module);
 //   4. the deployed entrypoint (index.js) imports and exports every trigger
-//      firebase deploy expects;
-//   5. weeklyReview.js imports and exports its own public surface.
+//      firebase deploy expects, and every trigger that can reach Anthropic
+//      declares the ANTHROPIC_API_KEY secret (read off the trigger's own
+//      deploy metadata, i.e. what the CLI will actually request);
+//   5. weeklyReview.js imports and exports its own public surface;
+//   6. no deployed file uses an SDK entry point this package cannot run:
+//      firebase-admin 14 has no default/namespaced export, and from
+//      firebase-functions 6 on the package root is the gen-2 API — these are
+//      gen-1 functions, so they must import 'firebase-functions/v1';
+//   7. the key is not ALSO a plain variable in functions/.env, which the CLI
+//      refuses to deploy (a secret and an env var may not share a name).
 //
-// It needs NO credentials: index.js calls admin.initializeApp() with ambient
-// ADC, which resolves lazily, and defining a gen-1 trigger touches nothing.
+// It needs NO credentials: index.js calls initializeApp() with ambient ADC,
+// which resolves lazily, and defining a gen-1 trigger touches nothing.
 // Nothing here calls a trigger, so nothing reaches Firebase or Anthropic.
 //
 // Usage:  cd functions && npm ci && node scripts/verify-package.mjs
@@ -160,6 +168,10 @@ if (relativeMissing === 0) {
 // firebase deploy ships whatever index.js exports; a missing export is a
 // silently un-deployed trigger.
 const EXPECTED_TRIGGERS = ['api', 'guardian', 'runGuardianNow', 'runWeeklyReviewNow', 'sendCheckinReminder', 'weeklyReview'];
+// Every trigger whose code path reaches Anthropic (the api proxy, and the two
+// pipelines through anthropic.js). A trigger missing from this list runs with
+// no key at all — process.env.ANTHROPIC_API_KEY is simply undefined.
+const NEEDS_ANTHROPIC = ['api', 'guardian', 'runGuardianNow', 'runWeeklyReviewNow', 'weeklyReview'];
 try {
   const index = await import(pathToFileURL(path.join(FUNCTIONS_DIR, 'index.js')).href);
   const exported = Object.keys(index).sort();
@@ -167,6 +179,18 @@ try {
   const missing = EXPECTED_TRIGGERS.filter(t => !(t in index));
   if (missing.length) fail(`index.js is missing expected trigger export(s): ${missing.join(', ')}`);
   else pass(`index.js exports every expected trigger (${EXPECTED_TRIGGERS.length})`);
+
+  // A trigger's deploy metadata (__endpoint) is computed on first read and
+  // needs a project id — the Firebase CLI supplies one during discovery. Any
+  // placeholder will do: only the declared secret names are read.
+  process.env.GCLOUD_PROJECT ??= 'verify-package';
+  const secretsOf = (t) => (index[t]?.__endpoint?.secretEnvironmentVariables || []).map(s => s.key);
+  const unkeyed = NEEDS_ANTHROPIC.filter(t => !secretsOf(t).includes('ANTHROPIC_API_KEY'));
+  if (unkeyed.length) fail(`trigger(s) that call Anthropic do not declare the ANTHROPIC_API_KEY secret: ${unkeyed.join(', ')}`);
+  else pass(`every Anthropic-calling trigger declares the ANTHROPIC_API_KEY secret (${NEEDS_ANTHROPIC.join(', ')})`);
+  const extra = EXPECTED_TRIGGERS.filter(t => !NEEDS_ANTHROPIC.includes(t) && secretsOf(t).length);
+  if (extra.length) fail(`trigger(s) that make no model call are granted a secret anyway: ${extra.join(', ')}`);
+  else pass('no trigger holds a secret it does not use');
 } catch (err) {
   fail(`index.js failed to import — ${err.message}`);
 }
@@ -184,6 +208,29 @@ try {
   }
 } catch (err) {
   fail(`weeklyReview.js failed to import — ${err.message}`);
+}
+
+// ── 6. SDK entry points this package can actually run ────────────────────────
+const scriptFiles = readdirSync(path.join(FUNCTIONS_DIR, 'scripts'))
+  .filter(f => f.endsWith('.mjs')).map(f => `scripts/${f}`);
+const legacyImports = [];
+for (const rel of deployedFiles.concat(scriptFiles)) {
+  const src = readFileSync(path.join(FUNCTIONS_DIR, rel), 'utf8');
+  if (/from\s+['"]firebase-admin['"]|import\(\s*['"]firebase-admin['"]\s*\)/.test(src)) legacyImports.push(`${rel}: 'firebase-admin' (namespaced API removed in v14 — use firebase-admin/app, /firestore, /messaging)`);
+  if (/from\s+['"]firebase-functions['"]/.test(src)) legacyImports.push(`${rel}: 'firebase-functions' (package root is gen-2 — gen-1 code must import 'firebase-functions/v1')`);
+}
+if (legacyImports.length) for (const l of legacyImports) fail(l);
+else pass(`no deployed file or script imports a removed or wrong-generation SDK entry point (${deployedFiles.length + scriptFiles.length} files)`);
+
+// ── 7. the key is a secret, not also a plain environment variable ────────────
+const envPath = path.join(FUNCTIONS_DIR, '.env');
+const envKeys = existsSync(envPath)
+  ? readFileSync(envPath, 'utf8').split(/\r?\n/).map(l => l.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=/)?.[1]).filter(Boolean)
+  : [];
+if (envKeys.includes('ANTHROPIC_API_KEY')) {
+  fail('functions/.env still defines ANTHROPIC_API_KEY — the deploy will be refused (it is a Secret Manager secret now). Remove that line once `firebase functions:secrets:set ANTHROPIC_API_KEY` has been run.');
+} else {
+  pass(`ANTHROPIC_API_KEY is not a plain environment variable${existsSync(envPath) ? '' : ' (no functions/.env)'}`);
 }
 
 console.log('');

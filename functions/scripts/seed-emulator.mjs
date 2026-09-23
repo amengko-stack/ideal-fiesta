@@ -8,7 +8,8 @@
 // and must never touch production.
 process.env.TZ = process.env.TZ || 'Asia/Jakarta';
 
-import admin from 'firebase-admin';
+import { initializeApp } from 'firebase-admin/app';
+import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 
 if (!process.env.FIRESTORE_EMULATOR_HOST) {
   console.error('Refusing to seed: FIRESTORE_EMULATOR_HOST is not set.');
@@ -22,8 +23,8 @@ if (!process.env.FIRESTORE_EMULATOR_HOST) {
 const ATHLETE_ID = process.env.SEED_ATHLETE_ID || 'kDybMQH9lefwHI0dRway';
 const PROJECT_ID = process.env.GCLOUD_PROJECT || process.env.FIREBASE_PROJECT || 'athlete-os-15c3b';
 
-admin.initializeApp({ projectId: PROJECT_ID });
-const db = admin.firestore();
+initializeApp({ projectId: PROJECT_ID });
+const db = getFirestore();
 const athleteRef = db.collection('athletes').doc(ATHLETE_ID);
 
 // ── local-date helpers (never toISOString — this app is UTC+7) ───────────────
@@ -37,8 +38,6 @@ const daysAgo = (n) => {
 };
 const dateAgo = (n) => toLocalDateStr(daysAgo(n));
 const isoAgo = (n) => daysAgo(n).toISOString();
-
-const Timestamp = admin.firestore.Timestamp;
 
 async function wipe(collectionRef) {
   const snap = await collectionRef.get();

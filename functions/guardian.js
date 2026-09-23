@@ -9,8 +9,8 @@
 // module-evaluation time — the same assumption weeklyReview.js already makes.)
 process.env.TZ = process.env.TZ || 'Asia/Jakarta';
 
-import functions from 'firebase-functions';
-import admin from 'firebase-admin';
+import * as functions from 'firebase-functions/v1';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 
 import { toLocalDateStr } from './shared/dates.js';
 import {
@@ -25,6 +25,7 @@ import {
 } from './shared/guardianCore.js';
 import { callAnthropicJSON } from './anthropic.js';
 import { sendPushToRole } from './adminData.js';
+import { ANTHROPIC_SECRETS } from './secrets.js';
 // FAMILY_UIDS, the 15-minute staleness window and the Timestamp reader are the
 // weekly review's, already exported and already the codebase's single copy of
 // each. The claim TRANSACTION is not shared — see claimGuardianRun.
@@ -70,8 +71,6 @@ const WEEK_LOGS_WINDOW_DAYS = 35;
 // documents the engine then throws away, and querying narrower would silently
 // change the engine's answer between the server and a client-side replay.
 const WELLBEING_WINDOW_DAYS = GUARDIAN_THRESHOLDS.wellbeingWindowDays;
-
-const FieldValue = admin.firestore.FieldValue;
 
 const withIds = (snap) => snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
@@ -475,12 +474,12 @@ async function runGuardianForAllAthletes(db, { force }) {
 // telling on Wednesday; burning a second retry on a transient failure would only
 // risk a duplicate alert for no extra coverage.
 export const guardian = functions
-  .runWith({ timeoutSeconds: 120, memory: '256MB' })
+  .runWith({ timeoutSeconds: 120, memory: '256MB', secrets: ANTHROPIC_SECRETS })
   .pubsub.schedule('0 6 * * *')
   .timeZone('Asia/Jakarta')
   .retryConfig({ retryCount: 1, minBackoffDuration: '300s' })
   .onRun(async () => {
-    const db = admin.firestore();
+    const db = getFirestore();
     const { results, failures } = await runGuardianForAllAthletes(db, { force: false });
 
     console.log('[guardian] summary:', JSON.stringify(results));
@@ -494,7 +493,8 @@ export const guardian = functions
 
 // ─── CALLABLE: Check now ─────────────────────────────────────────────────────
 // The "Check now" button. ALWAYS force: true — it bypasses guardianEnabled and
-// takes today's claim over, which is exactly what makes the plan's enablement
+// re-runs today even when today's claim is complete (never while a check is
+// live: claimGuardianRun answers 'run-in-progress'), which is exactly what makes the plan's enablement
 // procedure possible (run it, read the assessment on the claim doc, tune, and
 // only then turn the schedule on for real).
 //
@@ -504,7 +504,7 @@ export const guardian = functions
 // Returns the single athlete's summary when there is exactly one result (the
 // normal case), otherwise { date, results }.
 export const runGuardianNow = functions
-  .runWith({ timeoutSeconds: 120, memory: '256MB' })
+  .runWith({ timeoutSeconds: 120, memory: '256MB', secrets: ANTHROPIC_SECRETS })
   .https.onCall(async (data, context) => {
     // The Firestore emulator has no real auth; without this bypass the
     // integration runbook in functions/test-guardian.md could not call this at
@@ -519,7 +519,7 @@ export const runGuardianNow = functions
       );
     }
 
-    const db = admin.firestore();
+    const db = getFirestore();
     const athleteId = data?.athleteId;
 
     let results;

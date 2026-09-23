@@ -1,16 +1,21 @@
-import functions from 'firebase-functions';
-import admin from 'firebase-admin';
+// 1st-gen functions, on firebase-functions 7: the gen-1 builder API lives at
+// the /v1 entry point (the package root is the gen-2 API from v6 on).
+import * as functions from 'firebase-functions/v1';
+// firebase-admin 14 has no namespaced `admin.*` API any more — modular only.
+import { initializeApp, getApps } from 'firebase-admin/app';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 // The FCM send/prune block this file's reminder pioneered now lives in
 // adminData.js as sendPushToRole, so the weekly digest push uses the identical
 // token lookup, multicast and dead-token pruning (only the three codes that
 // mean the token itself is dead are ever pruned).
 import { sendPushToRole } from './adminData.js';
-// Node 20 provides a global `fetch` — no node-fetch dependency needed.
+import { ANTHROPIC_SECRETS } from './secrets.js';
+// Node 22 provides a global `fetch` — no node-fetch dependency needed.
 
-if (!admin.apps.length) {
+if (!getApps().length) {
   // Ambient Application Default Credentials — do NOT reference the gitignored
   // serviceAccountKey.json; Cloud Functions supplies ADC automatically.
-  admin.initializeApp();
+  initializeApp();
 }
 
 // The Sunday orchestrator lives in its own module (it pins process.env.TZ and
@@ -21,22 +26,22 @@ export { weeklyReview, runWeeklyReviewNow } from './weeklyReview.js';
 // The daily load & health guardian, same arrangement.
 export { guardian, runGuardianNow } from './guardian.js';
 
-export const api = functions.https.onRequest(async (req, res) => {
+export const api = functions.runWith({ secrets: ANTHROPIC_SECRETS }).https.onRequest(async (req, res) => {
   res.set('Access-Control-Allow-Origin', '*');
   res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.set('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') { res.status(204).send(''); return; }
 
   const { messages, system, max_tokens } = req.body || {};
-  // ANTHROPIC_API_KEY is supplied out-of-band via `functions/.env` (a path the
-  // root .gitignore already reserves) or set directly in the Firebase console —
-  // it is never committed to this repo.
+  // ANTHROPIC_API_KEY comes from Secret Manager (see secrets.js): the runtime
+  // mounts it as this environment variable, and it never appears in the
+  // function's plain configuration or in this repo.
   const key = process.env.ANTHROPIC_API_KEY;
 
   if (!key) {
     console.error('[api] ANTHROPIC_API_KEY is not set');
     res.status(500).json({
-      error: 'Server misconfigured: ANTHROPIC_API_KEY is not set. Set it in functions/.env or the Firebase console, then redeploy.'
+      error: 'Server misconfigured: ANTHROPIC_API_KEY is not set. Run `firebase functions:secrets:set ANTHROPIC_API_KEY`, then redeploy.'
     });
     return;
   }
@@ -141,7 +146,7 @@ async function sendCheckinReminderForAthlete(db, athleteDoc, summary) {
     {
       beforeSend: async () => {
         try {
-          await claimRef.create({ claimedAt: admin.firestore.FieldValue.serverTimestamp() });
+          await claimRef.create({ claimedAt: FieldValue.serverTimestamp() });
         } catch (err) {
           if (err.code === 6 || /ALREADY_EXISTS/i.test(err.message || '')) {
             return 'duplicate-run';
@@ -158,7 +163,7 @@ async function sendCheckinReminderForAthlete(db, athleteDoc, summary) {
   if (result.status === 'no-tokens') return 'no-athlete-tokens';
   if (result.status !== 'sent') return result.status;
 
-  await claimRef.update({ sentAt: admin.firestore.FieldValue.serverTimestamp() });
+  await claimRef.update({ sentAt: FieldValue.serverTimestamp() });
   summary.sent++;
   return null;
 }
@@ -171,7 +176,7 @@ export const sendCheckinReminder = functions.pubsub
   .schedule('30 19 * * *')
   .timeZone('Asia/Jakarta')
   .onRun(async () => {
-    const db = admin.firestore();
+    const db = getFirestore();
     const athletesSnap = await db.collection('athletes').get();
 
     const summary = { considered: 0, skipped: {}, sent: 0, pruned: 0 };

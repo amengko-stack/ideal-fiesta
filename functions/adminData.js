@@ -1,4 +1,5 @@
-import admin from 'firebase-admin';
+import { FieldValue } from 'firebase-admin/firestore';
+import { getMessaging } from 'firebase-admin/messaging';
 import { selectRecentMatch } from './shared/athleteContextCore.js';
 import { isServerTimestamp } from './shared/deferredPrioritiesCore.js';
 import { emptyMemory } from './shared/athleteMemoryCore.js';
@@ -16,8 +17,6 @@ import { resolveProgramState, PROGRAM_STATE_DOC } from './shared/weeklyPlanCore.
 //   fetchAthleteRaw   ← src/lib/athleteContext.js  buildAthleteContext (reads)
 //   applyPriorityOps  ← src/lib/deferredPriorities.js applyPriorityOps
 //   sendPushToRole    ← functions/index.js sendCheckinReminderForAthlete (FCM)
-
-const FieldValue = admin.firestore.FieldValue;
 
 const athleteRefOf = (db, athleteId) => db.collection('athletes').doc(athleteId);
 
@@ -316,7 +315,7 @@ export async function sendPushToRole(db, athleteRef, role, { title, body, tag },
   const tokens = tokenDocs.map((d) => d.data().token || d.id);
 
   // sendEachForMulticast throws on an empty tokens array; guarded above.
-  const response = await admin.messaging().sendEachForMulticast({
+  const response = await getMessaging().sendEachForMulticast({
     tokens,
     notification: { title, body },
     webpush: {

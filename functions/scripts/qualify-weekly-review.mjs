@@ -56,14 +56,14 @@ const anthropicCalls = [];
 // names the full field path. set/update/add reject their promise; a
 // transaction's set/update throw synchronously, as the admin SDK's do, so the
 // failure surfaces from runTransaction instead of as a stray rejection.
-const admin = (await import('firebase-admin')).default;
+const { FieldValue, Timestamp } = await import('firebase-admin/firestore');
 const { assertFirestoreSafe, findUndefinedPaths } = await import(
   pathToFileURL(`${REPO}/functions/scripts/firestore-safe.mjs`).href);
 
-// weeklyReview.js reads admin.firestore.FieldValue at module scope but never
-// calls admin.firestore() — `db` is injected — so the REAL sentinels are used
-// and the double resolves them the way the server would.
-const FieldValue = admin.firestore.FieldValue;
+// weeklyReview.js imports FieldValue from firebase-admin/firestore but never
+// calls getFirestore() on this path — `db` is injected — so the REAL sentinels
+// (the same module instance as here) are used and the double resolves them the
+// way the server would.
 const isSentinel = (v) => v instanceof FieldValue;
 const sentinelKind = (v) => (v.isEqual(FieldValue.delete()) ? 'delete' : 'serverTimestamp');
 
@@ -321,7 +321,7 @@ const legit = {
   nothing: null, zero: 0, negative: -1.5, empty: '', text: 'x', yes: true, no: false,
   list: [0, null, 'a', { nested: false }],
   when: new Date(0),
-  at: admin.firestore.Timestamp.fromMillis(0),
+  at: Timestamp.fromMillis(0),
   stamp: FieldValue.serverTimestamp(),
 };
 const legitErr = await rejects(async () => {
