@@ -100,7 +100,7 @@ export function extractMatchData(plistObj) {
   // ─── CRITICAL FIX ────────────────────────────────────────────────────────────
   // The plist has 4 player objects. The outer playerNumber is NOT reliable.
   // Real stats are found by reading stats[last].playerNumber:
-  //   stats[last].playerNumber === 1  →  Valissa's real cumulative stats
+  //   stats[last].playerNumber === 1  →  the athlete's real cumulative stats
   //   stats[last].playerNumber === 2  →  Opponent's real cumulative stats
   // The player objects where outer playerNumber is 1 or 2 contain only zeros.
   // ─────────────────────────────────────────────────────────────────────────────
@@ -180,7 +180,7 @@ export function extractMatchData(plistObj) {
     p2Stats = pickStatFields(resolveStats(p2Raw), STAT_FIELDS);
   }
 
-  // Parse matchLog — whoWonPoint "1" = Valissa, "2" = opponent
+  // Parse matchLog — whoWonPoint "1" = the athlete, "2" = opponent
   const points = matchLog
     .map(pt => pickFields(pt, POINT_FIELDS))
     .sort((a, b) => (a.pointNumber ?? 0) - (b.pointNumber ?? 0));
@@ -232,10 +232,11 @@ export function extractMatchData(plistObj) {
     const serverWon   = parseInt(whoWon, 10) === whoServedInt;
     const server      = isP1Serving ? rec.p1 : rec.p2;
     const returner    = isP1Serving ? rec.p2 : rec.p1;
-    // eslint-disable-next-line eqeqeq
+    // Loose `==` throughout this parser is deliberate: .matchtrack writes these
+    // fields as strings in some exports and as numbers in others, and both mean
+    // the same thing. Do not tighten them without a fixture for each export.
     const hitter      = whoHit == 1 ? rec.p1 : rec.p2;
     const field       = resolveShotField(shot);
-    // eslint-disable-next-line eqeqeq
     const isBreak     = pt.breakPoint == 1;
 
     // SERVICE STATS
@@ -334,7 +335,6 @@ export function extractMatchData(plistObj) {
   for (const pt of points) {
     const key = rallyBucket(pt.rallyLength);
     if (!key) continue;
-    // eslint-disable-next-line eqeqeq
     const valissaWon = pt.whoWonPoint == "1";
     buckets[key].total++;
     if (valissaWon) buckets[key].won++;
@@ -382,9 +382,7 @@ export function extractMatchData(plistObj) {
       const setNum = pt.setNumber;
       if (setNum == null) continue;
       if (!setMap[setNum]) setMap[setNum] = { p1: 0, p2: 0 };
-      // eslint-disable-next-line eqeqeq
       if (pt.pOneSetScore != null) setMap[setNum].p1 = Math.max(setMap[setNum].p1, Number(pt.pOneSetScore));
-      // eslint-disable-next-line eqeqeq
       if (pt.pTwoSetScore != null) setMap[setNum].p2 = Math.max(setMap[setNum].p2, Number(pt.pTwoSetScore));
     }
     const setNums = Object.keys(setMap).map(Number).sort((a, b) => a - b);

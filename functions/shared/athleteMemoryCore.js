@@ -228,7 +228,7 @@ Long-term outlook: ${report?.longTermOutlook || "—"}`;
     const num = (x, suffix = "") => (x == null ? "—" : `${x}${suffix}`);
 
     return `NEW WEEKLY REVIEW (${todayStr}, week of ${w.weekKey || "—"}):
-Training load: sRPE ${num(load.thisWeekSRPE)} vs 4-week average ${num(load.fourWeekAvg)}, ACWR ${num(load.acwr)} (${load.acwrStatus?.label || "—"}), ${num(load.sessionCount)} sessions
+Training load: sRPE ${num(load.thisWeekSRPE)} vs 4-week average ${num(load.fourWeekAvg)}, ratio ${num(load.acwr)} (${load.trendLabel || load.acwrStatus?.label || "—"}), ${num(load.sessionCount)} sessions
 Wellbeing: ${num(well.checkinCount)} check-ins — sleep ${num(well.avgSleep, "h")}, mood ${num(well.avgMood, "/5")}, soreness ${num(well.avgSoreness, "/5")}${well.lowMoodFlag ? " — LOW MOOD 3+ consecutive days" : ""}${well.lowSleepFlag ? " — persistent short sleep" : ""}
 Matches played: ${list(w.matches, m => `${m.won ? "WIN" : "LOSS"} vs ${m.opponentName || "Unknown"}${m.date ? ` (${m.date})` : ""}`)}
 Plan prescribed: ${plan.sessionType || "—"}${plan.sessionDuration ? `, ${plan.sessionDuration} min` : ""}${plan.exerciseCount != null ? `, ${plan.exerciseCount} exercises` : ""}

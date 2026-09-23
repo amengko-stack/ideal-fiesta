@@ -77,6 +77,19 @@ export const MATURITY_UNCERTAINTY_NOTE =
 // Descriptions only. They say what the estimate means, not what to prescribe —
 // prescriptions come from the deterministic S&C framework, measured growth and
 // the athlete's own training history.
+//
+// STAGE_INFO AND stageInfo() ARE DELIBERATELY UNUSED BY PRODUCTION CODE.
+// They used to feed two places: the "Training Implication" line on the parent
+// screens, and the maturity line appended to athleteContextCore's identityText
+// — which is the first line of the match-analysis and season-report prompts,
+// both of which write priorities that later steer planning. A stage-derived
+// coaching sentence therefore had a path into what she would be told to work on
+// next month. Both call sites are gone.
+//
+// The definitions are kept because they are the canonical, non-prescriptive
+// wording for anyone who displays the estimate later. maturityIsolation.test.js
+// asserts that no production file imports stageInfo, so re-wiring one is a
+// failing test rather than a quiet regression.
 const STAGE_INFO = {
   "Pre-PHV": {
     label: "Pre-PHV",

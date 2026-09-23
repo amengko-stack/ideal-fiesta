@@ -56,6 +56,8 @@ export async function generateSeasonReport(athleteId, matches) {
       ? new Date(m.matchStartTime).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })
       : "Unknown date";
     const result = m.whoWonMatch === 1 ? "Win" : "Loss";
+    // LEGACY PERSISTED KEY — the storage field every historical match uses
+    // for this athlete's own stats. The displayed name is identity.name.
     const v = m.valissa ?? {};
     const o = m.opponent ?? {};
     const calc = m.calculated ?? {};
@@ -64,7 +66,7 @@ export async function generateSeasonReport(athleteId, matches) {
     return [
       `Match ${idx + 1} — ${date} vs ${m.opponentName || "Opponent"} — ${result} ${fmtMatchScore(m)}`,
       `Division: ${categoryLabel(m.ageCategory ?? profileCategory)}`,
-      `Valissa: W=${v.winners ?? 0} UE=${v.unforcedErrors ?? 0} FE=${v.forcedErrors ?? 0} 1st serve=${v.firstServePct != null ? Number(v.firstServePct).toFixed(1) : "—"}% DF=${v.doubleFaults ?? 0}`,
+      `${identity.name}: W=${v.winners ?? 0} UE=${v.unforcedErrors ?? 0} FE=${v.forcedErrors ?? 0} 1st serve=${v.firstServePct != null ? Number(v.firstServePct).toFixed(1) : "—"}% DF=${v.doubleFaults ?? 0}`,
       `Opponent: W=${o.winners ?? 0} UE=${o.unforcedErrors ?? 0}`,
       `Rally win rates: 0-4shots=${rally["0-4"]?.valissaWinPct ?? "—"}% 5-8shots=${rally["5-8"]?.valissaWinPct ?? "—"}% 9+shots=${rally["9+"]?.valissaWinPct ?? "—"}%`,
       `W:UE ratio: ${calc.wueRatio ?? "—"}`,

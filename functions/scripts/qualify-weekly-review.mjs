@@ -9,9 +9,17 @@
 //
 // It qualifies: schema v2, the block week being read from the persistent
 // programState/strength document, Session A on Monday, Session B on Thursday,
-// Sunday as recovery, no Mirwald-derived Guardian escalation, historical
-// sessions left untouched, a repeated Run-now neither advancing the block nor
-// duplicating records, and the next calendar week advancing by exactly one.
+// Sunday as recovery, historical sessions left untouched, a repeated Run-now
+// neither advancing the block nor duplicating records, and the next calendar
+// week advancing by exactly one.
+//
+// It ALSO runs the Guardian directly (guardian-maturity-check.mjs) to qualify
+// that the Mirwald estimate decides nothing. That used to be asserted here by
+// observing that no guardianAlert document existed after a weekly review — a
+// check that could never fail, because the weekly review does not invoke the
+// Guardian at all and the fixture had no sitting height for a Mirwald estimate
+// to be derived from. The real property needs the real engine, so the checks
+// numbered 7x below come from that helper, run inside this same CI gate.
 //
 // It does NOT replace a production Run-now: it cannot prove the deployed
 // function runs, that Firestore accepts the write, or that the app renders it.
@@ -190,16 +198,20 @@ const dayStr = (d) => {
   return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
 };
 
+// Sitting height is present throughout — on the profile and on the dated
+// measurements — so a Mirwald estimate genuinely exists for this fixture. It
+// did not before, which is why "no Mirwald-derived escalation" used to be
+// trivially true.
 store.set(A, {
   name: 'Marsha',
   dob: '2014-03-07',
   competitionCategory: 'U14',
   weeklyReviewEnabled: true,
   gaps: ['first_step'],
-  height: 153, weight: 43,
+  height: 153, weight: 43, sittingHeight: 80,
   measurements: [
-    { date: dayStr(-6), height: 153, weight: 43 },
-    { date: dayStr(-189), height: 148.5, weight: 37.5 },
+    { date: dayStr(-6), height: 153, weight: 43, sittingHeight: 80 },
+    { date: dayStr(-189), height: 148.5, weight: 37.5, sittingHeight: 77 },
   ],
 });
 for (const [i, l] of [
@@ -280,13 +292,23 @@ ok('   still one plan doc and two historical sessions',
   [...store.keys()].filter(k => k.startsWith(`${A}/plans/`)).length === 1
   && [...store.keys()].filter(k => k.startsWith(`${A}/sessions/`)).length === 2);
 
-// No Mirwald-derived escalation: the weekly review writes no guardian alert at
-// all, and the growth context in the plan comes from measured height only.
-const guardianDocs = [...store.keys()].filter(k => k.includes('guardianAlert'));
-ok('7. no Mirwald-derived Guardian escalation',
-  guardianDocs.length === 0 && plan1.growthContext.recentGrowthVelocityCmYr != null
-    && !JSON.stringify(plan1).match(/PHV|maturity/i),
-  `guardianAlerts=${guardianDocs.length} growthVelocity=${plan1.growthContext.recentGrowthVelocityCmYr}`);
+// ── Mirwald decides nothing ──────────────────────────────────────────────────
+// Two separate properties, and the old single check conflated them.
+//
+// (7) The generated PLAN carries measured growth and never a maturity band.
+//     This is about the S&C path, and the fixture now has a sitting height, so
+//     a Mirwald estimate exists and is demonstrably still absent from the plan.
+ok('7. the weekly plan uses MEASURED growth and never a maturity band',
+  plan1.growthContext.recentGrowthVelocityCmYr != null
+    && !JSON.stringify(plan1).match(/PHV|maturity|mirwald/i),
+  `growthVelocity=${plan1.growthContext.recentGrowthVelocityCmYr}`);
+
+// (7a-7j) The GUARDIAN itself, run directly against the real pure core with
+// every non-Mirwald signal held constant. Absence of a document proves nothing
+// about an engine that was never invoked, so this invokes it.
+const { guardianMaturityChecks } = await import(
+  pathToFileURL(`${REPO}/functions/scripts/guardian-maturity-check.mjs`).href);
+for (const c of await guardianMaturityChecks()) ok(c.n, c.pass, c.detail);
 
 // ── report ───────────────────────────────────────────────────────────────────
 console.log('\n══ LOCAL QUALIFICATION (in-memory Firestore, stubbed Anthropic) ══\n');

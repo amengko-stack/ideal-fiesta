@@ -16,18 +16,24 @@ const TechnicalTab   = lazy(() => import("./TechnicalTab.jsx"));
 const ProfileTab     = lazy(() => import("./ProfileTab.jsx"));
 
 // ─── ATHLETE MAIN ─────────────────────────────────────────────────────────────
-export default function AthleteMain({ athleteId, isParent, user, onBack, onSignOut }) {
+export default function AthleteMain({ athleteId, isParent, onBack, onSignOut }) {
   const [tab, setTab]                     = useState("plan");
   const [profile, setProfile]             = useState(null);
   const [sessionHistory, setSessionHistory] = useState([]);
   const [weekLogs, setWeekLogs]           = useState([]);
-  const [loading, setLoading]             = useState(true);
+  // `loading` is DERIVED, not stored. It used to be state that the effect below
+  // set synchronously in its own body, which is a cascading render: the effect
+  // runs, setLoading(true) schedules another render, and only then does the
+  // fetch start. Tracking which athlete has finished loading says the same
+  // thing without the extra pass — and it is correct on an athleteId change in
+  // the same render, rather than one render later.
+  const [loadedFor, setLoadedFor]         = useState(null);
+  const loading = loadedFor !== athleteId;
   const [planResult, setPlanResult]       = useState(null);
   const [aiLoading, setAiLoading]         = useState(false);
   const [wellbeing, setWellbeing]         = useState([]);
 
   useEffect(() => {
-    setLoading(true);
     const load = async () => {
       try {
         const [profileSnap, logsSnap, sessSnap, wellSnap, planSnap] = await Promise.all([
@@ -53,7 +59,7 @@ export default function AthleteMain({ athleteId, isParent, user, onBack, onSignO
       } catch (e) {
         console.error("Load error:", e);
       } finally {
-        setLoading(false);
+        setLoadedFor(athleteId);
       }
     };
     load();
@@ -150,8 +156,8 @@ export default function AthleteMain({ athleteId, isParent, user, onBack, onSignO
         <Suspense fallback={<div className="empty">Loading…</div>}>
           {tab === "plan"     && <PlanTab athleteId={athleteId} profile={profile} weekLogs={weekLogs} sessionHistory={sessionHistory} wellbeing={wellbeing} aiLoading={aiLoading} setAiLoading={setAiLoading} planResult={planResult} setPlanResult={setPlanResult} />}
           {tab === "log"      && <LogTab weekLogs={weekLogs} addWeekLog={addWeekLog} deleteWeekLog={deleteWeekLog} />}
-          {tab === "strength" && <StrengthLogTab sessionHistory={sessionHistory} addSession={addSession} planResult={planResult} />}
-          {tab === "matches"     && <MatchesTab     athleteId={athleteId} />}
+          {tab === "strength" && <StrengthLogTab addSession={addSession} planResult={planResult} />}
+          {tab === "matches"     && <MatchesTab     athleteId={athleteId} profile={profile} />}
           {tab === "priorities"  && <PrioritiesTab  athleteId={athleteId} />}
           {tab === "benchmarks"  && isParent && <BenchmarksTab athleteId={athleteId} profile={profile} />}
           {tab === "technical"   && isParent && <TechnicalTab  athleteId={athleteId} />}

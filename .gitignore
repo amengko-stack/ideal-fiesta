@@ -26,6 +26,7 @@ serviceAccountKey*.json
 .vscode/*
 !.vscode/extensions.json
 .idea
+.obsidian/
 .DS_Store
 *.suo
 *.ntvs*
@@ -35,3 +36,10 @@ serviceAccountKey*.json
 
 # Browser-automation artifacts
 .playwright-mcp/
+
+# Local review/analysis artifacts. These are working notes from review passes
+# (Codex, agent runs, knowledge-graph exports), not part of the product, and
+# they must never land in a product commit.
+.agents/
+.codex/
+graphify-out/

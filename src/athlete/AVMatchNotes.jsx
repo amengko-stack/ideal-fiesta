@@ -34,7 +34,7 @@ export default function AVMatchNotes({ athleteId }) {
               matchDate:    m.matchStartTime || null,
               won:          m.whoWonMatch === 1,
             };
-          } catch (_) {
+          } catch {
             return {
               id:          a.id,
               athleteNote: a.athleteNote,

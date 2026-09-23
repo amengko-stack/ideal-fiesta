@@ -76,8 +76,18 @@ athletes/{id}/guardianRuns/{today}   → status "complete", outcome "quiet",
 
 ## 4. Make it fire
 
-The gate needs **two different families**. The seeded athlete is Mid-PHV, so one
-more family is enough — add three consecutive low-mood days (recovery):
+The gate needs **two different families**, and at least one of them has to be a
+TRIGGER family (`load`, `recovery`, `tissue`).
+
+The seeded athlete is Mid-PHV. That does **not** give you a family: the
+`mid-phv-window` factor carries weight 0 and `counts: false`, so it is excluded
+from the counted family set, the acute weight and the severity — it is metadata
+the parent can read, nothing more. The same is true of any maturity estimate.
+Nor is the workload ratio a family: it decides nothing.
+
+So you need two real ones. Three consecutive low-mood, high-soreness days give
+you `recovery`; the seeded training week gives you `load` once it is repetitive
+enough to trip monotony.
 
 ```bash
 FIRESTORE_EMULATOR_HOST=localhost:8080 node -e '

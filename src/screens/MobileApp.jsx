@@ -218,7 +218,7 @@ export default function MobileApp({ athleteId, isParent, user, onSignOut }) {
 
   // Finishing Session A must never mark Session B done: completion is stored per
   // session, and only the session named here is written back.
-  const finishSession = (sessionId, difficulty, painNote = "") => {
+  const finishSession = (sessionId, difficulty, painNote = "", movementQuality = null) => {
     if (!planResult) return;
     const plan = readWeeklyPlan(planResult);
     const session = (plan.sessions || []).find(x => x.id === sessionId);
@@ -236,6 +236,11 @@ export default function MobileApp({ athleteId, isParent, user, onSignOut }) {
     // Same shape the classic StrengthLogTab writes — the plan generator's
     // exercise-progression memory reads this collection — plus which planned
     // session it was, so next week's progression gate can find it.
+    //
+    // movementQuality is written ONLY when someone actually answered. An
+    // unanswered rating must stay absent so readMovementQuality returns
+    // "unknown"; writing a placeholder would be indistinguishable from a
+    // considered "good".
     addDoc(collection(db, "athletes", athleteId, "sessions"), {
       date: toLocalDateStr(now), time: now.toTimeString().slice(0, 5),
       plannedSessionId: sessionId,
@@ -243,6 +248,7 @@ export default function MobileApp({ athleteId, isParent, user, onSignOut }) {
       blockWeek: plan.block?.week ?? null,
       difficulty,
       ...(painNote ? { painNote } : {}),
+      ...(movementQuality ? { movementQuality } : {}),
       exercises,
     }).catch(e => console.error("finishSession save:", e));
 
@@ -250,7 +256,7 @@ export default function MobileApp({ athleteId, isParent, user, onSignOut }) {
     // array is rewritten whole — with only this session's flags changed.
     const sessions = (planResult.sessions || []).map(x =>
       x.id === sessionId
-        ? { ...x, sessionLogged: true, difficulty, loggedAt: now.toISOString(), ...(painNote ? { painNote } : {}) }
+        ? { ...x, sessionLogged: true, difficulty, loggedAt: now.toISOString(), ...(painNote ? { painNote } : {}), ...(movementQuality ? { movementQuality } : {}) }
         : x
     );
     const patch = sessions.length > 0 ? { sessions } : { sessionLogged: true };
@@ -708,7 +714,7 @@ export default function MobileApp({ athleteId, isParent, user, onSignOut }) {
   });
   // Audience gate matches MeScreen's existing parent-only gating exactly:
   // isParent is the auth role, parentMode is the per-device display toggle
-  // (so handing the phone to Valissa hides parent/medical alerts too).
+  // (so handing the phone to the athlete hides parent/medical alerts too).
   const canSeeParentAlerts = isParent && parentMode;
   // Supersession: when the guardian is telling one joined-up story, the
   // reminders that say a thinner version of the same thing are dropped rather
@@ -851,6 +857,7 @@ export default function MobileApp({ athleteId, isParent, user, onSignOut }) {
       <BottomSheet open={detailMatch != null} onClose={closeMatch}>
         <MatchDetailSheet
           match={detailMatch}
+          athleteName={firstName}
           analysis={analysis}
           showParentNotes={isParent && parentMode}
           analysisLoading={analysisLoading}

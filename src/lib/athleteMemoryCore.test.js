@@ -334,7 +334,7 @@ Long-term outlook: Aggressive baseliner.`);
 describe("buildMemoryUpdatePrompt — weeklyReview evidence", () => {
   const week = {
     weekKey: "2026-03-09",
-    load: { thisWeekSRPE: 1215, fourWeekAvg: 379, acwr: 3.21, acwrStatus: { label: "Ease up" }, sessionCount: 3 },
+    load: { thisWeekSRPE: 1215, fourWeekAvg: 379, acwr: 3.21, trendLabel: "Well above recent average", sessionCount: 3 },
     wellbeing: { checkinCount: 2, avgSleep: 6.25, avgMood: 2, avgSoreness: 2.5, lowMoodFlag: true, lowSleepFlag: false },
     matches: [{ opponentName: "Kirana", won: true, date: "2026-03-14" }],
     priorities: {
@@ -350,7 +350,7 @@ describe("buildMemoryUpdatePrompt — weeklyReview evidence", () => {
   it("summarises the week's load, wellbeing, plan, priorities and matches", () => {
     const { userContent } = buildMemoryUpdatePrompt(filledMemory(), { kind: "weeklyReview", todayStr: TODAY, week });
     expect(userContent).toContain(`NEW WEEKLY REVIEW (${TODAY}, week of 2026-03-09):`);
-    expect(userContent).toContain("Training load: sRPE 1215 vs 4-week average 379, ACWR 3.21 (Ease up), 3 sessions");
+    expect(userContent).toContain("Training load: sRPE 1215 vs 4-week average 379, ratio 3.21 (Well above recent average), 3 sessions");
     expect(userContent).toContain("Wellbeing: 2 check-ins — sleep 6.25h, mood 2/5, soreness 2.5/5 — LOW MOOD 3+ consecutive days");
     expect(userContent).toContain("Matches played: WIN vs Kirana (2026-03-14)");
     expect(userContent).toContain("Plan prescribed: reduced, 45 min, 8 exercises");
@@ -483,11 +483,41 @@ describe("test suite stays free of Firebase", () => {
 
   const testFiles = fs.readdirSync(LIB).filter(f => f.endsWith(".test.js"));
 
+  // The point of this guard is that no unit test EVALUATES src/firebase.js —
+  // initializeApp + persistentLocalCache in a bare node run is either slow or
+  // fatal depending on the day, and a test that needs it is a test that has
+  // stopped being a unit test.
+  //
+  // Static reachability is the cheap proxy for that, and it is wrong in exactly
+  // one case: a test that deliberately stubs the Firestore boundary in order to
+  // run a real pipeline end to end. maturityAiIsolation.test.js is that case —
+  // it runs the actual generateMatchAnalysis and generateSeasonReport to prove
+  // the maturity estimate reaches neither prompt, which it cannot do without
+  // importing them.
+  //
+  // So the exemption is not a name on a list: the file has to prove it stubs
+  // the module, under BOTH specifiers used across the codebase ("../firebase"
+  // and "../firebase.js" resolve to the same file but are separate mock keys).
+  // A file that reaches firebase.js without stubbing it still fails.
+  const stubsFirebase = (f) => {
+    const src = fs.readFileSync(path.join(LIB, f), "utf8");
+    return /vi\.mock\(\s*["']\.\.\/firebase["']/.test(src)
+        && /vi\.mock\(\s*["']\.\.\/firebase\.js["']/.test(src);
+  };
+
   it("finds the test files it is meant to guard", () => {
     expect(testFiles.length).toBeGreaterThan(5);
   });
 
-  it.each(testFiles)("%s does not transitively import src/firebase.js", (f) => {
-    expect(reachesFirebase(path.join(LIB, f))).toBe(false);
+  it.each(testFiles)("%s does not reach src/firebase.js without stubbing it", (f) => {
+    if (!reachesFirebase(path.join(LIB, f))) return;      // the normal case
+    expect(stubsFirebase(f), `${f} imports firebase.js and does not vi.mock it`).toBe(true);
+  });
+
+  it("keeps the stubbed-boundary exemption rare and deliberate", () => {
+    // If this number starts climbing, the boundary is leaking into tests that
+    // should be pure. Today there is exactly one.
+    const exempt = testFiles.filter(f => reachesFirebase(path.join(LIB, f)));
+    expect(exempt).toEqual(["maturityAiIsolation.test.js"]);
   });
 });

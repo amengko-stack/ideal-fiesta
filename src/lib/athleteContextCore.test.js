@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { assembleAthleteContext, selectRecentMatch } from "./athleteContextCore.js";
+import { identityBlock } from "./athleteIdentity.js";
 
 // Frozen so the 28/14/7-day cutoffs and getWeekBounds land on known dates.
 const NOW_ISO = "2026-03-15T09:00:00.000Z";   // a Sunday
@@ -176,24 +177,39 @@ describe("assembleAthleteContext — tournament proximity", () => {
   });
 });
 
-describe("assembleAthleteContext — profile, maturity and identity", () => {
-  it("renders the identity block with the maturation line appended", () => {
+describe("assembleAthleteContext — profile and identity, with NO maturity", () => {
+  it("renders the identity block and nothing else", () => {
     const ctx = assembleAthleteContext(rawBundle(), now());
     expect(ctx.athleteProfile.name).toBe("Valissa");
     expect(ctx.athleteProfile.age).toBe(12);
     expect(ctx.athleteProfile.categoryLabel).toBe("Under-14");
     expect(ctx.athleteProfile.isPlayingUp).toBe(true);
-    expect(ctx.athleteProfile.maturityLine).toContain("Estimated maturity offset — interpret cautiously: Mid-PHV");
     expect(ctx.athleteProfile.identityText).toContain("ATHLETE: Valissa · female · age 12");
-    expect(ctx.athleteProfile.identityText).toContain("Estimated maturity offset — interpret cautiously: Mid-PHV");
+    // identityText IS the first line of the match-analysis and season-report
+    // prompts. It used to carry a maturity band and a stage-derived coaching
+    // implication appended to it, and both of those prompts write priorities
+    // that later steer planning. It no longer carries either.
+    expect(ctx.athleteProfile.identityText).toBe(identityBlock(rawBundle().profile, now()));
   });
 
-  it("omits the maturation line when no measurement carries a sitting height", () => {
+  it("exposes no maturity field on athleteProfile at all", () => {
+    // The fixture HAS a sitting height, so the estimate is computable — this is
+    // an absence by design, not for want of data.
     const raw = rawBundle();
-    raw.profile = { ...raw.profile, measurements: [{ date: "2026-03-01", height: 154, weight: 41 }] };
-    const ctx = assembleAthleteContext(raw, now());
-    expect(ctx.athleteProfile.maturityLine).toBeNull();
-    expect(ctx.athleteProfile.identityText).not.toContain("Maturation:");
+    expect(raw.profile.measurements.some(m => m.sittingHeight != null)).toBe(true);
+    const p = assembleAthleteContext(raw, now()).athleteProfile;
+    for (const key of ["maturityLine", "maturityOffset", "maturityStage", "phvStage"]) {
+      expect(p, `athleteProfile must not carry ${key}`).not.toHaveProperty(key);
+    }
+  });
+
+  it("names no maturity band anywhere in the assembled context", () => {
+    const raw = rawBundle();
+    raw.profile = { ...raw.profile, phvStage: "Mid-PHV" };   // a legacy stored band
+    const blob = JSON.stringify(assembleAthleteContext(raw, now()));
+    for (const banned of ["Pre-PHV", "Mid-PHV", "Post-PHV", "maturity offset", "Mirwald", "growth spurt"]) {
+      expect(blob).not.toContain(banned);
+    }
   });
 
   it("leaves athleteProfile null when there is no profile doc", () => {

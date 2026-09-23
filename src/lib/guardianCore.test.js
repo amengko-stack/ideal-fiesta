@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import {
   GUARDIAN_THRESHOLDS, GUARDIAN_ENGINE_VERSION, TRIGGER_FAMILIES, MODIFIER_FAMILIES,
   dailyWellbeing, seriesTrend, evaluateGate, assessGuardian, cooldownDecision, clearedCooldown,
-  athleteActions, buildGuardianNotesPrompt, buildGuardianAlert, guardianPushPayload,
+  athleteActions, buildGuardianNotesPrompt, buildGuardianAlert, guardianPushPayload, isDecisionEvidence,
   supersededReminderKinds,
 } from "./guardianCore.js";
 import { toLocalDateStr } from "./dates.js";
@@ -95,12 +95,19 @@ describe("GUARDIAN_THRESHOLDS", () => {
     expect(Object.isFrozen(GUARDIAN_THRESHOLDS)).toBe(true);
   });
   it("carries the two load-bearing numbers the design argued for", () => {
-    // 1.35 sits deliberately above the dashboard's own 1.3 warn chip.
-    expect(GUARDIAN_THRESHOLDS.acwrSpike).toBe(1.35);
-    expect(GUARDIAN_THRESHOLDS.acwrSpike).toBeGreaterThan(1.3);
     // 6.0 cm/yr is meaningless without the span guard.
     expect(GUARDIAN_THRESHOLDS.growthVelocityHigh).toBe(6.0);
     expect(GUARDIAN_THRESHOLDS.growthMinSpanDays).toBe(60);
+  });
+  it("carries NO acute:chronic ratio threshold at all", () => {
+    // Not "lowered" — absent. A future edit that reintroduces a ratio band as
+    // a tunable constant is the exact regression this guards against.
+    for (const key of Object.keys(GUARDIAN_THRESHOLDS)) {
+      expect(key.toLowerCase()).not.toContain("acwr");
+    }
+    expect(GUARDIAN_THRESHOLDS.acwrSpike).toBeUndefined();
+    expect(GUARDIAN_THRESHOLDS.acwrSevere).toBeUndefined();
+    expect(GUARDIAN_THRESHOLDS.acwrMinNonZeroWeeks).toBeUndefined();
   });
   it("keeps growth out of the trigger families", () => {
     expect(TRIGGER_FAMILIES).toEqual(["load", "recovery", "tissue"]);
@@ -317,37 +324,120 @@ describe("load family", () => {
     expect(toLocalDateStr(realMonday(0))).toBe("2026-08-03");
   });
 
-  describe("acwr-spike", () => {
-    it("fires above the line", () => {
-      const logs = [...weekOf(0, spike(1600)), ...weekOf(1, spike(1000)), ...weekOf(2, spike(1000)), ...weekOf(3, spike(1000))];
-      expect(ids(logs)).toContain("acwr-spike");
-      expect(factorsFor(logs).find(f => f.id === "acwr-spike").weight).toBe(2);
+  // ── THE ACUTE:CHRONIC RATIO IS NOT A DECISION INPUT ──────────────────────
+  // The engine used to turn the ratio into a weight-2/weight-3 load factor at
+  // fixed 1.35 / 1.5 bands. It no longer reads the ratio anywhere. These tests
+  // are the contract: the number is still computed and still reported, and it
+  // decides nothing.
+  describe("acwr is computed and reported but never acted on", () => {
+    // Every one of these ratios used to mean something to the engine.
+    const atRatio = (thisWeek) =>
+      [...weekOf(0, spike(thisWeek)), ...weekOf(1, spike(1000)), ...weekOf(2, spike(1000)), ...weekOf(3, spike(1000))];
+
+    it("still reports the ratio for display and historical records", () => {
+      expect(assessGuardian({ weekLogs: atRatio(2000) }, TODAY).metrics.acwr).toBe(1.6);
     });
-    it("fires at exactly 1.35", () => {
-      const logs = [...weekOf(0, spike(1529)), ...weekOf(1, spike(1000)), ...weekOf(2, spike(1000)), ...weekOf(3, spike(1000))];
-      expect(factorsFor(logs).find(f => f.id === "acwr-spike").metrics.acwr).toBe(1.35);
-      expect(ids(logs)).toContain("acwr-spike");
+
+    it("emits no acwr-derived factor at any ratio", () => {
+      for (const w of [700, 1400, 1600, 2000, 3000]) {
+        expect(ids(atRatio(w))).not.toContain("acwr-spike");
+      }
     });
-    it("does not fire below the line", () => {
-      const logs = [...weekOf(0, spike(1400)), ...weekOf(1, spike(1000)), ...weekOf(2, spike(1000)), ...weekOf(3, spike(1000))];
-      expect(ids(logs)).not.toContain("acwr-spike");
+
+    it("no COUNTING factor carries the ratio in its metrics", () => {
+      for (const w of [700, 1400, 1600, 2000, 3000]) {
+        for (const f of factorsFor(atRatio(w)).filter(x => x.counts !== false)) {
+          expect(Object.keys(f.metrics || {})).not.toContain("acwr");
+        }
+      }
     });
-    it("upgrades to weight 3 at the 1.5 danger line", () => {
-      const logs = [...weekOf(0, spike(2000)), ...weekOf(1, spike(1000)), ...weekOf(2, spike(1000)), ...weekOf(3, spike(1000))];
-      const f = factorsFor(logs).find(x => x.id === "acwr-spike");
-      expect(f.weight).toBe(3);
-      expect(f.severe).toBe(true);
+
+    // 1. A quiet week cannot tell the athlete to train more.
+    it("a low ratio (0.7) never recommends more training", () => {
+      const a = assessGuardian({ weekLogs: atRatio(700), wellbeing: CALM_DAY }, TODAY);
+      expect(a.metrics.acwr).toBe(0.76);
+      const prose = JSON.stringify(a).toLowerCase();
+      for (const phrase of ["train more", "push more", "add training", "underload", "can handle more", "room to"]) {
+        expect(prose).not.toContain(phrase);
+      }
+      expect(a.actions.athlete).toEqual([]);
     });
-    it("refuses to fire on a ratio computed against empty history", () => {
-      // One logged week after three blank ones reads as ACWR 4.0 — arithmetic,
-      // not a spike. Only 1 of 4 buckets is non-zero.
-      const logs = weekOf(0, spike(3000));
-      expect(assessGuardian({ weekLogs: logs }, TODAY).metrics.acwr).toBe(4);
-      expect(ids(logs)).not.toContain("acwr-spike");
+
+    // 2 & 3. A high ratio cannot raise severity on its own.
+    it("a high ratio (1.4 / 1.6) alone raises no severity and fires nothing", () => {
+      for (const w of [1750, 2000]) {
+        const a = assessGuardian({ weekLogs: atRatio(w), wellbeing: CALM_DAY }, TODAY);
+        expect(a.metrics.acwr).toBeGreaterThanOrEqual(1.4);
+        expect(a.fires).toBe(false);
+        expect(a.severity).toBeNull();
+        expect(a.acuteWeight).toBe(0);
+      }
     });
-    it("fires once exactly 3 of the 4 buckets carry load", () => {
-      const logs = [...weekOf(0, spike(1600)), ...weekOf(1, spike(1000)), ...weekOf(2, spike(1000))];
-      expect(ids(logs)).toContain("acwr-spike");
+
+    it("never labels the ratio optimal, safe, dangerous or underloaded", () => {
+      for (const w of [700, 1400, 1600, 2000, 3000]) {
+        const prose = JSON.stringify(assessGuardian({ weekLogs: atRatio(w) }, TODAY)).toLowerCase();
+        for (const word of ["optimal", "danger", "underload", "injury risk", "safe zone", "caution"]) {
+          expect(prose).not.toContain(word);
+        }
+      }
+    });
+  });
+
+  // ── NOTHING REPLACED IT ─────────────────────────────────────────
+  // Taking the ratio out left the `load` family quieter, and two factors were
+  // briefly added to fill it: `no-rest-days` (weight 1, counting) and
+  // `workload-trend-up` (weight 0, evidence, firing at a fixed 30%-above-
+  // baseline band). Both are reverted. This describe is what keeps them out:
+  // alert volume is not a requirement, and the 30% band was the same ratio
+  // question wearing percentages.
+  describe("nothing was invented to take the ratio's place", () => {
+    // The fixtures the two retired factors used to fire on.
+    const busy  = [700, 0, 700, 0, 700, 0, 700];   // 2800 over 4 days
+    const quiet = [200, 0, 200, 0, 200, 0, 200];   //  800 over 4 days
+    const rising    = () => [...weekOf(0, busy), ...weekOf(1, quiet), ...weekOf(2, quiet), ...weekOf(3, quiet)];
+    const everyDay  = () => weekOf(0, flat(300));  // seven training days, no rest day
+
+    it("emits no no-rest-days factor, however relentless the week", () => {
+      // The fixture is not vacuous: seven training days, 2100 sRPE, no day off.
+      const m = assessGuardian({ weekLogs: everyDay() }, TODAY).metrics;
+      expect(m.trainingDays).toBe(7);
+      expect(m.restDays).toBe(0);
+      expect(m.sevenDaySRPE).toBeGreaterThanOrEqual(1200);
+      expect(ids(everyDay())).not.toContain("no-rest-days");
+    });
+
+    it("emits no workload-trend factor, however far above baseline the week is", () => {
+      const m = assessGuardian({ weekLogs: rising() }, TODAY).metrics;
+      expect(m.pctFromBaseline).toBeGreaterThanOrEqual(30);   // the old band, cleared
+      expect(ids(rising())).not.toContain("workload-trend-up");
+    });
+
+    it("keeps the load family to exactly two factors, both absolute observations", () => {
+      // Whatever week you build, a load factor can only be one of these two.
+      const LOAD_FACTORS = ["sustained-load", "monotony-high"];
+      const weeks = [
+        everyDay(), rising(),
+        [0, 1, 2, 3].flatMap(w => weekOf(w, flat(300))),
+        [...weekOf(0, flat(400)), ...weekOf(1, flat(50))],
+        weekOf(0, [3000, 0, 0, 0, 0, 0, 0]),
+      ];
+      for (const w of weeks) {
+        for (const f of factorsFor(w)) {
+          if (f.family !== "load") continue;
+          expect(LOAD_FACTORS, `unexpected load factor ${f.id}`).toContain(f.id);
+        }
+      }
+    });
+
+    it("still REPORTS the rest days and the trend — describing is not deciding", () => {
+      const m = assessGuardian({ weekLogs: rising() }, TODAY).metrics;
+      expect(m).toHaveProperty("trainingDays");
+      expect(m).toHaveProperty("restDays");
+      expect(m).toHaveProperty("last7DaySRPE");
+      expect(m).toHaveProperty("baselineWeeklySRPE");
+      expect(m).toHaveProperty("pctFromBaseline");
+      expect(m).toHaveProperty("workloadTrendLabel");
     });
   });
 
@@ -406,9 +496,10 @@ describe("load family", () => {
   });
 
   // ── THE REGRESSION TEST THIS ENGINE EXISTS FOR ─────────────────────────────
-  describe("family collapse — three load factors are ONE story", () => {
-    // week 0 repetitive at 2760 sRPE (ACWR 1.59 severe + monotony 28.17
-    // severe), weeks 1-2 at 2100 (over the sustained-volume line), week 3 empty.
+  describe("family collapse — every load factor is ONE story", () => {
+    // week 0 repetitive at 2760 sRPE over all seven days (monotony severe, no
+    // rest day, and the descriptive trend well above baseline), weeks 1-2 at
+    // 2100 (over the sustained-volume line), week 3 empty.
     //
     // Built lazily, INSIDE each test, and that is load-bearing. weekOf() goes
     // through realMonday(), which reads the clock — and a describe body is
@@ -419,9 +510,9 @@ describe("load family", () => {
     // the code. Same trap as the sleep fixture in reminders.test.js.
     const allThree = () => [...weekOf(0, repetitive(400)), ...weekOf(1, flat(300)), ...weekOf(2, flat(300))];
 
-    it("finds all three load factors", () => {
+    it("finds every load factor the week can produce", () => {
       expect(idsOf(assessGuardian({ weekLogs: allThree() }, TODAY).factors).sort())
-        .toEqual(["acwr-spike", "monotony-high", "sustained-load"]);
+        .toEqual(["monotony-high", "sustained-load"]);
     });
 
     it("collapses them to a single family", () => {
@@ -429,11 +520,12 @@ describe("load family", () => {
     });
 
     it("counts the family's MAXIMUM weight, not the sum of its factors", () => {
-      // 3 + 2 + 2 summed would be 7 (urgent!). The family contributes 3.
-      expect(assessGuardian({ weekLogs: allThree() }, TODAY).acuteWeight).toBe(3);
+      // 2 + 2 + 1 summed would be 5 (concern, on load alone). The family
+      // contributes 2 — and the evidence-only trend factor contributes nothing.
+      expect(assessGuardian({ weekLogs: allThree() }, TODAY).acuteWeight).toBe(2);
     });
 
-    it("DOES NOT FIRE — one story told three ways is still one story", () => {
+    it("DOES NOT FIRE — one story told four ways is still one story", () => {
       const a = assessGuardian({ weekLogs: allThree() }, TODAY);
       expect(a.fires).toBe(false);
       expect(a.reason).toBe("single-family");
@@ -446,10 +538,136 @@ describe("load family", () => {
       const a = assessGuardian({ weekLogs: allThree(), wellbeing }, TODAY);
       expect(a.fires).toBe(true);
       expect(a.families).toEqual(["load", "recovery"]);
-      expect(a.acuteWeight).toBe(5);          // load 3 + recovery 2, both acute
+      expect(a.acuteWeight).toBe(4);          // load 2 + recovery 2, both acute
       expect(a.severity).toBe("concern");
       expect(a.tone).toBe("warn");
     });
+  });
+});
+
+// ─── CHANGING ONLY THE RATIO CHANGES NOTHING ─────────────────────────────────
+// The isolation test the correction turns on, and it needs a trick to be
+// honest: acwr is DERIVED from the same logs as everything else, so "hold every
+// other input constant" cannot be done by editing one number.
+//
+// The seam is that the two windows are shaped differently. `computeLoad` buckets
+// by CALENDAR week (Mon-Sun); every signal the engine now acts on is a ROLLING
+// window ending at `ref`, or a multiset of daily loads. So: freeze the clock
+// mid-week, and SWAP the daily loads of a day before the Monday boundary with a
+// day after it. Both days stay inside the rolling 7-day window, so
+//
+//   * the rolling 7-day and 28-day totals are unchanged  -> trend unchanged
+//   * the multiset of daily loads is unchanged           -> monotony unchanged
+//   * the set of training dates is unchanged             -> rest days unchanged
+//
+// while this week's and last week's calendar totals trade places, moving acwr
+// from 0.5 (what the retired engine called "underload") to 1.5 (what it called
+// the severe spike line, weight 3).
+describe("acwr isolation — the same week, split differently across the boundary", () => {
+  // 2026-08-12 is a Wednesday. Rolling 7 days = Thu 08-06 .. Wed 08-12, which
+  // straddles the Mon 08-10 calendar-week boundary.
+  const WED = new Date("2026-08-12T06:00:00");
+  beforeAll(() => { vi.useFakeTimers(); vi.setSystemTime(WED); });
+  afterAll(() => vi.useRealTimers());
+
+  // sRPE -> one session on that date (rpe 10 keeps duration = srpe/10).
+  const on = (date, srpe) => ({ date, rpe: 10, duration: srpe / 10 });
+  // Two older weeks, identical in both variants, so the 28-day baseline is real.
+  const OLDER = [
+    on("2026-07-27", 450), on("2026-07-29", 450),   // 900 — calendar week -2
+    on("2026-07-20", 450), on("2026-07-22", 450),   // 900 — calendar week -3
+  ];
+
+  // Four heavy days and three light ones. LOW puts the heavy days BEFORE the
+  // Monday boundary, HIGH puts them after it. Same seven numbers either way.
+  const LOW = [
+    on("2026-08-06", 600), on("2026-08-07", 600), on("2026-08-08", 600), on("2026-08-09", 600),
+    on("2026-08-10", 200), on("2026-08-11", 200), on("2026-08-12", 200),
+    ...OLDER,
+  ];
+  const HIGH = [
+    on("2026-08-06", 200), on("2026-08-07", 200), on("2026-08-08", 200),
+    on("2026-08-09", 600), on("2026-08-10", 600), on("2026-08-11", 600), on("2026-08-12", 600),
+    ...OLDER,
+  ];
+
+  // One identical recovery signal in both, so the gate actually has something
+  // to decide and the comparison is not two silent assessments.
+  const WELLBEING = [
+    { date: "2026-08-10", type: "checkin", mood: 2, soreness: 2, sleep: 8 },
+    { date: "2026-08-11", type: "checkin", mood: 2, soreness: 2, sleep: 8 },
+    { date: "2026-08-12", type: "checkin", mood: 2, soreness: 2, sleep: 8 },
+  ];
+
+  const low  = () => assessGuardian({ weekLogs: LOW,  wellbeing: WELLBEING }, WED);
+  const high = () => assessGuardian({ weekLogs: HIGH, wellbeing: WELLBEING }, WED);
+
+  it("really does move the ratio across the whole retired scale", () => {
+    // 0.5 was "Underload"; 1.5 was the old acwrSevere line (weight 3, "Danger").
+    expect(low().metrics.acwr).toBe(0.5);
+    expect(high().metrics.acwr).toBe(1.5);
+  });
+
+  it("leaves every signal the engine actually reads identical", () => {
+    const a = low().metrics, b = high().metrics;
+    expect(a.sevenDaySRPE).toBe(b.sevenDaySRPE);
+    expect(a.monotony).toBe(b.monotony);
+    expect(a.restDays).toBe(b.restDays);
+    expect(a.trainingDays).toBe(b.trainingDays);
+    expect(a.last7DaySRPE).toBe(b.last7DaySRPE);
+    expect(a.baselineWeeklySRPE).toBe(b.baselineWeeklySRPE);
+    expect(a.pctFromBaseline).toBe(b.pctFromBaseline);
+  });
+
+  it("produces an IDENTICAL counting factor set", () => {
+    const counting = (a) => idsOf(a.factors.filter(f => f.counts !== false)).sort();
+    expect(counting(low())).toEqual(counting(high()));
+    // ...and the fixture is not vacuous: load really is one of them.
+    expect(low().families).toContain("load");
+  });
+
+  it("cannot change the gate result, the severity or the recommended action", () => {
+    const a = low(), b = high();
+    expect(a.fires).toBe(b.fires);
+    expect(a.reason).toBe(b.reason);
+    expect(a.severity).toBe(b.severity);
+    expect(a.tone).toBe(b.tone);
+    expect(a.acuteWeight).toBe(b.acuteWeight);
+    expect(a.families).toEqual(b.families);
+    expect(a.headline).toBe(b.headline);
+    expect(a.actions).toEqual(b.actions);
+    expect(a.fires).toBe(true);   // the comparison is between two LIVE alerts
+  });
+
+  it("cannot change cooldown or escalation behaviour", () => {
+    const at = (d) => new Date(`${d}T06:00:00`);
+    // Same prior record, same day, both variants: suppression and the record
+    // that would be written must match to the letter.
+    const prior = { current: {
+      storyKey: low().storyKey, factorKey: low().factorKey, families: [...low().families],
+      severity: low().severity, acuteWeight: low().acuteWeight,
+      firstFiredDate: "2026-08-10", lastFiredDate: "2026-08-10", firstSeenDate: "2026-08-10",
+      fireCount: 1, cleared: false, clearedDate: null, reason: "first-fire",
+    } };
+    const dl = cooldownDecision(prior, low(),  at("2026-08-12"));
+    const dh = cooldownDecision(prior, high(), at("2026-08-12"));
+    expect(dl.suppressed).toBe(dh.suppressed);
+    expect(dl.reason).toBe(dh.reason);
+    expect(dl.nextEntry).toEqual(dh.nextEntry);
+    // And from a clean slate too, so the storyKey/factorKey written are equal.
+    expect(cooldownDecision(null, low(), at("2026-08-12")).nextEntry)
+      .toEqual(cooldownDecision(null, high(), at("2026-08-12")).nextEntry);
+  });
+
+  it("emits no factor at all from the ratio, in either direction", () => {
+    for (const a of [low(), high()]) {
+      expect(idsOf(a.factors)).not.toContain("acwr-spike");
+      expect(idsOf(a.factors)).not.toContain("workload-trend-up");
+      // ...and no surviving factor names the ratio in its evidence.
+      for (const f of a.factors) {
+        expect(f.evidence.toLowerCase()).not.toMatch(/acwr|acute:chronic|ratio/);
+      }
+    }
   });
 });
 
@@ -1140,7 +1358,7 @@ describe("storyKey / factorKey stability", () => {
     const later = new Date("2026-09-20T06:00:00");
     const a = assessGuardian(raw(TODAY), TODAY);
     const b = assessGuardian(raw(later), later);
-    expect(a.storyKey).toBe("g1:recovery+tissue");
+    expect(a.storyKey).toBe("g2:recovery+tissue");
     expect(b.storyKey).toBe(a.storyKey);
   });
 
@@ -1183,7 +1401,7 @@ describe("storyKey / factorKey stability", () => {
 describe("cooldownDecision", () => {
   const FIRED_ON = "2026-08-01";
   const assessment = (over = {}) => ({
-    fires: true, storyKey: "g1:recovery+tissue", factorKey: "g1:mood-decline+open-injury-moderate",
+    fires: true, storyKey: "g2:recovery+tissue", factorKey: "g2:mood-decline+open-injury-moderate",
     families: ["recovery", "tissue"], severity: "watch", acuteWeight: 4, ...over,
   });
   const at = (dateStr) => new Date(`${dateStr}T06:00:00`);
@@ -1276,7 +1494,7 @@ describe("cooldownDecision", () => {
   });
 
   it("restarts the episode history when the story that returns is a different one", () => {
-    const other = assessment({ storyKey: "g1:growth+recovery", families: ["growth", "recovery"] });
+    const other = assessment({ storyKey: "g2:growth+recovery", families: ["growth", "recovery"] });
     const d = cooldownDecision(doc(), other, at("2026-08-11"));
     expect(d.reason).toBe("cooldown-expired");
     expect(d.nextEntry.firstSeenDate).toBe("2026-08-11");
@@ -1332,7 +1550,7 @@ describe("cooldownDecision", () => {
     expect(priorRun.suppressed).toBe(true);
     const withModifier = assessment({
       acuteWeight: 4, severity: "watch",
-      families: ["growth", "recovery", "tissue"], storyKey: "g1:growth+recovery+tissue",
+      families: ["growth", "recovery", "tissue"], storyKey: "g2:growth+recovery+tissue",
     });
     const d = cooldownDecision(doc(), withModifier, at("2026-08-03"));
     expect(d.reason).toBe("escalation-new-family");
@@ -1343,7 +1561,7 @@ describe("cooldownDecision", () => {
     // the same story with more evidence, and the parent already has the point.
     const d = cooldownDecision(
       doc(),
-      assessment({ factorKey: "g1:mood-decline+open-injury-moderate+sleep-deficit" }),
+      assessment({ factorKey: "g2:mood-decline+open-injury-moderate+sleep-deficit" }),
       at("2026-08-03"),
     );
     expect(d.suppressed).toBe(true);
@@ -1389,7 +1607,7 @@ describe("cooldownDecision", () => {
 describe("clearedCooldown", () => {
   const at = (dateStr) => new Date(`${dateStr}T06:00:00`);
   const record = {
-    storyKey: "g1:recovery+tissue", families: ["recovery", "tissue"],
+    storyKey: "g2:recovery+tissue", families: ["recovery", "tissue"],
     severity: "watch", acuteWeight: 4,
     firstFiredDate: "2026-08-01", lastFiredDate: "2026-08-01",
     firstSeenDate: "2026-08-01", fireCount: 1, cleared: false, clearedDate: null,
@@ -1526,10 +1744,17 @@ describe("buildGuardianNotesPrompt", () => {
     expect(prompt).toContain("No numbers.");
   });
 
-  it("names the athlete and lists every factor with its evidence", () => {
+  it("names the athlete and lists every COUNTED factor with its evidence", () => {
+    // The rule is counted, not "every factor". This fixture happens to carry
+    // only counted ones, which is exactly why the old version of this test —
+    // `for (const f of assessment.factors)` — passed while the prompt was
+    // leaking informational factors: it asserted the wrong rule and never met
+    // a case that could tell the difference. The describe below supplies one.
     const { prompt } = buildGuardianNotesPrompt(assessment, "Vee");
     expect(prompt).toContain("Vee");
-    for (const f of assessment.factors) expect(prompt).toContain(f.evidence);
+    const counted = assessment.factors.filter(f => f.counts !== false);
+    expect(counted.length).toBeGreaterThan(0);
+    for (const f of counted) expect(prompt).toContain(f.evidence);
   });
 
   it("falls back to a generic name and does not throw on a null assessment", () => {
@@ -1555,7 +1780,7 @@ describe("buildGuardianAlert", () => {
 
   it("builds a DATE-FIRST alertId so orderBy(documentId(),'desc') is chronological", () => {
     const alert = buildGuardianAlert({ assessment, now: TODAY });
-    expect(alert.alertId).toBe("2026-08-09_g1-recovery-tissue");
+    expect(alert.alertId).toBe("2026-08-09_g2-recovery-tissue");
     const older = buildGuardianAlert({ assessment, now: new Date("2026-07-01T06:00:00") });
     expect([alert.alertId, older.alertId].sort().reverse()[0]).toBe(alert.alertId);
   });
@@ -1729,5 +1954,184 @@ describe("supersededReminderKinds", () => {
     expect(supersededReminderKinds(alert(["load", "recovery"], { engineVersion: undefined }))).toEqual([]);
     expect(supersededReminderKinds(alert(["load", "recovery"], { engineVersion: null }))).toEqual([]);
     expect(supersededReminderKinds({ families: ["load", "recovery"] })).toEqual([]);
+  });
+});
+
+// ─── ENGINE-1 ALERTS AFTER THE VERSION BUMP ──────────────────────────────────
+// GUARDIAN_ENGINE_VERSION went 1 -> 2 for exactly one reason: the acute:chronic
+// ratio was removed from the factor table. Not because anything was added —
+// nothing was. An alert written by engine 1 can cite an `acwr-spike` factor
+// carrying weight 2 or 3, and its stored severity, headline, actions and
+// parentNote were all computed with that weight inside them. This engine does
+// not stand behind that reasoning, and a parent cannot tell a stale card from a
+// current one, so engine-1 docs stop rendering.
+//
+// "Stop rendering" has to mean invisible, not unkillable, and it must not leave
+// the parent in silence. These tests pin all three halves of that.
+describe("engine-1 alerts after the version bump", () => {
+  // A live, firing assessment under the CURRENT engine, for the comparisons.
+  const liveAssessment = () => assessGuardian({
+    wellbeing: wbDays([{ mood: 2 }, { mood: 2 }, { mood: 2 }]),
+    injuries: [{ id: "i1", bodyArea: "Knee", severity: 3, status: "open", onsetDate: dayStr(TODAY, -3) }],
+  }, TODAY);
+
+  // A real engine-1 document, as the old engine would have written it.
+  const v1Alert = (over = {}) => ({
+    alertId: "g1-2026-08-10",
+    engineVersion: 1,
+    families: ["load", "recovery"],
+    severity: "high",
+    acuteWeight: 5,
+    headline: "Training is well above recent weeks",
+    factors: [
+      { id: "acwr-spike", family: "load", weight: 3, label: "Sharp jump in training",
+        evidence: "Acute:chronic ratio 1.62 — well above the 1.5 line." },
+      { id: "mood-decline", family: "recovery", weight: 2, label: "Mood has been low" },
+    ],
+    dismissedAt: null,
+    resolvedAt: null,
+    ...over,
+  });
+
+  it("is a different version from the current engine, which is 2", () => {
+    expect(GUARDIAN_ENGINE_VERSION).toBe(2);
+    expect(v1Alert().engineVersion).not.toBe(GUARDIAN_ENGINE_VERSION);
+  });
+
+  it("no longer suppresses the ordinary reminders, so the parent is not left in silence", () => {
+    // This is the half that matters most. A hidden card that still silenced the
+    // load/mood/sleep reminders would show the parent nothing at all.
+    expect(supersededReminderKinds(v1Alert())).toEqual([]);
+    // ...while the same alert under the current engine still suppresses them.
+    expect(supersededReminderKinds({ ...v1Alert(), engineVersion: GUARDIAN_ENGINE_VERSION }).length)
+      .toBeGreaterThan(0);
+  });
+
+  it("is still dismissible and still resolvable — invisible, not unkillable", () => {
+    // Dismissal and resolution are plain merges onto the doc (MobileApp writes
+    // dismissedAt; the orchestrator writes resolvedAt). Neither reads
+    // engineVersion, so both stay valid on a stale doc, and the result is a
+    // doc that every reader treats as closed.
+    const dismissed = { ...v1Alert(), dismissedAt: "2026-08-11T06:00:00Z", dismissedBy: "parent" };
+    const resolved  = { ...v1Alert(), resolvedAt:  "2026-08-11T06:00:00Z" };
+    for (const a of [dismissed, resolved]) {
+      expect(supersededReminderKinds(a)).toEqual([]);
+      // ...and closed for the current engine too, by the same fields.
+      expect(supersededReminderKinds({ ...a, engineVersion: GUARDIAN_ENGINE_VERSION })).toEqual([]);
+    }
+  });
+
+  it("writes every new alert under the current engine, with a matching key prefix", () => {
+    const alert = buildGuardianAlert({ assessment: liveAssessment(), now: TODAY });
+    expect(alert.engineVersion).toBe(GUARDIAN_ENGINE_VERSION);
+    expect(alert.storyKey.startsWith(`g${GUARDIAN_ENGINE_VERSION}:`)).toBe(true);
+    // The prefix is what keeps an engine-1 cooldown record from matching an
+    // engine-2 story, so a stale episode cannot suppress a current one.
+    expect(alert.storyKey.startsWith("g1:")).toBe(false);
+  });
+
+  it("no current alert can carry an acwr-derived factor at all", () => {
+    // The reason for the bump, stated as a property of the new engine.
+    const a = liveAssessment();
+    expect(idsOf(a.factors)).not.toContain("acwr-spike");
+    for (const f of a.factors) {
+      expect(f.evidence.toLowerCase()).not.toMatch(/acute:chronic|acwr/);
+    }
+  });
+});
+
+// ─── THE NOTE PROMPT CARRIES DECISION EVIDENCE ONLY ──────────────────────────
+// `counts: false` is what makes an informational factor safe to compute: it is
+// excluded from families, weightByFamily, acuteWeight, severity, escalation and
+// factorKey. It was NOT excluded from the note prompt, which rendered every
+// factor identically under a system instruction saying the engine had already
+// decided there was a problem and the model must never contradict a factor.
+// The note that comes back ends with "the one concrete change to make today",
+// so a factor with no vote in the decision had a vote in the guidance.
+//
+// Two factors are affected — `mid-phv-window` (the Mirwald estimate) and
+// `readiness-low` (a check-in score up to recentReadingDays old). Neither is a
+// decision input, so neither belongs in the prompt.
+describe("buildGuardianNotesPrompt — only decision evidence reaches the model", () => {
+  // A firing assessment that carries BOTH kinds at once. Low mood and high
+  // soreness for three days give mood-decline (counted) and drive readiness
+  // under 50 (readiness-low, not counted); the open knee gives a second family;
+  // the Mid-PHV athlete adds mid-phv-window (not counted).
+  const MIXED = assessGuardian({
+    wellbeing: wbDays([
+      { mood: 2, soreness: 4, sleep: 6 },
+      { mood: 2, soreness: 4, sleep: 6 },
+      { mood: 2, soreness: 4, sleep: 6 },
+    ]),
+    injuries: [{ id: "i1", bodyArea: "Knee", severity: 3, status: "open", onsetDate: dayStr(TODAY, -3) }],
+    athlete: MID_PHV_ATHLETE,
+  }, TODAY);
+
+  const NON_COUNTING = ["mid-phv-window", "readiness-low"];
+
+  it("the fixture is not vacuous: it fires, and carries both counted and informational factors", () => {
+    expect(MIXED.fires).toBe(true);
+    const ids = idsOf(MIXED.factors);
+    for (const id of NON_COUNTING) expect(ids).toContain(id);
+    expect(MIXED.factors.filter(f => f.counts !== false).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("isDecisionEvidence is exactly `counts !== false`, not a list of ids", () => {
+    // A semantic rule, so a new informational factor is excluded the day it is
+    // written rather than the day someone remembers this file.
+    expect(isDecisionEvidence({ counts: false })).toBe(false);
+    expect(isDecisionEvidence({ counts: true })).toBe(true);
+    expect(isDecisionEvidence({})).toBe(true);            // counts defaults to true
+    expect(isDecisionEvidence(null)).toBe(false);
+    for (const f of MIXED.factors) {
+      expect(isDecisionEvidence(f)).toBe(f.counts !== false);
+    }
+  });
+
+  it("includes every counted factor's label and evidence", () => {
+    const { prompt } = buildGuardianNotesPrompt(MIXED, "Vee");
+    for (const f of MIXED.factors.filter(f => f.counts !== false)) {
+      expect(prompt).toContain(f.label);
+      expect(prompt).toContain(f.evidence);
+    }
+  });
+
+  it("excludes every non-counting factor's label and evidence", () => {
+    const { prompt, system } = buildGuardianNotesPrompt(MIXED, "Vee");
+    for (const f of MIXED.factors.filter(f => f.counts === false)) {
+      expect(prompt, `${f.id} label leaked`).not.toContain(f.label);
+      expect(prompt, `${f.id} evidence leaked`).not.toContain(f.evidence);
+      expect(system).not.toContain(f.evidence);
+    }
+  });
+
+  it("names no maturity band, estimate or stage in anything the model is given as evidence", () => {
+    const { prompt, system } = buildGuardianNotesPrompt(MIXED, "Vee");
+    // Everything before the response schema: the severity line, the families,
+    // the headline, the factor list and the prepared actions — i.e. all of the
+    // EVIDENCE. The schema itself is excluded on purpose, because two of the
+    // banned words appear there as PROHIBITIONS the model must obey: the
+    // parentNote line bans the jargon "sRPE, ACWR, monotony, strain or PHV",
+    // and the athleteNote line bans "growth spurt". Those are instructions not
+    // to say something, not evidence to reason from.
+    const evidence = prompt.slice(0, prompt.indexOf("Respond with exactly this JSON structure:"));
+    expect(evidence).toContain("FACTORS THE ENGINE FOUND:");   // the slice is not empty
+    for (const banned of [
+      "mid-phv-window", "Mid-PHV", "Pre-PHV", "Post-PHV", "PHV",
+      "Mirwald", "maturity", "maturation", "growth spurt", "maturity offset", "estimate",
+    ]) {
+      expect(evidence, `evidence leaked "${banned}"`).not.toContain(banned);
+      expect(system, `system prompt leaked "${banned}"`).not.toContain(banned);
+    }
+  });
+
+  it("keeps the counted factor count honest — the model sees as many lines as signals", () => {
+    const { prompt } = buildGuardianNotesPrompt(MIXED, "Vee");
+    const block = prompt.slice(
+      prompt.indexOf("FACTORS THE ENGINE FOUND:"),
+      prompt.indexOf("ACTIONS ALREADY PREPARED"),
+    );
+    const lines = block.split("\n").filter(l => l.startsWith("- "));
+    expect(lines.length).toBe(MIXED.factors.filter(f => f.counts !== false).length);
   });
 });

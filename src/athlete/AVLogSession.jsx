@@ -38,7 +38,6 @@ export default function AVLogSession({ athleteId, profile }) {
   const [focus, setFocus]         = useState("");
   const [date, setDate]           = useState(toLocalDateStr(new Date()));
   const [saving, setSaving]       = useState(false);
-  const [saved, setSaved]         = useState(false);
   const [recentLogs, setRecentLogs] = useState([]);
 
   // Motivation overlay
@@ -115,7 +114,8 @@ export default function AVLogSession({ athleteId, profile }) {
 
     // Fetch motivational message in background
     const activityLabel = type === "tennis" ? "Tennis" : entry.sportName || "Other Sport";
-    const userMsg = `Valissa just logged a ${activityLabel} session:\n- Duration: ${entry.duration} minutes\n- Intensity: ${entry.intensity}/5\n- Focus: ${entry.focus || "general training"}\n- Time of day: ${timeOfDay}\n- Day of week: ${dayOfWeek}\n\nWrite a motivational confirmation message specifically referencing what she just did. Make it feel personal and real.`;
+    const athleteName = profile?.name || "The athlete";
+    const userMsg = `${athleteName} just logged a ${activityLabel} session:\n- Duration: ${entry.duration} minutes\n- Intensity: ${entry.intensity}/5\n- Focus: ${entry.focus || "general training"}\n- Time of day: ${timeOfDay}\n- Day of week: ${dayOfWeek}\n\nWrite a motivational confirmation message specifically referencing what she just did. Make it feel personal and real.`;
     loadMemory(athleteId)
       .then(memory => callClaudeText({
         system: shoutoutSystemPrompt(profile, memory.shoutouts || []),
@@ -130,7 +130,7 @@ export default function AVLogSession({ athleteId, profile }) {
       .finally(() => setMotivationLoading(false));
   };
 
-  const overlayEmoji = savedEntry?.type === "tennis" ? "🎾" : savedEntry?.type === "cheer" ? "📣" : "🏃";
+  const overlayEmoji = savedEntry?.type === "tennis" ? "🎾" : "🏃";
 
   return (
     <div>
@@ -239,7 +239,7 @@ export default function AVLogSession({ athleteId, profile }) {
           }}>
             <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", color: COLORS.accent }}>RPE {rpe} — </span>
             <span style={{ fontSize: "0.9rem", color: COLORS.text, fontWeight: 500 }}>
-              {[,"Very easy — barely moving","Easy — could do this all day","Moderate — comfortable but working","Somewhat hard","Hard — starting to breathe heavy","Hard","Very hard — difficult to maintain","Very very hard","Almost max — can barely speak","Maximum — couldn't do more"][rpe]}
+              {["","Very easy — barely moving","Easy — could do this all day","Moderate — comfortable but working","Somewhat hard","Hard — starting to breathe heavy","Hard","Very hard — difficult to maintain","Very very hard","Almost max — can barely speak","Maximum — couldn't do more"][rpe]}
             </span>
           </div>
         ) : (
@@ -294,7 +294,8 @@ export default function AVLogSession({ athleteId, profile }) {
           <div style={{ fontSize: "0.72rem", color: COLORS.muted, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10 }}>Last 7 Days</div>
           {recentLogs.map(log => {
             const typeColor = log.type === "tennis" ? COLORS.tennis : log.type === "cheer" ? COLORS.cheer : COLORS.yellow;
-            const typeLabel = log.type === "tennis" ? "🎾 Tennis" : log.type === "cheer" ? "📣 Cheer" : `🏃 ${log.sportName || "Other"}`;
+            // "cheer" is a legacy stored value — rendered as cross-training.
+            const typeLabel = log.type === "tennis" ? "🎾 Tennis" : log.type === "cheer" ? "🏃 Cross-training" : `🏃 ${log.sportName || "Cross-training"}`;
             const rpeVal = log.rpe ?? (log.intensity ? log.intensity * 2 : "?");
             const isConfirming = confirmDeleteLog === log.id;
             return (

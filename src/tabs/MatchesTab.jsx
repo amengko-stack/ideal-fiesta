@@ -14,7 +14,9 @@ import SeasonReportView from "./SeasonReportView.jsx";
 import { friendlyAiError } from "../lib/aiErrors.js";
 
 // ─── MATCHES TAB ─────────────────────────────────────────────────────────────
-export default function MatchesTab({ athleteId }) {
+export default function MatchesTab({ athleteId, profile }) {
+  // Every visible name comes from the profile. Nothing here names a person.
+  const athleteName = profile?.name || "Athlete";
   const fileRef = useRef(null);
   const [status,              setStatus]             = useState(null);
   const [busy,                setBusy]               = useState(false);
@@ -131,7 +133,7 @@ export default function MatchesTab({ athleteId }) {
       const dateStr = matchData.matchStartTime
         ? new Date(matchData.matchStartTime).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })
         : "unknown date";
-      setStatus({ ok: true, text: `Match imported — Valissa vs ${matchData.opponentName || "Opponent"} on ${dateStr}` });
+      setStatus({ ok: true, text: `Match imported — ${athleteName} vs ${matchData.opponentName || "Opponent"} on ${dateStr}` });
     } catch (err) {
       console.error("Match import error:", err);
       setStatus({ ok: false, text: "Invalid file format — please select a .matchtrack file" });
@@ -161,7 +163,7 @@ export default function MatchesTab({ athleteId }) {
   };
 
   if (selectedMatch) {
-    return <MatchDetail match={selectedMatch} onBack={() => setSelectedMatch(null)} onDelete={handleDelete} athleteId={athleteId} />;
+    return <MatchDetail match={selectedMatch} onBack={() => setSelectedMatch(null)} onDelete={handleDelete} athleteId={athleteId} athleteName={athleteName} />;
   }
 
   if (viewingSeasonReport && seasonReport) {
@@ -181,7 +183,7 @@ export default function MatchesTab({ athleteId }) {
       <div className="card">
         <div className="card-title"><History size={18} /> Match History</div>
         <p style={{ color: COLORS.muted, fontSize: "0.83rem", marginBottom: 16 }}>
-          Import .matchtrack files to build Valissa's match record.
+          Import .matchtrack files to build {athleteName}&apos;s match record.
         </p>
         <input ref={fileRef} name="matchFile" type="file" accept=".matchtrack" style={{ display: "none" }} onChange={handleFile} />
         <button

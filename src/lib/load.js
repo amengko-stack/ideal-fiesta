@@ -77,23 +77,36 @@ export function calculateMetrics(logs, wellbeing, ref = new Date()) {
 
 // ── getLoadContext ───────────────────────────────────────────────────────────
 // The load notes handed to the plan prompt. These describe what the numbers
-// DID, never what they predict: the acute:chronic ratio is a trend line, not a
-// validated injury classifier, so it never says "danger", never declares a week
-// "optimal", and never tells a low week to train more. A large swing earns
-// "review progression and recovery" — a prompt to look, not a diagnosis.
-export function getLoadContext(acwr, tournamentStatus, sessionTime) {
+// DID, never what they predict.
+//
+// It reads the DESCRIPTIVE trend — `loadTrend()`'s rolling 7-day total against
+// the rolling 28-day weekly-equivalent baseline — and reports the percentage
+// difference. It deliberately does NOT read the acute:chronic ratio and does
+// not test it against any fixed band: a ratio crossing 1.3 or dropping under
+// 0.8 is not a validated statement about this child, so it must not be what
+// decides whether the plan prompt is told to look at progression. A large
+// percentage change earns "review progression and recovery" — a prompt to
+// look, not a diagnosis — and a small figure is never an instruction to train
+// more.
+//
+// `trend` is a loadTrend() object, or null when there is no history at all.
+export const LARGE_BASELINE_CHANGE_PCT = 30;
+
+export function getLoadContext(trend, tournamentStatus, sessionTime) {
   const notes = [];
   if (tournamentStatus === "pre")       notes.push("Tournament within ~2 weeks: keep strength work familiar and submaximal, and protect freshness for the court");
   if (tournamentStatus === "week_of")   notes.push("Tournament this week: one shortened maintenance session early in the week; the second session may become recovery or be dropped");
   if (tournamentStatus === "post_hard") notes.push("After a heavy tournament: matches were training load — keep the week's strength volume low and prioritise movement quality");
   if (tournamentStatus === "post_easy") notes.push("After a light tournament: normal week, monitor energy");
 
-  if (acwr === null) {
+  const pct = trend?.pctFromBaseline ?? null;
+  if (pct === null) {
     notes.push("Not enough load history yet to compare this week against a baseline — keep volume conservative and focus on movement quality");
   } else {
-    notes.push(`This week's total training is ${workloadTrendLabel(acwr).toLowerCase()} (ratio ${acwr} against the 4-week mean)`);
-    if (acwr > 1.3 || acwr < 0.8) {
-      notes.push("That is a large change from recent training — review progression and recovery. It is a workload trend, not an injury prediction, and a low figure is never a reason to add training");
+    const direction = pct > 0 ? "higher than" : pct < 0 ? "lower than" : "level with";
+    notes.push(`The last 7 days total ${trend.last7DaySRPE} sRPE, ${Math.abs(pct)}% ${direction} the recent 4-week weekly baseline of ${trend.baselineWeeklySRPE}`);
+    if (Math.abs(pct) >= LARGE_BASELINE_CHANGE_PCT) {
+      notes.push("That is a large change from recent training — review progression and recovery. It describes what the training DID; it is not an injury prediction, and a lower figure is never a reason to add training");
     }
   }
 
@@ -104,9 +117,6 @@ export function getLoadContext(acwr, tournamentStatus, sessionTime) {
   }
   return notes;
 }
-
-// Retained name for callers that still import the old spelling.
-export const getACWRContext = getLoadContext;
 
 // ── rollingSRPE ──────────────────────────────────────────────────────────────
 // Total sRPE over the `days` calendar days ending on `ref` (inclusive). The
@@ -149,8 +159,8 @@ export function loadTrend(logs, ref = new Date()) {
 
 // How each logged `type` rolls up in the weekly summary. Anything unrecognised
 // (including the legacy "cheer" logs) counts as cross-training, which is what
-// it physiologically was — the history stays readable without pretending
-// cheerleading is still part of the week.
+// it physiologically was — so the history stays readable and keeps counting,
+// without implying that the old secondary sport is still part of the week.
 const SUMMARY_BUCKET = {
   tennis: "tennisMinutes",
   match: "matchMinutes",
@@ -280,8 +290,9 @@ export function computeMonotonyStrain(logs, ref = new Date()) {
 }
 
 // UI status for a monotony value (thresholds are the standard Foster
-// guidance). Shape matches acwrStatus() so LoadScreen can style both the
-// same way.
+// guidance). Monotony is a fact about one week's own sessions — five identical
+// days are five identical days — so unlike a workload RATIO it can carry a
+// tone without grading the athlete against a population.
 export function monotonyStatus(monotony) {
   if (monotony == null) return null;
   if (monotony >= 2.5) return { label: "Too repetitive", tone: "danger" };
@@ -306,16 +317,24 @@ export function workloadTrendLabel(ratio) {
 // Retained name for callers that still import the old spelling.
 export const loadLevelFromAcwr = workloadTrendLabel;
 
-// UI chip for a workload ratio. `tone` is a colour slot (how much visual
-// emphasis to give the number), not a risk classification — the label is what
-// the reader acts on, and it only ever describes the direction of the change.
-export function workloadTrendStatus(ratio) {
-  if (ratio == null) return { label: "No data", tone: "muted" };
-  if (ratio > 1.5)  return { label: "Well above recent", tone: "danger" };
-  if (ratio > 1.3)  return { label: "Above recent", tone: "warn" };
-  if (ratio < 0.8)  return { label: "Below recent", tone: "muted" };
-  return { label: "In line with recent", tone: "success" };
-}
-
-// Retained name for callers that still import the old spelling.
-export const acwrStatus = workloadTrendStatus;
+// ─── THERE IS NO workloadTrendStatus/acwrStatus, AND THERE MUST NOT BE ───────
+// This module used to export a second function over the same ratio that
+// returned a `tone` alongside the label:
+//
+//   >1.5 → "danger" · >1.3 → "warn" · <0.8 → "muted" · else "success"
+//
+// Every screen keyed a colour off that tone and reminders.js fired a card off
+// it, so a number with no validated meaning for one 12-year-old was painting a
+// week red and buzzing a parent's phone. Worse in the other direction: a quiet
+// week scored "success" and a very quiet one scored nothing at all, which
+// invites reading a rest week as a deficiency.
+//
+// The arithmetic survives — computeLoad still returns the ratio, loadTrend
+// still returns last7DaySRPE / baselineWeeklySRPE / pctFromBaseline, and
+// workloadTrendLabel above still DESCRIBES the direction. What is gone is the
+// step that turned any of it into a status: no tone, no traffic light, no
+// reminder, no severity. A screen that wants to show the comparison shows the
+// two numbers and the percentage between them.
+//
+// If you are about to add `function workloadTrendStatus` back: don't. Read
+// load.test.js — "the ratio cannot be turned into a status".

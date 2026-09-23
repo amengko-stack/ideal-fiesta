@@ -6,6 +6,7 @@ import { resolveIdentity, identityBlock } from "./athleteIdentity.js";
 import { recentGrowthContext, GROWTH_WATCH_MESSAGE } from "./growth.js";
 import {
   buildWeeklyFramework, buildWeeklyPlanDoc, mergeSessionAdjustments, progressionGate,
+  readMovementQuality, MOVEMENT_QUALITY,
   compareToWeeklyTargets, WEEKLY_TARGETS, PLYO_CONTACT_BUDGET, EFFORT_TARGET,
   BLOCK_EQUIPMENT, BLOCK_LENGTH_WEEKS, YOUTH_STRENGTH_STATEMENT, NEUROMUSCULAR_STATEMENT,
   OVER_TARGET_TENNIS_MESSAGE, SUNDAY_RECOVERY, WEEKLY_PLAN_SCHEMA_VERSION,
@@ -39,6 +40,23 @@ const fmtReps = (ex) => {
   const unit = ex.unit === "sec" ? " sec" : ex.unit === "m" ? " m" : "";
   const side = ex.perSide ? "/side" : "";
   return `${value}${unit}${side}`;
+};
+
+// How each stored movement-quality value is described to the model. "unknown"
+// says nobody rated it — it must never read as an endorsement of the technique,
+// and the model is told in as many words not to infer one from difficulty.
+const MOVEMENT_QUALITY_SHORT = {
+  [MOVEMENT_QUALITY.GOOD]:    "good",
+  [MOVEMENT_QUALITY.MIXED]:   "mixed",
+  [MOVEMENT_QUALITY.POOR]:    "poor",
+  [MOVEMENT_QUALITY.UNKNOWN]: "NOT RATED (do not read as good)",
+};
+
+const MOVEMENT_QUALITY_PROMPT = {
+  [MOVEMENT_QUALITY.GOOD]:    "good — technique stayed controlled",
+  [MOVEMENT_QUALITY.MIXED]:   "mixed — some reps lost quality; hold the prescription, do not add load",
+  [MOVEMENT_QUALITY.POOR]:    "poor — technique broke down; progression is blocked and a regression is authorised",
+  [MOVEMENT_QUALITY.UNKNOWN]: "not rated — nobody assessed technique. Do NOT treat this as good technique, and do not infer it from the difficulty rating",
 };
 
 const renderSessionBlock = (session) => {
@@ -83,11 +101,13 @@ export function buildWeeklyStrengthPlanPrompt({
   ctx = null,
   now = new Date(),
   metrics = calculateMetrics(weekLogs, wellbeing),
-  loadNotes = getLoadContext(metrics.acwr, tournament, sessionTime),
+  // `trend` is declared before `loadNotes` because the notes are built from
+  // the descriptive rolling comparison, not from the acute:chronic ratio.
+  trend = loadTrend(weekLogs, now),
+  loadNotes = getLoadContext(trend, tournament, sessionTime),
   thisWeekStart = getWeekBounds(0).start,
   growthContext = recentGrowthContext(profile?.measurements),
   weekSummary = weeklyTrainingSummary(weekLogs, 0, now),
-  trend = loadTrend(weekLogs, now),
   weeklyTargets = WEEKLY_TARGETS,
   blockState = null,
   progression = null,
@@ -101,13 +121,19 @@ export function buildWeeklyStrengthPlanPrompt({
     .sort((a, b) => new Date(b.date) - new Date(a.date));
 
   // Progression is earned, not granted by the calendar: an open injury, an
-  // unfinished prescription, a maximally hard last session or a pain note all
-  // hold the prescription where it is.
+  // unfinished prescription, a maximally hard last session, a pain note or a
+  // movement-quality rating that was not "good" all hold the prescription
+  // where it is.
+  //
+  // Movement quality is READ FROM THE LAST LOGGED SESSION — it used to be
+  // hardcoded `false` here, which meant the design said technique controlled
+  // progression while production could never observe it. progressionGate
+  // derives it via readMovementQuality, so a session logged before the field
+  // existed reads as `unknown` rather than as `good`.
   const openInjuries = (ctx?.injuries?.open || []).length;
   const gate = progression ?? progressionGate({
     lastSession: orderedHistory[0] ?? null,
     painReported: openInjuries > 0,
-    movementQualityConcern: false,
   });
 
   // Block position comes from the persistent programState/strength document
@@ -124,6 +150,7 @@ export function buildWeeklyStrengthPlanPrompt({
     growthWatch: !!growthContext?.growthWatch,
     progressionAllowed: gate.allowed,
     progressionHold: gate.reasons,
+    progressionNotes: gate.notes || [],
   });
 
   const targetComparison = compareToWeeklyTargets(weekSummary, weeklyTargets);
@@ -148,6 +175,9 @@ export function buildWeeklyStrengthPlanPrompt({
       weight: e.weight || null, difficulty: e.difficulty, completed: e.completed,
     })),
     painNote: s.painNote ?? null,
+    // "unknown" for anything logged before the rating existed — the model is
+    // told nobody looked, never that the technique was fine.
+    movementQuality: readMovementQuality(s),
   }));
 
   const gapLabels = gaps.map(g => TENNIS_GAPS.find(x => x.id === g)?.label || g);
@@ -254,6 +284,9 @@ EIGHT-WEEK BLOCK POSITION
 - Third set on key movements: ${fw.allowThirdSet ? "allowed this week" : "NOT allowed this week"}
 - Load increase: ${fw.allowLoadIncrease ? `allowed, up to ${fw.maxLoadIncrementPct}%` : "NOT allowed this week"}
 - Progression gate: ${gate.allowed ? "open — the last session met the quality bar" : `HELD — ${gate.reasons.join("; ")}`}
+- Movement quality last session: ${MOVEMENT_QUALITY_PROMPT[gate.movementQuality] ?? "not rated"}${(gate.notes || []).length ? `
+${gate.notes.map(n => `- Note: ${n}`).join("\n")}` : ""}${gate.regressionAllowed ? `
+- Technique broke down last session: a step back to a simpler regression or a lighter load is authorised this week. Do NOT add load or complexity.` : ""}
 A week of the calendar passing is not a reason to progress.
 
 ═══════════════════════════════════════════
@@ -315,7 +348,7 @@ ${recentSessions.length === 0
   : recentSessions.map(s =>
       `${s.date}${s.sessionId ? ` (Session ${s.sessionId})` : ""}:\n${s.exercises.map(e =>
         `  - ${e.name}: ${e.sets}×${e.reps}${e.weight ? " @ " + e.weight : ""} | difficulty ${e.difficulty}/5 | ${e.completed ? "completed" : "did NOT complete"}`
-      ).join("\n")}${s.painNote ? `\n  ⚠ pain note: ${s.painNote}` : ""}`
+      ).join("\n")}${s.painNote ? `\n  ⚠ pain note: ${s.painNote}` : ""}\n  movement quality: ${MOVEMENT_QUALITY_SHORT[s.movementQuality] ?? "NOT RATED (do not read as good)"}`
     ).join("\n\n")}
 
 ═══════════════════════════════════════════

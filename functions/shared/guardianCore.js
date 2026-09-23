@@ -1,5 +1,5 @@
 import { toLocalDateStr } from "./dates.js";
-import { computeLoad, computeMonotonyStrain, sessionSRPE, mergeWellbeingByDate, readinessScore } from "./load.js";
+import { computeLoad, computeMonotonyStrain, sessionSRPE, mergeWellbeingByDate, readinessScore, loadTrend } from "./load.js";
 import { openInjuries, injuryDuration, recurringAreas, describeInjury } from "./injuries.js";
 import { maturityOffset } from "./maturity.js";
 import { recentGrowthContext } from "./growth.js";
@@ -30,7 +30,12 @@ import { recentGrowthContext } from "./growth.js";
 // way that makes an already-written alert doc unreadable to the current UI.
 // The card refuses to render an alert from a different engine, so a schema
 // change can never render half-migrated.
-export const GUARDIAN_ENGINE_VERSION = 1;
+//
+// 1 -> 2: the acute:chronic ratio was removed from the factor table. Any alert
+// written by engine 1 may cite an `acwr-spike` factor whose weight and severity
+// this engine no longer stands behind, so those docs must stop rendering rather
+// than keep presenting retired reasoning as current.
+export const GUARDIAN_ENGINE_VERSION = 2;
 
 // Families that can *trigger* an alert, versus families that only ever add
 // weight to someone else's story. `growth` is a modifier because Mid-PHV
@@ -48,22 +53,23 @@ export const MODIFIER_FAMILIES = Object.freeze(["growth", "asymmetry"]);
 // can never disagree about where the line is.
 export const GUARDIAN_THRESHOLDS = Object.freeze({
   // ── load ───────────────────────────────────────────────────────────────────
-  // computeLoad puts the acute week *inside* the chronic mean (load.js:22), so
-  // the ratio is 4A/(A+3P), not the textbook A/P. That compresses the scale:
-  // 1.35 here is roughly +52% over the prior three weeks, and the metric
-  // asymptotes at 4.0 no matter how big the spike is. It sits deliberately
-  // above the dashboard's own 1.3 "Above recent" chip (workloadTrendStatus):
-  // the chip is an always-on indicator a parent can glance past, the Guardian
-  // buzzes a phone at 6am, so it has to be the stricter of the two.
-  acwrSpike: 1.35,
-  // The dashboard's "Well above recent" line. A ratio this far out is not a hard week,
-  // it is a week that does not belong to the same training block as the three
-  // before it, so the factor upgrades to the heaviest non-standalone weight.
-  acwrSevere: 1.5,
-  // A ratio computed against mostly-empty history is arithmetic, not a spike:
-  // one logged week after three blank ones reads as 4.0. Requiring 3 of the 4
-  // buckets to carry load means there is a real baseline to have jumped from.
-  acwrMinNonZeroWeeks: 3,
+  // THERE IS NO ACUTE:CHRONIC RATIO THRESHOLD HERE, AND THERE MUST NOT BE ONE.
+  //
+  // The engine used to carry acwrSpike (1.35) and acwrSevere (1.5) and turn
+  // them into a weight-2/weight-3 `load` factor. That is gone. The ratio is a
+  // descriptive trend line: the bands around it are not a validated statement
+  // about an individual 12-year-old, so they cannot be allowed to decide
+  // whether a parent's phone buzzes, how loudly it buzzes, or whether a story
+  // escapes its cooldown. `acwr` is still COMPUTED and still reported in
+  // `metrics` — historical records, the load history chart and the trend
+  // context all read it — but no branch in this file tests it.
+  //
+  // What decides instead are the two observations that were here before the
+  // ratio was removed and that were never derived from it: how much training
+  // actually happened (sustainedWeekSRPE), and whether any of it was different
+  // from the rest (monotony). NOTHING WAS INVENTED TO TAKE THE RATIO'S PLACE.
+  // See loadFactors.
+  //
   // Same number and same strict comparison as reminderRules.highLoadSRPE, so
   // the Guardian and the load reminder can never disagree about what "a high
   // week" is — a parent seeing both must not see two different lines.
@@ -79,6 +85,23 @@ export const GUARDIAN_THRESHOLDS = Object.freeze({
   // factor off weeks where the sameness cannot plausibly hurt anyone. 1200
   // sRPE ≈ three moderate sessions.
   monotonyMinWeekSRPE: 1200,
+  // The 7-day window the monotony volume floor is measured over. It is a
+  // window, not a signal: no factor fires on how many of those days had
+  // training in them, and no factor fires on how the window compares with the
+  // ones before it.
+  //
+  // A `no-rest-days` counting factor (weight 1, family `load`) and a
+  // `workload-trend-up` evidence factor (weight 0, a fixed 30%-above-baseline
+  // band) both briefly lived here. Both are reverted. Removing the ratio left
+  // the `load` family quieter, and filling it back up — with an invented
+  // signal, or with the same ratio question asked in percentages — would have
+  // been the same engine wearing a different justification. Alert volume is
+  // not a requirement.
+  //
+  // A complete rest day remains a target in weekly planning and in the S&C
+  // schedule, which already say so. It is not a counting Guardian family, and
+  // it is not being smuggled back as one.
+  sevenDayWindowDays: 7,
 
   // ── recovery ───────────────────────────────────────────────────────────────
   // Soreness is 1-5 and higher is WORSE. 3.5 is the midpoint between "3 —
@@ -151,9 +174,9 @@ export const GUARDIAN_THRESHOLDS = Object.freeze({
   // NOT match its default of 2: a third strain in the same calf within six
   // months is not bad luck, but a second one very often is — a 12-year-old who
   // logs honestly reports the same ankle twice a season without anything being
-  // wrong. Same pattern as acwrSpike sitting above the dashboard's 1.3 chip:
-  // MeScreen listing repeat areas is a glanceable summary, the Guardian buzzes
-  // a phone at 6am, so it takes the stricter of the two numbers.
+  // wrong. MeScreen listing repeat areas is a glanceable summary while the
+  // Guardian buzzes a phone at 6am, so it takes the stricter of the two
+  // numbers.
   recurringWithinDays: 180,
   recurringMinCount: 3,
 
@@ -232,8 +255,9 @@ export const GUARDIAN_THRESHOLDS = Object.freeze({
   // has narrowed to mean one specific thing, because a family JOINING is
   // already caught by escalation-new-family above it and a modifier joining now
   // adds nothing: it is the branch for a trigger family the parent has already
-  // been told about getting substantially worse on its own (a mild repetitive
-  // week, weight 1, becoming a severe ACWR spike, weight 3).
+  // been told about getting substantially worse on its own (a week with no
+  // rest day, weight 1, becoming a genuinely repetitive one, weight 2, at the
+  // same time as the third heavy week lands).
   escalationWeightJump: 2,
 });
 
@@ -347,34 +371,42 @@ export function seriesTrend(values, { noiseFloor = 0.1 } = {}) {
 const factor = ({ id, family, weight, counts = true, severe = false, standalone = false, label, evidence, metrics = {} }) =>
   ({ id, family, weight, counts, severe, standalone, label, evidence, metrics });
 
-// Load factors — all three read the same weekLogs, and in practice the same
-// week of training, which is why they collapse into one family.
+// Load factors — they read the same weekLogs, and in practice the same week of
+// training, which is why they collapse into one family.
+//
+// `acwr` is read out of computeLoad and passed straight through to `metrics`
+// for display and for historical records. NOTHING BELOW BRANCHES ON IT, and
+// the ratio-shaped question "is this more than usual?" is not asked anywhere in
+// this function — not in a weight, not in a band, not in an evidence string.
+// The two counting factors are absolute observations: three heavy weeks, and a
+// week with no variation in it.
+//
+// The descriptive comparison a parent sees (last 7 days against the recent
+// weekly baseline) is computed below and reported in `metrics`. Reporting it is
+// the end of it: no factor is emitted from it, so it cannot reach the gate, the
+// severity, the cooldown, the actions or the note prompt.
 function loadFactors(weekLogs, ref) {
   const out = [];
   const { acwr, weekSRPEs, thisWeekSRPE, fourWeekAvg } = computeLoad(weekLogs);
   const { monotony, strain } = computeMonotonyStrain(weekLogs, ref);
+  // Rolling windows ending at `ref` — unlike computeLoad these honour the
+  // injected clock rather than the real one.
+  const trend = loadTrend(weekLogs, ref);
 
   // The monotony window is the 7 days ending at `ref`; computeMonotonyStrain
   // gives the ratio but not the volume it was computed over, so total it here.
-  const sevenDayCutoff = toLocalDateStr(shiftDays(ref, -6));
+  const sevenDayCutoff = toLocalDateStr(shiftDays(ref, -(T.sevenDayWindowDays - 1)));
   const todayStr = toLocalDateStr(ref);
-  const sevenDaySRPE = weekLogs
-    .filter(l => typeof l.date === "string" && l.date >= sevenDayCutoff && l.date <= todayStr)
-    .reduce((sum, l) => sum + sessionSRPE(l), 0);
+  const sevenDayLogs = weekLogs
+    .filter(l => typeof l.date === "string" && l.date >= sevenDayCutoff && l.date <= todayStr);
+  const sevenDaySRPE = sevenDayLogs.reduce((sum, l) => sum + sessionSRPE(l), 0);
+  // Reported, never tested. Both are in `metrics` so the Load screen and the
+  // stored assessment can describe the week; no branch above reads either.
+  const trainingDays = new Set(sevenDayLogs.map(l => l.date)).size;
+  const restDays = Math.max(0, T.sevenDayWindowDays - trainingDays);
 
-  const nonZeroWeeks = weekSRPEs.filter(s => s > 0).length;
-  if (acwr != null && acwr >= T.acwrSpike && nonZeroWeeks >= T.acwrMinNonZeroWeeks) {
-    const severe = acwr >= T.acwrSevere;
-    out.push(factor({
-      id: "acwr-spike", family: "load", weight: severe ? 3 : 2, severe,
-      label: severe ? "Sharp jump in training load" : "Training load stepped up",
-      evidence: `This week's load is ${Math.round(thisWeekSRPE)} against a 4-week average of ${Math.round(fourWeekAvg)} (ratio ${acwr}${severe ? ", well above the recent block" : ""}).`,
-      metrics: { acwr, thisWeekSRPE: Math.round(thisWeekSRPE), fourWeekAvg: Math.round(fourWeekAvg) },
-    }));
-  }
-
-  // weekSRPEs is [this week, 1 ago, 2 ago, 3 ago]. Strict `>`, matching
-  // reminders.js rule 3c exactly.
+  // weekSRPEs is [this week, 1 ago, 2 ago, 3 ago]. Strict `>`, matching the
+  // extended-high-load reminder rule in reminders.js exactly.
   const recentWeeks = weekSRPEs.slice(0, T.sustainedWeeks);
   if (recentWeeks.length === T.sustainedWeeks && recentWeeks.every(s => s > T.sustainedWeekSRPE)) {
     out.push(factor({
@@ -395,9 +427,18 @@ function loadFactors(weekLogs, ref) {
     }));
   }
 
+  // THAT IS THE COMPLETE LIST OF LOAD FACTORS. Two of them.
+  //
+  // A third (`no-rest-days`) and a fourth (`workload-trend-up`) were added when
+  // the ratio came out and have both been reverted — see GUARDIAN_THRESHOLDS,
+  // sevenDayWindowDays. Whatever is added here next has to earn its place on
+  // its own evidence, not on the `load` family having got quiet.
+
   return {
     factors: out,
     metrics: {
+      // Carried for display, trend context and historical compatibility. No
+      // branch in this module reads it.
       acwr,
       thisWeekSRPE: Math.round(thisWeekSRPE),
       fourWeekAvg:  Math.round(fourWeekAvg),
@@ -405,6 +446,12 @@ function loadFactors(weekLogs, ref) {
       monotony,
       strain,
       sevenDaySRPE: Math.round(sevenDaySRPE),
+      trainingDays,
+      restDays,
+      last7DaySRPE:       trend.last7DaySRPE,
+      baselineWeeklySRPE: trend.baselineWeeklySRPE,
+      pctFromBaseline:    trend.pctFromBaseline,
+      workloadTrendLabel: trend.label,
     },
   };
 }
@@ -617,7 +664,8 @@ function tissueFactors(injuries, ref) {
 // Mirwald maturity estimate is carried for the parent to read and nothing else
 // — weight 0 and counts:false, exactly like readiness-low — because a
 // population regression with years of individual error cannot be allowed to
-// create an alert, add a family, raise severity or trigger an escalation.
+// create an alert, add a family, raise severity, trigger an escalation, or
+// reach the model that writes the note (see isDecisionEvidence).
 function growthFactors(athlete, ref) {
   const out = [];
   const measurements = arr(athlete.measurements);
@@ -641,9 +689,10 @@ function growthFactors(athlete, ref) {
 
   // Informational only. counts:false keeps it out of `families`, out of
   // `weightByFamily`, out of acuteWeight and therefore out of severity and
-  // escalation — while still reaching the factor list the parent and the note
-  // model read. Changing the offset alone can never change what the Guardian
-  // decides.
+  // escalation — AND, via isDecisionEvidence, out of the note model's prompt.
+  // It reaches the factor list the PARENT reads on the card, and the stored
+  // assessment, and nothing else. Changing the offset alone can change neither
+  // what the Guardian decides nor a single byte of what the model is asked.
   if (maturity?.stage === "Mid-PHV") {
     out.push(factor({
       id: "mid-phv-window", family: "growth", weight: 0, counts: false,
@@ -700,10 +749,10 @@ function growthFactors(athlete, ref) {
 // TWO THINGS COLLAPSE HERE, and they are different collapses.
 //
 // First, a family contributes its MAXIMUM factor weight, not the sum of its
-// factors. That is the structural fix for three-cards-one-story: an ACWR spike,
-// a repetitive week and three heavy weeks are three readings of one week of
-// training, so they contribute once, and the Guardian stays quiet exactly where
-// the old engine shouted three times.
+// factors. That is the structural fix for three-cards-one-story: a week with
+// no rest day, a repetitive week and three heavy weeks are three readings of
+// one week of training, so they contribute once, and the Guardian stays quiet
+// exactly where the old engine shouted three times.
 //
 // Second — and this is the one the first production run taught us — the weight
 // that decides anything sums TRIGGER families only. A modifier is a state, not
@@ -1067,6 +1116,45 @@ export function athleteActions(families, factors) {
   return out;
 }
 
+// ─── WHAT THE NOTE MODEL IS ALLOWED TO SEE ─────────────────────────────
+// A factor is decision evidence when it COUNTS. That one property is what the
+// whole engine is built around: `counts: false` keeps a factor out of
+// `families`, out of `weightByFamily`, out of `acuteWeight` and therefore out
+// of severity, out of the cooldown's escalation test and out of `factorKey`.
+// Such a factor is carried for the parent to read on the card and for the
+// stored record — it is not a reason for anything.
+//
+// IT MUST NOT REACH THE NOTE PROMPT EITHER, and that was a real leak.
+// `factorLines` used to render every factor identically as
+// `- [family] label: evidence`, under a system instruction reading "The factors
+// below were produced by a deterministic risk engine that has ALREADY decided
+// there is a problem … never contradict a factor". A model given a zero-weight
+// line under that framing cannot tell it apart from a weight-2 one, and the
+// note it writes ends with "the one concrete change to make today". So a
+// factor with no vote in the decision still had a vote in the guidance.
+//
+// Two factors are affected, and both should be:
+//
+//   mid-phv-window  the Mirwald maturity estimate. A population regression with
+//                   years of individual error. It may be shown to a parent as
+//                   labelled context; it may not shape what a 12-year-old is
+//                   told to do today. This was the last path by which it could.
+//
+//   readiness-low   a readiness score from her most recent check-in, which can
+//                   be up to `recentReadingDays` old. Genuinely observed, but
+//                   still not a decision input — and its own comment already
+//                   notes that a stale score "adds noise to the prompt and no
+//                   weight to the gate".
+//
+// The rule is deliberately semantic rather than a list of ids: a new
+// informational factor is excluded the day it is written, without anyone
+// having to remember this file exists.
+//
+// Nothing else in the prompt needed filtering. `families`, `acuteWeight`,
+// `severity` and `headline` are already computed from counted factors only,
+// and `actions` is derived from `families`. `factorLines` was the only leak.
+export const isDecisionEvidence = (f) => isObj(f) && f.counts !== false;
+
 // ─── buildGuardianNotesPrompt ────────────────────────────────────────────────
 // Pure. The single LLM call, made only after the gate AND the cooldown have
 // both said yes. Extends digestCore.js's system shell so the Guardian reads
@@ -1086,8 +1174,12 @@ export function buildGuardianNotesPrompt(assessment, athleteName) {
     "Work only from the factors given — never invent an event, a result or a statistic that is not below. " +
     "Return ONLY a raw JSON object. Do NOT wrap in markdown code fences. Do NOT include ```json or ``` anywhere in your response. Start your response with { and end with }.";
 
+  // Counted factors only — see isDecisionEvidence above. The gate needs two
+  // families and an acute weight of 2 before this function is ever called, so
+  // a firing assessment always has at least two of these; the fallback is for
+  // a hand-built assessment, not a live path.
   const factorLines = (a.factors || [])
-    .filter(f => isObj(f))
+    .filter(isDecisionEvidence)
     .map(f => `- [${f.family}] ${f.label}: ${f.evidence}`)
     .join("\n") || "- None recorded.";
 

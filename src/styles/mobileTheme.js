@@ -18,7 +18,8 @@ export const M = {
   // status
   success: "#12b585", warn: "#d98a1f", danger: "#e0433f",
   parentBlue: "#2f7fd9", parentBlueBg: "#E4EFFB", streakOrange: "#f59a1f",
-  // tone → hex, keyed by acwrStatus().tone
+  // tone → hex. Still keyed by monotonyStatus().tone and by the reminder
+  // engine's own tones; the workload RATIO no longer produces a tone at all.
   tone: { success: "#12b585", warn: "#d98a1f", danger: "#e0433f", limeDim: "#8fd400", muted: "#9aa8a1" },
   // sports
   tennis: "#a9d40f", tennisLight: "#c8f564", match: "#f5c518",

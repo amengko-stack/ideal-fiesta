@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import PlanScreen from "./PlanScreen.jsx";
-import { buildWeeklyFramework, buildWeeklyPlanDoc } from "../lib/weeklyPlanCore.js";
+import { buildWeeklyFramework, buildWeeklyPlanDoc, MOVEMENT_QUALITY, MOVEMENT_QUALITY_OPTIONS } from "../lib/weeklyPlanCore.js";
 
 // Render-level guard for the weekly Plan screen. It is deliberately a static
 // render rather than a full interaction test: what keeps breaking in practice is
@@ -107,10 +109,33 @@ describe("PlanScreen — weekly view", () => {
   });
 
   it("describes workload without medicalised zone labels", () => {
-    expect(html).toContain("In line with recent");
+    expect(html).toContain("In line with recent average");
     expect(html).not.toMatch(/danger zone/i);
     expect(html).not.toMatch(/Ease up/);
     expect(html).not.toMatch(/Push more/);
+  });
+
+  it("gives the workload ratio no tone at any value", () => {
+    // The tile used to take its number colour AND its label colour from
+    // workloadTrendStatus(acwr).tone — red past 1.5, amber past 1.3, green in
+    // the middle. Every one of those ratios now renders the same way.
+    const colourOf = (acwr) => {
+      const h = render({ plan: weeklyPlan({ metrics: { thisWeekSRPE: 1215, acwr } }) });
+      // The context tile that carries the ratio, and the colours in it.
+      const tile = h.slice(h.indexOf("week load"), h.indexOf("week type"));
+      return [...tile.matchAll(/color:(#[0-9a-f]{3,6})/gi)].map(m => m[1].toLowerCase()).join(",");
+    };
+    const baseline = colourOf(1.0);
+    for (const acwr of [0.4, 0.7, 1.3, 1.4, 1.6, 3.2, null]) {
+      expect(colourOf(acwr), `ratio ${acwr} is painted differently`).toBe(baseline);
+    }
+  });
+
+  it("emits no medicalised categorical label from the ratio, at any value", () => {
+    for (const acwr of [0.4, 0.7, 1.0, 1.3, 1.4, 1.6, 3.2, null]) {
+      const h = render({ plan: weeklyPlan({ metrics: { thisWeekSRPE: 1215, acwr } }) });
+      expect(h).not.toMatch(/optimal|underload|danger|caution|push more|ease up|injury risk|safe zone/i);
+    }
   });
 });
 
@@ -202,5 +227,58 @@ describe("PlanScreen — legacy plans still render", () => {
   it("renders a plan with no metrics, no growth context and no sessions", () => {
     expect(() => render({ plan: { plan: [], generatedAt: "2026-02-01T09:00:00.000Z" } })).not.toThrow();
     expect(() => render({ plan: {} })).not.toThrow();
+  });
+});
+
+// ─── MOVEMENT-QUALITY PICKER ─────────────────────────────────────────────────
+// The progression gate reads the newest completed session's movement quality,
+// so if this picker ever stops rendering, or stops being passed through, the
+// gate silently falls back to "unknown" for every session from then on — a
+// regression with no error and no visible symptom until a block of plans
+// quietly stops progressing.
+//
+// IT IS NOT REACHABLE BY A STATIC RENDER. The picker only appears once the
+// athlete taps "log the session", which flips SessionCard's local `finishing`
+// state; renderToStaticMarkup never fires that click. A real interaction test
+// would need a DOM environment and a testing-library, and the correction brief
+// is explicit that a UI-test framework must not be introduced for this alone.
+//
+// So what is guarded here is everything short of the click: the option set the
+// gate reads, and the wiring in the component source. progressionGate's own
+// behaviour — good / mixed / poor / unknown, and pain overriding independently
+// — is covered directly in weeklyPlanCore.test.js.
+describe("PlanScreen — the movement-quality picker", () => {
+  const source = fs.readFileSync(path.resolve("src/screens/PlanScreen.jsx"), "utf8");
+
+  it("offers exactly the three values the progression gate reads", () => {
+    expect(MOVEMENT_QUALITY_OPTIONS.map(o => o.value))
+      .toEqual([MOVEMENT_QUALITY.GOOD, MOVEMENT_QUALITY.MIXED, MOVEMENT_QUALITY.POOR]);
+    // `unknown` is deliberately NOT offered: it is what a session that was
+    // never rated resolves to, not something the athlete can pick.
+    expect(MOVEMENT_QUALITY_OPTIONS.map(o => o.value)).not.toContain(MOVEMENT_QUALITY.UNKNOWN);
+    // Every option carries the words the athlete actually reads.
+    for (const o of MOVEMENT_QUALITY_OPTIONS) {
+      expect(o.label).toBeTruthy();
+      expect(o.hint).toBeTruthy();
+    }
+  });
+
+  it("renders the picker from the shared option list, not a hand-written copy", () => {
+    expect(source).toContain("MOVEMENT_QUALITY_OPTIONS.map");
+    expect(source).toContain("Movement quality");
+    // A second, divergent list of labels in the component is the failure mode
+    // this catches: the gate would read machine values the UI never sends.
+    expect(source).not.toMatch(/\[\s*"Good"\s*,\s*"Mixed"\s*,\s*"Poor"\s*\]/);
+  });
+
+  it("starts unselected, so an unanswered question is never sent as good", () => {
+    // No default. weeklyPlanCore only stores the field when it was answered,
+    // and readMovementQuality resolves a missing one to `unknown` — which the
+    // gate treats as "do not assume technique was clean", never as good.
+    expect(source).toContain("const [movementQuality, setMovementQuality] = useState(null)");
+  });
+
+  it("passes the rating through to onFinishSession", () => {
+    expect(source).toMatch(/onFinishSession\(\s*session\.id\s*,\s*difficulty\s*,\s*painNote\.trim\(\)\s*,\s*movementQuality\s*\)/);
   });
 });

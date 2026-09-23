@@ -76,6 +76,8 @@ EIGHT-WEEK BLOCK POSITION
 - Third set on key movements: NOT allowed this week
 - Load increase: NOT allowed this week
 - Progression gate: HELD — pain, discomfort or an open injury is on record
+- Movement quality last session: not rated — nobody assessed technique. Do NOT treat this as good technique, and do not infer it from the difficulty rating
+- Note: movement quality was not rated last session — do not assume technique was clean
 A week of the calendar passing is not a reason to progress.
 
 ═══════════════════════════════════════════
@@ -166,7 +168,7 @@ sRPE = RPE × duration in minutes. It is a single global internal-load figure; t
 - This week sRPE: 1455
 - Weekly sRPE last 4 weeks (oldest → newest): 360 → 360 → 720 → 1455
 - 4-week average sRPE: 724
-- Load notes: This week's total training is well above recent average (ratio 2.01 against the 4-week mean) | That is a large change from recent training — review progression and recovery. It is a workload trend, not an injury prediction, and a low figure is never a reason to add training | Morning session: allow extra warm-up time
+- Load notes: The last 7 days total 1455 sRPE, 101% higher than the recent 4-week weekly baseline of 724 | That is a large change from recent training — review progression and recovery. It describes what the training DID; it is not an injury prediction, and a lower figure is never a reason to add training | Morning session: allow extra warm-up time
 
 A large difference from the recent baseline is a prompt to review progression and recovery. It does not classify injury risk, and a low figure is never an instruction to train more.
 
@@ -195,9 +197,11 @@ PAST STRENGTH TRAINING HISTORY (last 2 sessions)
 2026-03-09 (Session A):
   - Goblet Squat: 2×8 @ 8kg | difficulty 3/5 | completed
   - Snap-Down: 2×5 | difficulty 2/5 | completed
+  movement quality: NOT RATED (do not read as good)
 
 2026-03-05 (Session B):
   - Single Leg RDL: 2×6 | difficulty 3/5 | completed
+  movement quality: NOT RATED (do not read as good)
 
 ═══════════════════════════════════════════
 APPROVED EXERCISE DATABASE

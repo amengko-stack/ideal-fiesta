@@ -5,10 +5,17 @@ import { shareCoachReport } from "../lib/coachReport.js";
 
 const PRIORITY_COLOR = { critical: M.danger, important: M.warn, monitor: M.parentBlue };
 
-export default function MatchDetailSheet({ match, analysis, showParentNotes, analysisLoading, generating, onGenerate, onDelete }) {
+export default function MatchDetailSheet({ match, athleteName, analysis, showParentNotes, analysisLoading, generating, onGenerate, onDelete }) {
   if (!match) return null;
   const won = match.whoWonMatch === 1;
+  // `valissa` is a LEGACY PERSISTED KEY, not an identity: it is the field name
+  // the .matchtrack importer has always written this athlete's own stats under,
+  // and every stored match uses it. Renaming it would orphan the history, so it
+  // stays — the name shown to a human comes from the profile.
   const v = match.valissa || {};
+  // Prefer the live profile; fall back to the name stored on the match (older
+  // imports), then to a neutral word. Never a hardcoded person.
+  const name = athleteName || match.valissaName || "Athlete";
   return (
     <>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
@@ -75,7 +82,7 @@ export default function MatchDetailSheet({ match, analysis, showParentNotes, ana
           )}
           {analysis.athleteNote && (
             <div style={{ marginTop: 14, padding: 13, background: "linear-gradient(150deg,#eefbdf,#e2fbf2)", borderRadius: 14 }}>
-              <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", color: "#5c7a0a", marginBottom: 4 }}>FOR VALISSA 🎾</div>
+              <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", color: "#5c7a0a", marginBottom: 4 }}>FOR {name.toUpperCase()} 🎾</div>
               <div style={{ fontSize: 13, color: M.ink, fontStyle: "italic", lineHeight: 1.5 }}>"{analysis.athleteNote}"</div>
             </div>
           )}

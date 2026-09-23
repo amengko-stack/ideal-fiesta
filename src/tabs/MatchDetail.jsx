@@ -15,13 +15,13 @@ const THV = { ...TH, color: COLORS.accent };
 const TD  = { padding: "9px 8px", fontSize: "0.88rem", textAlign: "right", borderTop: `1px solid ${COLORS.border}`, color: COLORS.text };
 const TDL = { ...TD, textAlign: "left", color: COLORS.muted, fontSize: "0.82rem" };
 
-// Side-by-side stat table: rows = [label, valissaVal, oppVal, valissaColor?]
-const SideBySide = ({ rows, valissaName, opponentName }) => (
+// Side-by-side stat table: rows = [label, athleteVal, oppVal, athleteColor?]
+const SideBySide = ({ rows, athleteName, opponentName }) => (
   <table style={{ width: "100%", borderCollapse: "collapse" }}>
     <thead>
       <tr>
         <th style={THL}>Stat</th>
-        <th style={THV}>{valissaName || "Valissa"}</th>
+        <th style={THV}>{athleteName || "Athlete"}</th>
         <th style={TH}>{opponentName || "Opponent"}</th>
       </tr>
     </thead>
@@ -38,7 +38,11 @@ const SideBySide = ({ rows, valissaName, opponentName }) => (
 );
 
 // ─── MATCH DETAIL VIEW ────────────────────────────────────────────────────────
-export default function MatchDetail({ match, onBack, onDelete, athleteId }) {
+export default function MatchDetail({ match, onBack, onDelete, athleteId, athleteName }) {
+  // Profile first, then whatever the import stored on the match, then a
+  // neutral word. `match.valissa*` below are LEGACY PERSISTED KEYS — the
+  // storage field names every historical match was written with — not names.
+  const name = athleteName || match.valissaName || "Athlete";
   const [confirmDelete,   setConfirmDelete]   = useState(false);
   const [analysis,        setAnalysis]        = useState(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
@@ -134,7 +138,7 @@ export default function MatchDetail({ match, onBack, onDelete, athleteId }) {
       {/* ── Section 2: Service Stats ── */}
       <div className="card">
         <div className="card-title"><Zap size={16} /> Service Stats</div>
-        <SideBySide valissaName={match.valissaName} opponentName={match.opponentName} rows={[
+        <SideBySide athleteName={name} opponentName={match.opponentName} rows={[
           ["1st Serve %",          fmtPct(v.firstServePct),                               fmtPct(o.firstServePct)],
           ["1st Serve Pts Won",    calcPct(v.firstServePointsWon, v.firstServePoints),     calcPct(o.firstServePointsWon, o.firstServePoints)],
           ["2nd Serve Pts Won",    calcPct(v.secondServePointsWon, v.secondServePoints),   calcPct(o.secondServePointsWon, o.secondServePoints)],
@@ -146,7 +150,7 @@ export default function MatchDetail({ match, onBack, onDelete, athleteId }) {
       {/* ── Section 3: Return Stats ── */}
       <div className="card">
         <div className="card-title"><Activity size={16} /> Return Stats</div>
-        <SideBySide valissaName={match.valissaName} opponentName={match.opponentName} rows={[
+        <SideBySide athleteName={name} opponentName={match.opponentName} rows={[
           ["1st Return Pts Won",   calcPct(v.firstReturnPointsWon, v.firstReturnPoints),   calcPct(o.firstReturnPointsWon, o.firstReturnPoints)],
           ["2nd Return Pts Won",   calcPct(v.secondReturnPointsWon, v.secondReturnPoints), calcPct(o.secondReturnPointsWon, o.secondReturnPoints)],
           ["Break Pts Converted",  calcPct(v.breakPointsWon, v.breakPoints),               calcPct(o.breakPointsWon, o.breakPoints)],
@@ -156,7 +160,7 @@ export default function MatchDetail({ match, onBack, onDelete, athleteId }) {
       {/* ── Section 4: Point Stats ── */}
       <div className="card">
         <div className="card-title"><BarChart2 size={16} /> Point Stats</div>
-        <SideBySide valissaName={match.valissaName} opponentName={match.opponentName} rows={[
+        <SideBySide athleteName={name} opponentName={match.opponentName} rows={[
           ["Winners",        fmt(v.winners),       fmt(o.winners)],
           ["Unforced Errors",fmt(v.unforcedErrors), fmt(o.unforcedErrors), v.unforcedErrors > o.unforcedErrors ? COLORS.red : null],
           ["Forced Errors",  fmt(v.forcedErrors),  fmt(o.forcedErrors)],
@@ -172,7 +176,7 @@ export default function MatchDetail({ match, onBack, onDelete, athleteId }) {
             <tr>
               <th style={THL}>Rally</th>
               <th style={TH}>Total Pts</th>
-              <th style={THV}>Valissa Win %</th>
+              <th style={THV}>{name} Win %</th>
             </tr>
           </thead>
           <tbody>
@@ -192,9 +196,9 @@ export default function MatchDetail({ match, onBack, onDelete, athleteId }) {
         </table>
       </div>
 
-      {/* ── Section 6: Shot Breakdown (Valissa only) ── */}
+      {/* ── Section 6: Shot Breakdown (the athlete only) ── */}
       <div className="card">
-        <div className="card-title"><Target size={16} /> Shot Breakdown — {match.valissaName || "Valissa"}</div>
+        <div className="card-title"><Target size={16} /> Shot Breakdown — {name}</div>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
@@ -358,7 +362,7 @@ export default function MatchDetail({ match, onBack, onDelete, athleteId }) {
               {/* Athlete Note */}
               {analysis.athleteNote && (
                 <div style={{ background: `${COLORS.border}60`, borderRadius: 8, padding: "10px 14px", marginBottom: 16 }}>
-                  <SecHeader>Note for {match.valissaName || "Valissa"}</SecHeader>
+                  <SecHeader>Note for {name}</SecHeader>
                   <p style={{ fontSize: "0.84rem", color: COLORS.text, lineHeight: 1.5, margin: 0 }}>{analysis.athleteNote}</p>
                 </div>
               )}

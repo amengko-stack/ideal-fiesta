@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "../firebase";
 import { refreshEscalations, resolveDeferred } from "../lib/deferredPriorities.js";
@@ -17,7 +17,7 @@ export default function PrioritiesTab({ athleteId }) {
   const [escalationBanner, setEscalationBanner] = useState([]);
   const [bannerDismissed,  setBannerDismissed]  = useState(false);
 
-  const loadItems = async () => {
+  const loadItems = useCallback(async () => {
     setLoading(true);
     try {
       const snap = await getDocs(collection(db, "athletes", athleteId, "deferredPriorities"));
@@ -27,7 +27,7 @@ export default function PrioritiesTab({ athleteId }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [athleteId]);
 
   useEffect(() => {
     if (!athleteId) return;
@@ -37,10 +37,14 @@ export default function PrioritiesTab({ athleteId }) {
       try {
         const escalated = await refreshEscalations(athleteId);
         if (escalated.length > 0) setEscalationBanner(escalated);
-      } catch (_) {}
+      } catch (e) {
+        // Promotion is best-effort: the list still loads, just without the
+        // banner. Swallowing it silently hid real Firestore rule failures.
+        console.error("Failed to refresh escalations:", e);
+      }
       await loadItems();
     })();
-  }, [athleteId]);
+  }, [athleteId, loadItems]);
 
   const handleResolve = async (priority) => {
     try {
@@ -63,7 +67,10 @@ export default function PrioritiesTab({ athleteId }) {
     return d ? d.toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" }) : "—";
   };
 
-  const cutoff30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  // Read once, when the tab mounts. Calling Date.now() during render makes the
+  // cutoff drift between renders, so an item could sit inside the window on one
+  // paint and outside it on the next for no reason the reader can see.
+  const [cutoff30] = useState(() => new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
 
   const active = items
     .filter(i => i.status === "active")

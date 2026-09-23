@@ -50,7 +50,9 @@ async function main() {
 
   // ── profile ────────────────────────────────────────────────────────────────
   await athleteRef.set({
-    name: 'Valissa',
+    // A fixture name, deliberately not a real athlete's: this seeds the local
+    // emulator only, and nothing in the app may depend on what it says.
+    name: 'Test Athlete',
     dob: '2013-04-18',                 // ~12 at seed time
     height: 152,
     sittingHeight: 78,

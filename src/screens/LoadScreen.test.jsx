@@ -60,7 +60,7 @@ describe("LoadScreen — category breakdown", () => {
 
   it("reports the rolling 7-day figure against the recent baseline", () => {
     expect(html).toContain("Last 7 days");
-    expect(html).toContain("recent 4-week weekly average");
+    expect(html).toContain("recent weekly average");
   });
 });
 
@@ -74,19 +74,74 @@ describe("LoadScreen — neutral workload language", () => {
       expect(html).not.toMatch(/Underloaded/i);
       expect(html).not.toMatch(/you can handle a bit more/i);
       expect(html).not.toMatch(/take it easy today/i);
+      // No medicalised claim anywhere on the screen, from any signal — the
+      // monotony note used to say same-load days "raise injury risk".
+      expect(html).not.toMatch(/injury risk/i);
+      expect(html).not.toMatch(/raises? .*risk/i);
     }
   });
 
-  it("describes the trend and asks for a review instead of prescribing", () => {
+  it("shows the comparison as two totals and the difference between them", () => {
     const html = render(BUSY_WEEK);
-    expect(html).toMatch(/In line with recent|Above recent|Below recent|Well above recent|No data/);
+    // The brief's preferred presentation: this week, the recent average, and
+    // the percentage between them — all three printed, none of them graded.
+    expect(html).toMatch(/Last 7 days \d+ sRPE/);
+    expect(html).toMatch(/recent weekly average \d+ sRPE/);
+    expect(html).toMatch(/[+-]\d+%/);
+    expect(html).toContain("vs recent average");
     expect(html).toContain("12-week workload trend");
-    expect(html).toContain("it is a trend line, not a risk score");
+    expect(html).toContain("nothing here marks a week good, bad or risky");
   });
 
-  it("renders with no logs at all", () => {
+  it("gives the ratio no status chip, at any ratio", () => {
+    // The hero used to carry a pill whose background and text colour came from
+    // workloadTrendStatus(acwr).tone — red above 1.5, amber above 1.3, green in
+    // the middle — with the tone's label inside it. BUSY_WEEK sits far above
+    // the old danger line and QUIET_WEEK far below; neither may produce one.
+    const QUIET_WEEK = [{ type: "tennis", rpe: 2, duration: 20, date: dayInWeek(0), time: "16:00" }];
+    for (const logs of [BUSY_WEEK, QUIET_WEEK, []]) {
+      const html = render(logs);
+      for (const label of ["In line with recent", "Above recent", "Below recent", "Well above recent"]) {
+        expect(html, `${label} is a retired status label`).not.toContain(`>${label}<`);
+      }
+    }
+  });
+
+  it("renders with no logs at all, and says so without a status", () => {
     const html = render([]);
-    expect(html).toContain("No data");
     expect(html).toContain("Log a few sessions to see your load picture.");
+    expect(html).not.toContain("No data");   // that was the muted-tone status label
+    expect(html).toMatch(/vs recent average/);
+  });
+});
+
+// ─── LEGACY CROSS-TRAINING COMPATIBILITY ─────────────────────────────────────
+// Cheerleading is no longer part of the week, but logs written while it was
+// are real training that really happened. They must keep rendering and keep
+// counting — without the screen implying cheer is a current secondary sport.
+describe("LoadScreen — legacy cheer logs", () => {
+  const LEGACY_WEEK = [
+    ...BUSY_WEEK,
+    { type: "cheer", rpe: 6, duration: 90, date: dayInWeek(4), time: "17:00" },
+  ];
+
+  it("still counts an old cheer log towards the week's load", () => {
+    const withLegacy = render(LEGACY_WEEK);
+    const without = render(BUSY_WEEK);
+    // 6 × 90 = 540 sRPE that must not be silently dropped.
+    expect(withLegacy).not.toBe(without);
+    expect(withLegacy).toContain("540");
+  });
+
+  it("rolls it up as cross-training minutes rather than losing it", () => {
+    const html = render(LEGACY_WEEK);
+    expect(html).toContain("Swim / cross-training");
+  });
+
+  it("never presents cheer as a current activity", () => {
+    const html = render(LEGACY_WEEK);
+    expect(html).not.toMatch(/Cheer/);
+    expect(html).not.toMatch(/cheerlead/i);
+    expect(html).toContain("Cross-training");
   });
 });

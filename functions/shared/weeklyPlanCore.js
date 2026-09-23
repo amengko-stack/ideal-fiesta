@@ -402,20 +402,81 @@ export function startNextBlock(state, weekKey, now = new Date()) {
   });
 }
 
+// ─── MOVEMENT QUALITY ────────────────────────────────────────────────────────
+// The competency signal the design always claimed controlled progression and
+// production could not actually observe. One question, asked once, after the
+// session is logged — not a biomechanics score.
+//
+// Stored on the session document as `movementQuality`, using these stable
+// machine values so the string a 2026 session was written with still means the
+// same thing to a later reader.
+export const MOVEMENT_QUALITY = Object.freeze({
+  GOOD: "good",
+  MIXED: "mixed",
+  POOR: "poor",
+  UNKNOWN: "unknown",
+});
+
+// The three a human can actually choose. UNKNOWN is never written — it is what
+// reading a session that predates the field returns.
+export const MOVEMENT_QUALITY_OPTIONS = Object.freeze([
+  { value: MOVEMENT_QUALITY.GOOD,  label: "Good",  hint: "technique stayed controlled" },
+  { value: MOVEMENT_QUALITY.MIXED, label: "Mixed", hint: "some reps lost quality" },
+  { value: MOVEMENT_QUALITY.POOR,  label: "Poor",  hint: "technique broke down" },
+]);
+
+const MOVEMENT_QUALITY_VALUES = MOVEMENT_QUALITY_OPTIONS.map(o => o.value);
+
+// readMovementQuality(session) → "good" | "mixed" | "poor" | "unknown"
+//
+// BACKWARD COMPATIBILITY, and the one rule that matters: a session written
+// before this field existed returns UNKNOWN, never GOOD. Absent evidence of
+// good technique is not evidence of good technique. UNKNOWN is also not POOR —
+// treating every historical session as a technique breakdown would freeze
+// progression for an athlete who has done nothing wrong — so it holds nothing
+// by itself and is instead reported explicitly, so the plan is built knowing
+// that nobody looked rather than assuming someone did and liked what they saw.
+export function readMovementQuality(session) {
+  const raw = session?.movementQuality;
+  return MOVEMENT_QUALITY_VALUES.includes(raw) ? raw : MOVEMENT_QUALITY.UNKNOWN;
+}
+
 // ─── PROGRESSION GATE ────────────────────────────────────────────────────────
 // Movement quality overrides rep count. Progress only when the prescribed reps
 // were technically sound, no pain was reported, effort was manageable and
 // movement quality held. Any one of those failing holds the prescription where
 // it is — it never reduces it on its own, that is the model's call within the
-// volume bounds.
+// volume bounds. The one exception is a technique breakdown, which explicitly
+// authorises a deterministic step back (`regressionAllowed`).
+//
+// Pain is independent of all of it: an open injury or a pain note holds the
+// prescription whatever the technique rating says, including "good".
 //
 // `difficulty` is the 1–5 star rating the finish-and-log sheet writes.
 export const HARD_SESSION_DIFFICULTY = 5;
 
-export function progressionGate({ lastSession = null, painReported = false, movementQualityConcern = false } = {}) {
+export function progressionGate({
+  lastSession = null,
+  painReported = false,
+  movementQualityConcern = false,
+  movementQuality = null,
+} = {}) {
+  const quality = MOVEMENT_QUALITY_VALUES.includes(movementQuality)
+    ? movementQuality
+    : readMovementQuality(lastSession);
+
+  // An explicit caller flag and an observed "poor" mean the same thing.
+  const concern = movementQualityConcern === true || quality === MOVEMENT_QUALITY.POOR;
+
   const reasons = [];
+  const notes = [];
   if (painReported) reasons.push("pain, discomfort or an open injury is on record");
-  if (movementQualityConcern) reasons.push("movement quality was flagged");
+  if (concern) reasons.push("movement quality was flagged");
+  // Hold, not a flag: mixed technique means do not add resistance or volume at
+  // the next exposure, but it is not the breakdown that authorises a step back.
+  if (!concern && quality === MOVEMENT_QUALITY.MIXED) {
+    reasons.push("some reps lost quality last session — hold the prescription, do not add load");
+  }
 
   if (lastSession) {
     const exercises = lastSession.exercises || [];
@@ -428,9 +489,22 @@ export function progressionGate({ lastSession = null, painReported = false, move
       reasons.push("last session was rated maximally hard");
     }
     if (lastSession.painNote) reasons.push("last session carried a pain note");
+
+    if (quality === MOVEMENT_QUALITY.UNKNOWN) {
+      notes.push("movement quality was not rated last session — do not assume technique was clean");
+    }
   }
 
-  return { allowed: reasons.length === 0, reasons };
+  return {
+    allowed: reasons.length === 0,
+    reasons,
+    notes,
+    movementQuality: quality,
+    movementQualityConcern: concern,
+    // Only a recorded technique breakdown deterministically authorises
+    // reducing complexity or load; every other hold leaves it where it is.
+    regressionAllowed: concern,
+  };
 }
 
 // ─── TOURNAMENT SHAPE ────────────────────────────────────────────────────────
@@ -616,6 +690,7 @@ export function buildWeeklyFramework({
   growthWatch = false,
   progressionAllowed = true,
   progressionHold = [],
+  progressionNotes = [],
 } = {}) {
   const shape = tournamentShape(tournamentMode);
   const phase = blockPhase(blockWeek);
@@ -656,6 +731,9 @@ export function buildWeeklyFramework({
       : EFFORT_TARGET.loadIncrementPctMax,
     progressionAllowed,
     progressionHold,
+    // Non-blocking observations — chiefly "technique was not rated", which
+    // must reach the plan without being mistaken for a hold.
+    progressionNotes,
     growthWatch,
     tournamentMode: shape.mode,
     tournamentNotes: shape.notes,
@@ -787,6 +865,7 @@ export function buildWeeklyPlanDoc({
       lengthWeeks: BLOCK_LENGTH_WEEKS,
       progressionAllowed: framework.progressionAllowed,
       progressionHold: framework.progressionHold || [],
+      progressionNotes: framework.progressionNotes || [],
     },
     weeklyTargets: {
       tennisHoursMin: weeklyTargets.tennisHoursMin,

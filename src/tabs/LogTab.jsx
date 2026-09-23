@@ -134,7 +134,8 @@ export default function LogTab({ weekLogs, addWeekLog, deleteWeekLog }) {
           ? <div className="empty">No sessions logged this week yet</div>
           : [...thisWeek].sort((a,b) => new Date(b.date)-new Date(a.date)).map(log => {
               const pillClass = log.type === "tennis" ? "pill-tennis" : log.type === "cheer" ? "pill-cheer" : "pill-other";
-              const typeLabel = log.type === "tennis" ? "🎾 Tennis" : log.type === "cheer" ? "📣 Cheer" : `🏃 ${log.sportName || "Other"}`;
+              // "cheer" is a legacy stored value — rendered as cross-training.
+              const typeLabel = log.type === "tennis" ? "🎾 Tennis" : log.type === "cheer" ? "🏃 Cross-training" : `🏃 ${log.sportName || "Cross-training"}`;
               const rpeDisplay = log.rpe != null ? log.rpe : (log.intensity ? log.intensity * 2 : "?");
               return (
                 <div key={log.id} className="log-item">

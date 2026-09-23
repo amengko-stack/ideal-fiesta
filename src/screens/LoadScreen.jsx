@@ -1,7 +1,7 @@
 import { M } from "../styles/mobileTheme.js";
 import Card from "../ui/Card.jsx";
 import TrendChart from "../ui/TrendChart.jsx";
-import { computeLoad, computeLoadHistory, workloadTrendStatus, sessionSRPE, computeMonotonyStrain, monotonyStatus, weeklyTrainingSummary, loadTrend } from "../lib/load.js";
+import { computeLoad, computeLoadHistory, sessionSRPE, computeMonotonyStrain, monotonyStatus, weeklyTrainingSummary, loadTrend } from "../lib/load.js";
 import { compareToWeeklyTargets, OVER_TARGET_TENNIS_MESSAGE } from "../lib/weeklyPlanCore.js";
 import { getWeekBounds } from "../lib/dates.js";
 
@@ -10,25 +10,32 @@ const fmtWeekLabel = (weekStart) => {
   return Number.isNaN(d.getTime()) ? weekStart : d.toLocaleDateString("en-AU", { day: "numeric", month: "short" });
 };
 
+// `cheer` is a legacy stored type kept so historical logs keep rendering and
+// keep counting towards load; it is labelled for what it was physiologically.
 const SPORT = [
-  { key: "tennis",   label: "Tennis",   color: M.tennis },
-  { key: "match",    label: "Match",    color: M.match },
-  { key: "strength", label: "Strength", color: M.strength },
-  { key: "cheer",    label: "Cheer",    color: M.cheer },
-  { key: "other",    label: "Other",    color: M.other },
+  { key: "tennis",   label: "Tennis",         color: M.tennis },
+  { key: "match",    label: "Match",          color: M.match },
+  { key: "strength", label: "Strength",       color: M.strength },
+  { key: "cheer",    label: "Cross-training", color: M.cheer },
+  { key: "other",    label: "Cross-training", color: M.other },
 ];
 
-// The ratio compares this week to the recent block. It is a descriptive trend,
-// not a validated injury classifier, so these lines describe the change and ask
-// for a look — they never prescribe a recovery day, and a quiet week is never
-// told to train more.
-const TIP = {
-  danger:  "Well above the recent few weeks — worth reviewing progression and recovery. 🧘",
-  warn:    "Above the recent few weeks — worth reviewing progression and recovery.",
-  limeDim: "Below the recent few weeks.",
-  success: "In line with the recent few weeks. 🎾",
-  muted:   "Log a few sessions to see your load picture.",
-};
+// One sentence describing what the last 7 days did against the recent weekly
+// baseline. It is built from the two totals themselves, not from a band: there
+// is no status to key a colour off, nothing here says safe, optimal, caution or
+// danger, and a quieter week is never told to train more.
+//
+// `pct` is (last 7 days - recent weekly baseline) / baseline, so 0 is "the same
+// as usual". The 15% either side is a plain readability threshold for choosing
+// between "about the same" and "more/less than usual" — it grades nothing, and
+// the exact figure is printed next to it regardless.
+function trendSentence(trend) {
+  if (trend.pctFromBaseline == null) return "Log a few sessions to see your load picture.";
+  const pct = trend.pctFromBaseline;
+  if (pct >= 15) return "More training in the last 7 days than in the recent weeks — worth a look at how the week is progressing and how recovery is going.";
+  if (pct <= -15) return "Less training in the last 7 days than in the recent weeks.";
+  return "About the same as the recent few weeks. 🎾";
+}
 
 const TARGET_TONE = { under: M.sub, within: M.success, over: M.streakOrange };
 
@@ -49,8 +56,6 @@ const sessionName = (log) =>
 export default function LoadScreen({ weekLogs }) {
   const logs = weekLogs || [];
   const { thisWeekSRPE, acwr } = computeLoad(logs);
-  const status = workloadTrendStatus(acwr);
-  const tone = M.tone[status.tone];
 
   const { monotony, strain } = computeMonotonyStrain(logs);
   const monoStatus = monotonyStatus(monotony);
@@ -92,22 +97,19 @@ export default function LoadScreen({ weekLogs }) {
             <div style={{ fontSize: 12, color: M.sub, fontWeight: 600, marginTop: 4 }}>sRPE this week</div>
           </div>
           <div style={{ textAlign: "right" }}>
-            <div style={{
-              display: "inline-block", fontFamily: M.display, fontWeight: 700, fontSize: 13,
-              padding: "5px 12px", borderRadius: 999, background: `${tone}22`, color: tone,
-            }}>{status.label}</div>
-            <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 15, color: M.ink, marginTop: 6 }}>
-              ACWR {acwr == null ? "—" : acwr.toFixed(2)}
+            <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 26, color: M.ink, lineHeight: 1 }}>
+              {trend.pctFromBaseline == null ? "—" : `${trend.pctFromBaseline > 0 ? "+" : ""}${trend.pctFromBaseline}%`}
             </div>
+            <div style={{ fontSize: 11.5, color: M.sub, fontWeight: 600, marginTop: 4 }}>vs recent average</div>
           </div>
         </div>
         <div style={{
-          background: "#F1F8F3", borderLeft: `3px solid ${tone}`, borderRadius: "0 10px 10px 0",
+          background: "#F1F8F3", borderLeft: `3px solid ${M.dividerAlt}`, borderRadius: "0 10px 10px 0",
           padding: "11px 13px", fontSize: 12.5, color: "#4a5a52", marginTop: 16, lineHeight: 1.45, fontWeight: 500,
-        }}>{TIP[status.tone]}</div>
+        }}>{trendSentence(trend)}</div>
         <div style={{ fontSize: 11.5, color: M.sub, marginTop: 10, lineHeight: 1.45 }}>
-          Last 7 days {trend.last7DaySRPE} vs a recent 4-week weekly average of {trend.baselineWeeklySRPE}
-          {trend.pctFromBaseline != null ? ` (${trend.pctFromBaseline > 0 ? "+" : ""}${trend.pctFromBaseline}%)` : ""}.
+          Last 7 days {trend.last7DaySRPE} sRPE · recent weekly average {trend.baselineWeeklySRPE} sRPE
+          {acwr == null ? "" : ` · ratio ${acwr.toFixed(2)}`}.
         </div>
       </Card>
 
@@ -187,7 +189,7 @@ export default function LoadScreen({ weekLogs }) {
         <div style={{
           background: "#FDF3E3", borderLeft: `3px solid ${monoTone}`, borderRadius: "0 10px 10px 0",
           padding: "9px 13px", fontSize: 12, color: "#4a5a52", marginBottom: 10, lineHeight: 1.4, fontWeight: 500,
-        }}>Mix harder and easier days — same-load days raise injury risk.</div>
+        }}>Every day has been about as hard as the last — worth mixing in an easier day.</div>
       )}
 
       {/* 4-week bars */}
@@ -215,7 +217,7 @@ export default function LoadScreen({ weekLogs }) {
       <Card style={{ padding: "18px 16px" }}>
         <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 15, color: M.ink, marginBottom: 2 }}>12-week workload trend</div>
         <div style={{ fontSize: 11.5, color: M.sub, marginBottom: 10, lineHeight: 1.45 }}>
-          Each week against the four weeks around it. 1.0 means the week matched its recent average — it is a trend line, not a risk score.
+          Each week against the four weeks around it. 1.0 means the week matched its recent average. It is a trend line with no bands on it: nothing here marks a week good, bad or risky.
         </div>
         <TrendChart points={acwrPoints} />
       </Card>

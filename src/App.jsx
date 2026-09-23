@@ -92,7 +92,6 @@ export default function App() {
         <AthleteMain
           athleteId={viewingAthleteId}
           isParent={true}
-          user={user}
           onBack={() => setViewingId(null)}
           onSignOut={handleSignOut}
         />

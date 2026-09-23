@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Calendar, FileText, Ruler, Target, User } from "lucide-react";
 import { TENNIS_GAPS } from "../lib/exerciseDb.js";
 import { toLocalDateStr } from "../lib/dates.js";
@@ -16,9 +16,15 @@ export default function ProfileTab({ profile, saveProfile }) {
   const [saved, setSaved]         = useState(false);
   const [saveError, setSaveError] = useState(false);
 
-  useEffect(() => {
-    if (profile && profile.name) setForm(profile);
-  }, [profile]);
+  // Re-seed the form when a different profile document arrives. Done during
+  // render, which is React's documented way to adjust state on a prop change:
+  // the effect this replaces called setForm in its own body, which renders
+  // once with the stale form and then again with the new one.
+  const [seededFrom, setSeededFrom] = useState(profile);
+  if (profile && profile.name && profile !== seededFrom) {
+    setSeededFrom(profile);
+    setForm(profile);
+  }
 
   const toggleGap = (id) => {
     const current = form.gaps || [];
@@ -51,7 +57,7 @@ export default function ProfileTab({ profile, saveProfile }) {
       await saveProfile(updatedForm);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
-    } catch(e) {
+    } catch {
       setSaveError(true);
       setTimeout(() => setSaveError(false), 4000);
     }
@@ -107,6 +113,9 @@ export default function ProfileTab({ profile, saveProfile }) {
             <input name="tennisSchedule" placeholder="e.g. Mon, Wed, Fri — 2hrs each" value={form.tennisSchedule} onChange={e => setForm(f => ({ ...f, tennisSchedule: e.target.value }))} />
           </div>
           <div>
+            {/* The Firestore field key `cheerSchedule` is historical — it now
+                holds the cross-training schedule. Renaming it would orphan
+                every stored profile, so the key stays and the label does not. */}
             <div className="label">Cross-Training Schedule</div>
             <input name="cheerSchedule" placeholder="e.g. Tue, Thu — 1.5hrs each" value={form.cheerSchedule} onChange={e => setForm(f => ({ ...f, cheerSchedule: e.target.value }))} />
           </div>

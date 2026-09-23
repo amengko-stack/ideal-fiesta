@@ -1,6 +1,6 @@
 import { M } from "../styles/mobileTheme.js";
 import Card from "../ui/Card.jsx";
-import { computeLoad, readinessScore, acwrStatus, mergeWellbeingByDate } from "../lib/load.js";
+import { computeLoad, readinessScore, loadTrend, mergeWellbeingByDate } from "../lib/load.js";
 import { levelFromXp, XP_PER_LEVEL } from "../lib/gamification.js";
 import { toLocalDateStr, isDigestFresh } from "../lib/dates.js";
 import { BADGES } from "../lib/badges.js";
@@ -8,12 +8,16 @@ import { openInjuries, injuryLoadFlag, injuryDuration } from "../lib/injuries.js
 import { weeklyFocus, focusPracticeSuggestion, practiceEvidence, focusStreakText } from "../lib/practiceFocus.js";
 import { GUARDIAN_ENGINE_VERSION } from "../lib/guardianCore.js";
 
+// `cheer` is a LEGACY STORED TYPE, not a current activity: cheerleading is no
+// longer part of the week, but logs written while it was must still render and
+// still count. It is shown as cross-training, which is what it physiologically
+// was, rather than as a live secondary sport.
 const SPORT = {
-  tennis:   { label: "Tennis",   color: M.tennisLight },
-  match:    { label: "Match",    color: M.match },
-  strength: { label: "Strength", color: M.strength },
-  cheer:    { label: "Cheer",    color: M.cheer },
-  other:    { label: "Other",    color: M.other },
+  tennis:   { label: "Tennis",        color: M.tennisLight },
+  match:    { label: "Match",         color: M.match },
+  strength: { label: "Strength",      color: M.strength },
+  cheer:    { label: "Cross-training", color: M.cheer },
+  other:    { label: "Cross-training", color: M.other },
 };
 
 const ALERT_TONE = (tone) => tone === "danger" ? M.danger : tone === "warn" ? M.warn : M.parentBlue;
@@ -39,7 +43,9 @@ function WeeklyDigestCard({ digest, showParentNotes, onOpenPlan }) {
   if (!digest || !isDigestFresh(digest.weekKey, new Date())) return null;
 
   const load = digest.load || {};
-  const status = load.acwrStatus || { label: "No data", tone: "muted" };
+  // Digests written before the cutover carry acwrStatus {label, tone}; only the
+  // LABEL is read back, never the tone. There is no colour on this number.
+  const trendLabel = load.trendLabel || load.acwrStatus?.label || "No data";
   const wins = (digest.matches || []).filter(m => m.won).length;
   const losses = (digest.matches || []).length - wins;
   // The athlete gets the note written to her; the parent gets the coach's one.
@@ -49,7 +55,7 @@ function WeeklyDigestCard({ digest, showParentNotes, onOpenPlan }) {
 
   const stats = [
     { val: load.thisWeekSRPE == null ? "—" : Math.round(load.thisWeekSRPE).toLocaleString(), label: "load", color: M.ink },
-    { val: load.acwr == null ? "—" : load.acwr.toFixed(2), label: status.label, color: M.tone[status.tone] || M.muted },
+    { val: load.fourWeekAvg == null ? "—" : Math.round(load.fourWeekAvg).toLocaleString(), label: "recent wkly avg", color: M.ink },
     { val: digest.wellbeing?.checkinCount ?? 0, label: "check-ins", color: M.success },
     ...((digest.matches || []).length > 0
       ? [{ val: `${wins}-${losses}`, label: losses === 0 ? "unbeaten" : "W-L", color: M.match }]
@@ -68,7 +74,7 @@ function WeeklyDigestCard({ digest, showParentNotes, onOpenPlan }) {
           {shortDate(digest.weekStart)} – {shortDate(digest.weekEnd)}
         </div>
 
-        <div style={{ display: "flex", marginBottom: note || escalated.length > 0 ? 12 : 0 }}>
+        <div style={{ display: "flex", marginBottom: 8 }}>
           {stats.map((s, i) => (
             <div key={s.label} style={{ flex: 1, textAlign: "center", borderLeft: i ? `1px solid ${M.dividerAlt}` : "none" }}>
               <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 20, color: s.color, lineHeight: 1 }}>{s.val}</div>
@@ -76,6 +82,14 @@ function WeeklyDigestCard({ digest, showParentNotes, onOpenPlan }) {
             </div>
           ))}
         </div>
+
+        {/* One neutral line, one colour: what the week did relative to the
+            recent ones. No tone, no verdict. */}
+        {trendLabel !== "No data" && trendLabel !== "Unknown" && (
+          <div style={{ fontSize: 11, color: M.sub, textAlign: "center", marginBottom: note || escalated.length > 0 ? 12 : 0 }}>
+            {trendLabel}
+          </div>
+        )}
 
         {/* No paragraph when the notes call failed — the stats above still stand on their own. */}
         {note && (
@@ -190,8 +204,11 @@ export default function HomeScreen({ weekLogs, wellbeing, xp, activeThisWeek, st
   const today = toLocalDateStr(new Date());
   const todayWb = mergeWellbeingByDate(wellbeing || [])[today];
   const readiness = readinessScore(todayWb?.mood, todayWb?.soreness, todayWb?.sleep);
-  const { thisWeekSRPE, acwr } = computeLoad(weekLogs || []);
-  const status = acwrStatus(acwr);
+  const { thisWeekSRPE } = computeLoad(weekLogs || []);
+  // Descriptive comparison, not a classification: the last 7 days against the
+  // recent weekly baseline, shown as the difference between two real totals.
+  // There is deliberately no tone here — see load.js, workloadTrendStatus.
+  const trend = loadTrend(weekLogs || []);
   const lv = levelFromXp(xp);
   const openInj = openInjuries(injuries);
   const injFlag = injuryLoadFlag(injuries);
@@ -350,8 +367,10 @@ export default function HomeScreen({ weekLogs, wellbeing, xp, activeThisWeek, st
           <div style={tileLabel}>load / wk</div>
         </Card>
         <Card style={{ flex: 1, borderRadius: 18, padding: "14px 12px", marginBottom: 0, boxShadow: M.dropSm }}>
-          <div style={tileNum(M.tone[status.tone])}>{acwr == null ? "—" : acwr.toFixed(2)}</div>
-          <div style={{ ...tileLabel, color: M.tone[status.tone], fontWeight: 700 }}>{status.label}</div>
+          <div style={tileNum(M.ink)}>
+            {trend.pctFromBaseline == null ? "—" : `${trend.pctFromBaseline > 0 ? "+" : ""}${trend.pctFromBaseline}%`}
+          </div>
+          <div style={tileLabel}>vs recent avg</div>
         </Card>
         <Card style={{ flex: 1, borderRadius: 18, padding: "14px 12px", marginBottom: 0, boxShadow: M.dropSm }}>
           <div style={tileNum(M.success)}>{activeThisWeek}</div>

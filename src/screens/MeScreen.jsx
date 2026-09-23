@@ -4,7 +4,7 @@ import { levelFromXp } from "../lib/gamification.js";
 import { TENNIS_GAPS } from "../lib/exerciseDb.js";
 import { FITNESS_TESTS } from "../lib/fitnessTests.js";
 import { recentGrowthContext, growthSummaryLine, GROWTH_WATCH_MESSAGE } from "../lib/growth.js";
-import { maturityOffset, stageInfo, MATURITY_ESTIMATE_LABEL, MATURITY_UNCERTAINTY_NOTE } from "../lib/maturity.js";
+import { maturityOffset, MATURITY_UNCERTAINTY_NOTE } from "../lib/maturity.js";
 import { identityChipText } from "../lib/athleteIdentity.js";
 import { isMetricTarget, describeTarget, describeMetricValue, matchesSince, toISO } from "../lib/priorityMetrics.js";
 import { openInjuries, resolvedInjuries, describeInjury, recurringAreas } from "../lib/injuries.js";
@@ -55,7 +55,11 @@ export default function MeScreen({ profile, xp, streak, sessionHistory, weekLogs
         weightKg:        latestWithSittingHeight.weight ?? profile?.weight,
       })
     : null;
-  const maturityStageColor = { "Pre-PHV": M.parentBlue, "Mid-PHV": M.streakOrange, "Post-PHV": M.success };
+  // NO STAGE COLOUR. A blue/orange/green chip reading "Mid-PHV" is a verdict:
+  // it tells a parent their daughter has been graded, and green/orange invites
+  // reading one band as better than another. The estimate is one number with
+  // years of error in it, and nothing in this app acts on it — so it gets the
+  // same muted treatment as any other piece of reference text.
 
   // Most recent readable value of a priority's target metric, counting only
   // matches played since it was raised. Blank when nothing measurable yet.
@@ -347,25 +351,24 @@ export default function MeScreen({ profile, xp, streak, sessionHistory, weekLogs
             )}
             {isParent && parentMode && maturity && (
               <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${M.divider}` }}>
-                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".04em", color: M.sub, textTransform: "uppercase", marginBottom: 6 }}>
-                  {MATURITY_ESTIMATE_LABEL}
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                  <span style={{
-                    fontSize: 9.5, fontWeight: 700, color: maturityStageColor[maturity.stage] || M.muted,
-                    background: `${maturityStageColor[maturity.stage] || M.muted}18`, padding: "2px 8px",
-                    borderRadius: 20, textTransform: "uppercase",
-                  }}>{maturity.stage}</span>
-                  {PARENT_BADGE}
-                  <span style={{ fontSize: 11.5, color: M.sub, fontWeight: 600 }}>
-                    ≈{Math.abs(maturity.offset).toFixed(1)} yrs {maturity.offset < 0 ? "from" : "past"} the estimated growth spurt
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".04em", color: M.sub, textTransform: "uppercase" }}>
+                    Estimated maturity timing
                   </span>
+                  {PARENT_BADGE}
                 </div>
-                <div style={{ fontSize: 11, color: M.muted, lineHeight: 1.4 }}>
-                  {stageInfo(maturity.stage)?.implication}
+                {/* The number, in the same weight as any other reference figure
+                    on this card. No band chip, no colour, no implication. */}
+                <div style={{ fontSize: 12.5, color: M.ink, fontWeight: 600, lineHeight: 1.45 }}>
+                  ≈{Math.abs(maturity.offset).toFixed(1)} years {maturity.offset < 0 ? "before" : "after"} the estimated growth spurt
                 </div>
-                <div style={{ fontSize: 10.5, color: M.muted, lineHeight: 1.4, marginTop: 6, fontStyle: "italic" }}>
-                  {MATURITY_UNCERTAINTY_NOTE} Training is planned from measured growth and logged load, not from this figure.
+                <div style={{ fontSize: 10.5, color: M.muted, lineHeight: 1.45, marginTop: 6 }}>
+                  An experimental, informational estimate from her height, sitting height, weight and age. It is not used
+                  to determine S&amp;C, training load, injury risk, readiness, match analysis, season analysis, Guardian
+                  alerts or Growth Watch. {MATURITY_UNCERTAINTY_NOTE}
+                </div>
+                <div style={{ fontSize: 10.5, color: M.muted, lineHeight: 1.45, marginTop: 6 }}>
+                  Her measured height history above is the growth context that actually informs training.
                 </div>
               </div>
             )}

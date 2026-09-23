@@ -1,6 +1,6 @@
 // ─── COACH REPORT ─────────────────────────────────────────────────────────────
 // Renders a match doc (and optionally its AI analysis) as plain text that
-// pastes cleanly into WhatsApp/SMS/email — the format Valissa's coach actually
+// pastes cleanly into WhatsApp/SMS/email — the format the athlete's coach actually
 // receives. Sections with no data (e.g. quick-mode matches without shot
 // tagging) are omitted rather than shown as zeros.
 

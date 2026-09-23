@@ -35,7 +35,7 @@ function tokenDocRef(athleteId, token) {
 // does this itself — see main.jsx/App comments), and stores the resulting
 // token so the scheduled Cloud Function can find this device. Returns
 // { ok, reason } instead of throwing for the expected failure paths — the
-// settings row needs to explain each one to Valissa, not just fail silently.
+// settings row needs to explain each one to the athlete, not just fail silently.
 export async function enablePush({ athleteId, uid, role }) {
   // Vite serves public/ in dev too, so the FCM SW would otherwise register
   // at localhost — this app's SW policy (see main.jsx) is deliberately

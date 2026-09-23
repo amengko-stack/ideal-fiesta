@@ -100,12 +100,22 @@ describe("buildDigestData — envelope", () => {
 });
 
 describe("buildDigestData — load", () => {
-  it("reuses the context's sRPE/ACWR rather than recomputing them", () => {
+  it("reuses the context's sRPE and ratio rather than recomputing them", () => {
     const { load } = build();
     expect(load.thisWeekSRPE).toBe(1215);
     expect(load.fourWeekAvg).toBe(379);
     expect(load.acwr).toBe(3.21);
-    expect(load.acwrStatus).toEqual({ label: "Well above recent", tone: "danger" });
+    // A plain description of the direction, and NO tone. The digest used to
+    // carry acwrStatus {label, tone} and every reader painted a colour off it.
+    expect(load.trendLabel).toBe("Well above recent average");
+    expect(load).not.toHaveProperty("acwrStatus");
+  });
+
+  it("writes no tone anywhere in the load block, at any ratio", () => {
+    for (const acwr of [null, 0.4, 0.7, 1.0, 1.4, 1.6, 3.21]) {
+      const { load } = build({ ctx: { ...ctx, sessionLogs: { ...ctx.sessionLogs, acwr } } });
+      expect(JSON.stringify(load)).not.toMatch(/"tone"|danger|warn|success|optimal|underload/i);
+    }
   });
 
   it("counts only this week's sessions and splits sRPE by type", () => {
@@ -121,11 +131,11 @@ describe("buildDigestData — load", () => {
     expect(load.strain).toBe(923);   // 7-day total 1215 × monotony
   });
 
-  it("reports a no-data ACWR status when there is no history", () => {
+  it("reports an unknown trend when there is no history", () => {
     const bare = { ...ctx, sessionLogs: { sessions: [], thisWeekSrpe: 0, fourWeekAvgSrpe: 0, acwr: null } };
     const { load } = build({ ctx: bare });
     expect(load.acwr).toBeNull();
-    expect(load.acwrStatus).toEqual({ label: "No data", tone: "muted" });
+    expect(load.trendLabel).toBe("Unknown");
     expect(load.sessionCount).toBe(0);
     expect(load.byType).toEqual({});
     expect(load.monotony).toBeNull();
@@ -294,7 +304,7 @@ describe("buildDigestNotesPrompt", () => {
     const { prompt } = buildDigestNotesPrompt(build(), "Valissa");
     expect(prompt).toContain("week of 2026-03-09 to 2026-03-15");
     expect(prompt).toContain("This week sRPE: 1215 (4-week average 379)");
-    expect(prompt).toContain("ACWR: 3.21 — Well above recent");
+    expect(prompt).toContain("This week vs recent weekly average: 1215 vs 379 (ratio 3.21) — Well above recent average");
     expect(prompt).toContain("Sessions logged: 3 (sRPE by type: tennis 990, other 225)");
     expect(prompt).toContain("Low mood flag: YES");
     expect(prompt).toContain("- 2026-03-14: WIN vs Kirana");
@@ -350,7 +360,7 @@ describe("digestPushPayload", () => {
     const digest = build();
     expect(digestPushPayload(digest)).toEqual({
       title: "Valissa's week in review",
-      body: "3 sessions · load 1215 · Well above recent · 1 match · 1 S&C session planned.",
+      body: "3 sessions · load 1215 · Well above recent average · 1 match · 1 S&C session planned.",
     });
   });
 

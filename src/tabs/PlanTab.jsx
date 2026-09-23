@@ -3,7 +3,7 @@ import {
   BarChart2, ClipboardCheck, FileText, MessageSquare, Zap,
 } from "lucide-react";
 import { getWeekBounds } from "../lib/dates.js";
-import { calculateMetrics, workloadTrendStatus, workloadTrendLabel } from "../lib/load.js";
+import { calculateMetrics, loadTrend, workloadTrendLabel } from "../lib/load.js";
 import { COLORS } from "../styles/theme.js";
 import { TENNIS_GAPS } from "../lib/exerciseDb.js";
 import { generateWeeklyStrengthPlan } from "../lib/planGen.js";
@@ -51,40 +51,26 @@ export default function PlanTab({ athleteId, profile, weekLogs, sessionHistory, 
   const scheduledSessions = (weeklyPlan?.sessions || []).filter(x => x.sessionType !== "recovery");
   const { start: _thisWeekStart } = getWeekBounds(0);
   const thisWeekLogs = weekLogs.filter(l => l.date >= _thisWeekStart);
-  // Colour is visual emphasis only; the LABEL describes the change and never
-  // classifies risk — the ratio is a workload trend, not an injury predictor.
-  const acwrColor = metrics.acwr === null ? COLORS.muted
-    : metrics.acwr > 1.5 ? COLORS.red
-    : metrics.acwr > 1.3 ? COLORS.yellow
-    : metrics.acwr < 0.8 ? "#6eb5ff"
-    : COLORS.accent;
-  const acwrLabel = workloadTrendStatus(metrics.acwr).label;
-
-  // ACWR gauge: maps 0–2+ range onto a 180° arc
-  const acwrGauge = (() => {
-    const pct = metrics.acwr === null ? 0 : Math.min(metrics.acwr / 2, 1);
-    const angle = pct * 180 - 90; // -90° (left) to +90° (right)
-    const r = 52;
-    const cx = 70; const cy = 62;
-    const toXY = (deg) => ({
-      x: cx + r * Math.cos((deg - 90) * Math.PI / 180),
-      y: cy + r * Math.sin((deg - 90) * Math.PI / 180),
-    });
-    // Arc segments: underload (blue) 0–72°, optimal (green) 72–117°, caution (yellow) 117–144°, danger (red) 144–180°
-    const segments = [
-      { from: 0,   to: 72,  color: "#6eb5ff" },
-      { from: 72,  to: 117, color: COLORS.accent },
-      { from: 117, to: 144, color: COLORS.yellow },
-      { from: 144, to: 180, color: COLORS.red },
-    ];
-    const arcPath = (fromDeg, toDeg, color) => {
-      const start = toXY(fromDeg); const end = toXY(toDeg);
-      const large = toDeg - fromDeg > 180 ? 1 : 0;
-      return `M ${start.x} ${start.y} A ${r} ${r} 0 ${large} 1 ${end.x} ${end.y}`;
-    };
-    const needle = toXY(metrics.acwr === null ? 0 : Math.min(metrics.acwr / 2, 1) * 180);
-    return { segments, arcPath, needle, cx, cy };
-  })();
+  // THE MEDICALISED ZONE GAUGE IS GONE, AND MUST NOT COME BACK.
+  //
+  // This used to be a four-colour dial with fixed acute:chronic ratio zones
+  // labelled from "too little" through to a red danger band. Those bands are
+  // not a validated statement about an individual 12-year-old: they told a
+  // parent their child was at risk, or — worse — that a quiet week meant she
+  // should be training more.
+  //
+  // What replaces it is the same arithmetic described rather than graded: the
+  // rolling 7-day total against the recent weekly baseline, with the neutral
+  // neutral label from workloadTrendLabel. One colour, no zones, no verdict.
+  const trend = loadTrend(weekLogs);
+  const trendLabel = workloadTrendLabel(metrics.acwr);
+  const pctFromBaseline = trend.pctFromBaseline;
+  // A single bar showing where the last 7 days sit against the baseline. The
+  // baseline is the midpoint, so the bar reads "more than usual" or "less than
+  // usual" and nothing else.
+  const barPct = pctFromBaseline == null
+    ? 50
+    : Math.max(2, Math.min(98, 50 + pctFromBaseline / 4));
 
   // Wellbeing colour coding
   const sleepColor  = !metrics.avgSleep  ? COLORS.muted : parseFloat(metrics.avgSleep)  >= 8 ? COLORS.accent  : parseFloat(metrics.avgSleep)  >= 6 ? COLORS.yellow : COLORS.red;
@@ -96,35 +82,45 @@ export default function PlanTab({ athleteId, profile, weekLogs, sessionHistory, 
       <div className="card">
         <div className="card-title"><BarChart2 size={18} /> Training Load Analysis</div>
 
-        {/* ACWR gauge — hero element */}
-        <div style={{ background: COLORS.surface, borderRadius: 12, padding: "16px 14px 10px", marginBottom: 14, textAlign: "center" }}>
-          <div style={{ fontSize: "0.7rem", color: COLORS.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Acute : Chronic Workload Ratio</div>
-          <svg width="140" height="72" viewBox="0 0 140 72" style={{ overflow: "visible" }}>
-            {acwrGauge.segments.map((s, i) => (
-              <path key={i} d={acwrGauge.arcPath(s.from, s.to, s.color)}
-                stroke={s.color} strokeWidth="10" fill="none" strokeLinecap="butt" opacity="0.35" />
-            ))}
-            {metrics.acwr !== null && (
-              <path d={acwrGauge.arcPath(0, Math.min(metrics.acwr / 2, 1) * 180, acwrColor)}
-                stroke={acwrColor} strokeWidth="10" fill="none" strokeLinecap="round" opacity="0.9" />
-            )}
-            {/* Needle */}
-            <line
-              x1={acwrGauge.cx} y1={acwrGauge.cy}
-              x2={acwrGauge.needle.x} y2={acwrGauge.needle.y}
-              stroke={acwrColor} strokeWidth="2.5" strokeLinecap="round"
-            />
-            <circle cx={acwrGauge.cx} cy={acwrGauge.cy} r="4" fill={acwrColor} />
-          </svg>
-          <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", color: acwrColor, lineHeight: 1, marginTop: -4 }}>
-            {metrics.acwr !== null ? metrics.acwr : "—"}
+        {/* Recent load trend — descriptive, not graded */}
+        <div style={{ background: COLORS.surface, borderRadius: 12, padding: "16px 14px 12px", marginBottom: 14 }}>
+          <div style={{ fontSize: "0.7rem", color: COLORS.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>Recent load trend</div>
+
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", color: COLORS.text, lineHeight: 1 }}>
+              {pctFromBaseline == null ? "—" : `${pctFromBaseline > 0 ? "+" : ""}${pctFromBaseline}%`}
+            </div>
+            <div style={{ fontSize: "0.82rem", color: COLORS.muted }}>
+              {pctFromBaseline == null
+                ? "not enough history to compare yet"
+                : `vs the recent 4-week weekly baseline of ${trend.baselineWeeklySRPE} sRPE`}
+            </div>
           </div>
-          <span className="badge" style={{ background: `${acwrColor}22`, color: acwrColor, fontSize: "0.78rem", marginTop: 6, display: "inline-flex" }}>{acwrLabel}</span>
-          <div style={{ fontSize: "0.66rem", color: COLORS.muted, marginTop: 8 }}>
-            <span style={{ color: "#6eb5ff" }}>■</span> Underload &lt;0.8 &nbsp;
-            <span style={{ color: COLORS.accent }}>■</span> Optimal 0.8–1.3 &nbsp;
-            <span style={{ color: COLORS.yellow }}>■</span> Caution &gt;1.3 &nbsp;
-            <span style={{ color: COLORS.red }}>■</span> Danger &gt;1.5
+
+          <div style={{ height: 8, borderRadius: 99, background: COLORS.border, position: "relative", marginBottom: 8 }}>
+            <div style={{ position: "absolute", left: "50%", top: -3, bottom: -3, width: 1, background: COLORS.muted, opacity: 0.6 }} />
+            <div style={{
+              position: "absolute", top: 0, bottom: 0, borderRadius: 99, background: COLORS.accent,
+              left: `${Math.min(50, barPct)}%`, width: `${Math.abs(barPct - 50)}%`,
+            }} />
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.7rem", color: COLORS.muted, marginBottom: 10 }}>
+            <span>lower than baseline</span>
+            <span>baseline</span>
+            <span>higher than baseline</span>
+          </div>
+
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+            <span className="badge" style={{ background: `${COLORS.muted}22`, color: COLORS.text, fontSize: "0.78rem", display: "inline-flex" }}>{trendLabel}</span>
+            <span style={{ fontSize: "0.72rem", color: COLORS.muted }}>
+              last 7 days {trend.last7DaySRPE} sRPE · workload ratio {metrics.acwr ?? "—"}
+            </span>
+          </div>
+
+          <div style={{ fontSize: "0.72rem", color: COLORS.muted, marginTop: 10, lineHeight: 1.55 }}>
+            This describes how the last week compares with the recent ones. It is not a risk score:
+            a higher figure is a prompt to review progression and recovery, and a lower one is never a reason to add training.
           </div>
         </div>
 
@@ -241,17 +237,15 @@ export default function PlanTab({ athleteId, profile, weekLogs, sessionHistory, 
                 {
                   label: "Load",
                   value: `${planResult.metrics?.thisWeekSRPE ?? "—"} sRPE`,
+                  // Neutral description, one colour: the label says what
+                  // changed, it does not grade it.
                   sub: workloadTrendLabel(planResult.metrics?.acwr ?? null),
-                  color: planResult.metrics?.acwr == null ? COLORS.muted
-                    : planResult.metrics.acwr > 1.5 ? COLORS.red
-                    : planResult.metrics.acwr > 1.3 ? COLORS.yellow
-                    : planResult.metrics.acwr < 0.8 ? "#6eb5ff"
-                    : COLORS.accent,
+                  color: COLORS.text,
                 },
                 {
-                  label: "ACWR",
+                  label: "Workload ratio",
                   value: planResult.metrics?.acwr != null ? planResult.metrics.acwr.toFixed(2) : "—",
-                  sub: "acute:chronic",
+                  sub: "this week vs recent average",
                   color: COLORS.text,
                 },
                 {

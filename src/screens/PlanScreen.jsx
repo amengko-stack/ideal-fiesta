@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { M } from "../styles/mobileTheme.js";
 import Card from "../ui/Card.jsx";
-import { workloadTrendStatus } from "../lib/load.js";
+import { workloadTrendLabel } from "../lib/load.js";
 import { nearestUpcoming, daysUntil, tournamentModeFor } from "../lib/tournaments.js";
 import { toLocalDateStr } from "../lib/dates.js";
-import { readWeeklyPlan, sessionProgress, OVER_TARGET_TENNIS_MESSAGE } from "../lib/weeklyPlanCore.js";
+import { readWeeklyPlan, sessionProgress, MOVEMENT_QUALITY_OPTIONS, OVER_TARGET_TENNIS_MESSAGE } from "../lib/weeklyPlanCore.js";
 import { GROWTH_WATCH_MESSAGE } from "../lib/growth.js";
 
 const MODES = [
@@ -51,6 +51,11 @@ function SessionCard({ session, onToggleExercise, onFinishSession }) {
   const [finishing, setFinishing] = useState(false);
   const [difficulty, setDifficulty] = useState(3);
   const [painNote, setPainNote] = useState("");
+  // No default. Movement quality is the one signal that must not be guessed:
+  // pre-selecting "good" would put the same unearned assumption back into the
+  // data that hardcoding it into the gate used to put into the plan. Null
+  // means nobody answered, and it is stored as nothing rather than as good.
+  const [movementQuality, setMovementQuality] = useState(null);
 
   const isRecovery = session.sessionType === "recovery" || (session.exercises || []).length === 0;
   const prog = sessionProgress(session);
@@ -148,7 +153,24 @@ function SessionCard({ session, onToggleExercise, onFinishSession }) {
                 fontSize: 13, color: M.ink, outline: "none", marginBottom: 14,
               }}
             />
-            <div onClick={() => { onFinishSession(session.id, difficulty, painNote.trim()); setFinishing(false); }} style={{
+            <div style={{ ...label, margin: "0 0 4px" }}>Movement quality</div>
+            <div style={{ fontSize: 11.5, color: M.sub, marginBottom: 9 }}>How did the technique hold up? This is what decides whether next week gets heavier.</div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+              {MOVEMENT_QUALITY_OPTIONS.map(o => {
+                const on = movementQuality === o.value;
+                return (
+                  <div key={o.value} onClick={() => setMovementQuality(o.value)} style={{
+                    flex: 1, cursor: "pointer", borderRadius: 12, padding: "9px 8px", textAlign: "center",
+                    border: on ? "1.5px solid #5c7a0a" : "1.5px solid #D6E2DB",
+                    background: on ? "#eefbdf" : M.card, transition: "all .12s",
+                  }}>
+                    <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 13, color: on ? "#5c7a0a" : M.ink }}>{o.label}</div>
+                    <div style={{ fontSize: 9.5, color: M.sub, lineHeight: 1.3, marginTop: 2 }}>{o.hint}</div>
+                  </div>
+                );
+              })}
+            </div>
+            <div onClick={() => { onFinishSession(session.id, difficulty, painNote.trim(), movementQuality); setFinishing(false); }} style={{
               cursor: "pointer", background: M.gradient, color: M.deepGreen, borderRadius: 14,
               padding: 13, textAlign: "center", fontFamily: M.display, fontWeight: 700,
               fontSize: 14.5, boxShadow: M.cta,
@@ -222,7 +244,10 @@ export default function PlanScreen({ plan: rawPlan, tournaments, loading, error,
   const sessions = plan.sessions || [];
   const scheduled = sessions.filter(s => s.sessionType !== "recovery" && (s.exercises || []).length > 0);
   const loggedCount = scheduled.filter(s => s.sessionLogged).length;
-  const st = workloadTrendStatus(plan.metrics?.acwr ?? null);
+  // A description of the direction of change, and one colour. The ratio used
+  // to arrive here as {label, tone} and the tone painted this tile red; there
+  // is no tone any more. See load.js.
+  const trendLabel = workloadTrendLabel(plan.metrics?.acwr ?? null);
   const targets = plan.loadContext?.targetComparison ?? null;
 
   return (
@@ -287,8 +312,8 @@ export default function PlanScreen({ plan: rawPlan, tournaments, loading, error,
           <div style={{ fontSize: 10, color: M.sub, fontWeight: 600 }}>week load</div>
         </Card>
         <Card style={{ flex: 1, borderRadius: 16, padding: 12, marginBottom: 0, boxShadow: M.dropSm }}>
-          <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 19, color: M.tone[st.tone] }}>{plan.metrics?.acwr != null ? plan.metrics.acwr.toFixed(2) : "—"}</div>
-          <div style={{ fontSize: 10, color: M.tone[st.tone], fontWeight: 700 }}>{st.label}</div>
+          <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 19, color: M.ink }}>{plan.metrics?.acwr != null ? plan.metrics.acwr.toFixed(2) : "—"}</div>
+          <div style={{ fontSize: 10, color: M.sub, fontWeight: 600, lineHeight: 1.25 }}>{trendLabel === "Unknown" ? "vs recent average" : trendLabel}</div>
         </Card>
         <Card style={{ flex: 1, borderRadius: 16, padding: 12, marginBottom: 0, boxShadow: M.dropSm }}>
           <div style={{ fontFamily: M.display, fontWeight: 700, fontSize: 15, color: M.success, lineHeight: 1.1 }}>

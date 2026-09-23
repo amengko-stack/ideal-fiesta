@@ -180,6 +180,78 @@ describe("buildWeeklyStrengthPlanPrompt — corrected safety language", () => {
   });
 });
 
+// ── THE MOVEMENT-QUALITY SIGNAL REACHES PRODUCTION ─────────────────────────
+// The generation path used to pass `movementQualityConcern: false` as a
+// literal, so the progression gate could never see a technique problem no
+// matter what anyone recorded. These tests pin the wiring.
+describe("buildWeeklyStrengthPlanPrompt — movement quality is a real input", () => {
+  beforeAll(() => { vi.useFakeTimers(); vi.setSystemTime(new Date(FIXTURE_NOW)); });
+  afterAll(() => vi.useRealTimers());
+
+  // fixtureCtx carries an open injury, which holds the gate on its own — so
+  // these use a clean context to isolate the technique signal.
+  const CLEAN_CTX = { ...fixtureCtx, injuryText: "", injuries: { open: [], flag: null, recurring: [] } };
+  const withLastSession = (over) => ({
+    ...fixtureArgs,
+    ctx: CLEAN_CTX,
+    sessionHistory: [{
+      date: "2026-03-13", plannedSessionId: "A",
+      exercises: [{ name: "Goblet Squat", sets: 2, reps: 8, difficulty: 3, completed: true }],
+      ...over,
+    }],
+  });
+
+  it("reads the stored rating instead of a hardcoded false", () => {
+    const good = buildWeeklyStrengthPlanPrompt(withLastSession({ movementQuality: "good" }));
+    expect(good.progression.movementQuality).toBe("good");
+    expect(good.progression.allowed).toBe(true);
+
+    const poor = buildWeeklyStrengthPlanPrompt(withLastSession({ movementQuality: "poor" }));
+    expect(poor.progression.movementQuality).toBe("poor");
+    expect(poor.progression.movementQualityConcern).toBe(true);
+    expect(poor.progression.allowed).toBe(false);
+  });
+
+  it("carries the hold into the framework the plan is built from", () => {
+    const { framework } = buildWeeklyStrengthPlanPrompt(withLastSession({ movementQuality: "poor" }));
+    expect(framework.progressionAllowed).toBe(false);
+    expect(framework.allowLoadIncrease).toBe(false);
+    expect(framework.allowThirdSet).toBe(false);
+  });
+
+  it("mixed holds the prescription; good at the same difficulty does not", () => {
+    expect(buildWeeklyStrengthPlanPrompt(withLastSession({ movementQuality: "mixed" })).progression.allowed).toBe(false);
+    expect(buildWeeklyStrengthPlanPrompt(withLastSession({ movementQuality: "good" })).progression.allowed).toBe(true);
+  });
+
+  it("tells the model the rating, and tells it not to infer one from difficulty", () => {
+    const { prompt } = buildWeeklyStrengthPlanPrompt(withLastSession({ movementQuality: "mixed" }));
+    expect(prompt).toContain("Movement quality last session: mixed — some reps lost quality");
+    const unrated = buildWeeklyStrengthPlanPrompt(withLastSession({})).prompt;
+    expect(unrated).toContain("Do NOT treat this as good technique, and do not infer it from the difficulty rating");
+  });
+
+  it("a session logged before the field existed reads as unknown, not good", () => {
+    const { prompt, progression } = buildWeeklyStrengthPlanPrompt({ ...fixtureArgs, ctx: CLEAN_CTX });
+    expect(progression.movementQuality).toBe("unknown");
+    expect(progression.notes).toContain("movement quality was not rated last session — do not assume technique was clean");
+    // ...and it does not corrupt the historical progression: the gate is open.
+    expect(progression.allowed).toBe(true);
+    expect(prompt).toContain("movement quality: NOT RATED (do not read as good)");
+  });
+
+  it("pain still overrides a good rating", () => {
+    const withInjury = {
+      ...withLastSession({ movementQuality: "good" }),
+      ctx: fixtureCtx,   // the open ankle
+    };
+    const { progression } = buildWeeklyStrengthPlanPrompt(withInjury);
+    expect(progression.movementQuality).toBe("good");
+    expect(progression.allowed).toBe(false);
+    expect(progression.reasons).toContain("pain, discomfort or an open injury is on record");
+  });
+});
+
 describe("buildWeeklyStrengthPlanPrompt — injected context sections", () => {
   beforeAll(() => { vi.useFakeTimers(); vi.setSystemTime(new Date(FIXTURE_NOW)); });
   afterAll(() => vi.useRealTimers());

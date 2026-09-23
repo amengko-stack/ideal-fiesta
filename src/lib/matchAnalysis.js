@@ -11,6 +11,9 @@ import { updateMemoryFromMatch } from "./athleteMemory.js";
 // Match-analysis generation, shared by the classic MatchDetail and any future
 // UI. Logic moved verbatim from MatchDetail (2026-07-09).
 export async function generateMatchAnalysis(athleteId, match) {
+  // `match.valissa` is a LEGACY PERSISTED KEY — the field the .matchtrack
+  // importer has always written this athlete's own stats under — not an
+  // identity. The name the model is shown comes from the profile below.
   const v     = match.valissa    || {};
   const o     = match.opponent   || {};
   const calc  = match.calculated || {};
@@ -20,6 +23,8 @@ export async function generateMatchAnalysis(athleteId, match) {
 
   const acwr = context.sessionLogs.acwr;
   const loadLevel = loadLevelFromAcwr(acwr);
+  // Profile first, then the name stored on the match by an older import.
+  const athleteName = context.athleteProfile?.name || match.valissaName || "the athlete";
 
   const matchId = match.id || match.matchId;
   const dp = context.deferredPriorities;
@@ -42,7 +47,7 @@ export async function generateMatchAnalysis(athleteId, match) {
     const emT = em.net + em.wide + em.long;
     const edT = ed.crosscourt + ed.downLine + ed.middle;
     if (wdT + emT === 0) return "";
-    const out = ["SHOT PLACEMENT — Valissa:"];
+    const out = [`SHOT PLACEMENT — ${athleteName}:`];
     if (wdT > 0) out.push(`- Winners land: ${share(wd.crosscourt, wdT)} crosscourt, ${share(wd.downLine, wdT)} down-line, ${share(wd.middle, wdT)} middle`);
     if (emT > 0) out.push(`- Errors miss: ${share(em.net, emT)} net, ${share(em.wide, emT)} wide, ${share(em.long, emT)} long`);
     if (edT > 0) out.push(`- Errors aimed: ${share(ed.crosscourt, edT)} crosscourt, ${share(ed.downLine, edT)} down-line, ${share(ed.middle, edT)} middle`);
@@ -70,25 +75,25 @@ ${memorySection}${seasonPrioritySection}${injurySection}
 MATCH (${divisionLabel}): ${match.whoWonMatch === 1 ? "WIN" : "LOSS"} vs ${match.opponentName || "Opponent"} on ${match.matchStartTime ? new Date(match.matchStartTime).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" }) : "unknown date"}
 Score: ${scoreStr}
 
-SERVICE STATS (Valissa / Opponent):
+SERVICE STATS (${athleteName} / Opponent):
 - 1st Serve %: ${v.firstServePct != null ? Math.round(v.firstServePct <= 1 ? v.firstServePct * 100 : v.firstServePct) : "—"}% / ${o.firstServePct != null ? Math.round(o.firstServePct <= 1 ? o.firstServePct * 100 : o.firstServePct) : "—"}%
 - 1st Serve Pts Won: ${safePct(v.firstServePointsWon, v.firstServePoints)} / ${safePct(o.firstServePointsWon, o.firstServePoints)}
 - 2nd Serve Pts Won: ${safePct(v.secondServePointsWon, v.secondServePoints)} / ${safePct(o.secondServePointsWon, o.secondServePoints)}
 - Aces: ${v.aces ?? "—"} / ${o.aces ?? "—"}
 - Double Faults: ${v.doubleFaults ?? "—"} / ${o.doubleFaults ?? "—"}
 
-POINT STATS (Valissa / Opponent):
+POINT STATS (${athleteName} / Opponent):
 - Winners: ${v.winners ?? "—"} / ${o.winners ?? "—"}
 - Unforced Errors: ${v.unforcedErrors ?? "—"} / ${o.unforcedErrors ?? "—"}
 - Forced Errors: ${v.forcedErrors ?? "—"} / ${o.forcedErrors ?? "—"}
 - W:UE Ratio: ${calc.wueRatio != null ? Number(calc.wueRatio).toFixed(2) : "—"} / ${o.unforcedErrors > 0 ? (o.winners / o.unforcedErrors).toFixed(2) : "—"}
 
 RALLY PATTERNS:
-- 0–4 shots: ${rally["0-4"]?.total ?? "—"} pts, Valissa win ${rally["0-4"]?.valissaWinPct != null ? rally["0-4"].valissaWinPct + "%" : "—"}
-- 5–8 shots: ${rally["5-8"]?.total ?? "—"} pts, Valissa win ${rally["5-8"]?.valissaWinPct != null ? rally["5-8"].valissaWinPct + "%" : "—"}
-- 9+ shots: ${rally["9+"]?.total ?? "—"} pts, Valissa win ${rally["9+"]?.valissaWinPct != null ? rally["9+"].valissaWinPct + "%" : "—"}
+- 0–4 shots: ${rally["0-4"]?.total ?? "—"} pts, ${athleteName} win ${rally["0-4"]?.valissaWinPct != null ? rally["0-4"].valissaWinPct + "%" : "—"}
+- 5–8 shots: ${rally["5-8"]?.total ?? "—"} pts, ${athleteName} win ${rally["5-8"]?.valissaWinPct != null ? rally["5-8"].valissaWinPct + "%" : "—"}
+- 9+ shots: ${rally["9+"]?.total ?? "—"} pts, ${athleteName} win ${rally["9+"]?.valissaWinPct != null ? rally["9+"].valissaWinPct + "%" : "—"}
 
-SHOT BREAKDOWN — Valissa (winners / errors):
+SHOT BREAKDOWN — ${athleteName} (winners / errors):
 - Forehand: ${v.fhWinner ?? 0}W / ${v.fhError ?? 0}E
 - Backhand: ${v.bhWinner ?? 0}W / ${v.bhError ?? 0}E
 - Return (combined): ${(v.fhReturnWinner ?? 0) + (v.bhReturnWinner ?? 0)}W / ${(v.fhReturnError ?? 0) + (v.bhReturnError ?? 0)}E

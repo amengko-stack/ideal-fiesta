@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { dueReminders } from "./reminders.js";
 import { FITNESS_TESTS } from "./fitnessTests.js";
 import { toLocalDateStr } from "./dates.js";
+import { computeLoad } from "./load.js";
 
 // The Firebase-free guarantee for this module is enforced repo-wide by the
 // transitive import guard in athleteMemoryCore.test.js.
@@ -145,7 +146,7 @@ function realMonday(weeksAgo) {
 const LOAD_SUNDAY = new Date("2026-08-09T12:00:00");
 const LOAD_SUNDAY_STR = "2026-08-09";
 
-describe("training load family — one reminder for ACWR, monotony and sustained volume", () => {
+describe("training load family — one reminder for monotony and sustained volume", () => {
   beforeAll(() => { vi.useFakeTimers(); vi.setSystemTime(LOAD_SUNDAY); });
   afterAll(() => vi.useRealTimers());
 
@@ -174,10 +175,9 @@ describe("training load family — one reminder for ACWR, monotony and sustained
     expect(kindsOf(dueReminders({ weekLogs: [] }, LOAD_SUNDAY))).not.toContain("load");
   });
 
-  it("emits exactly ONE reminder when all three drivers fire at once", () => {
-    // week 0 repetitive at ~2760 sRPE (acute spike + monotony), weeks 1-2 at
-    // 2100 (over the 2000 sustained-volume line, low enough to leave ACWR
-    // above 1.5), week 3 empty.
+  it("emits exactly ONE reminder when both drivers fire at once", () => {
+    // week 0 repetitive at ~2760 sRPE (monotony), weeks 1-2 at 2100 (over the
+    // 2000 sustained-volume line), week 3 empty.
     const weekLogs = [...weekOf(0, repetitive(400)), ...weekOf(1, flat(300)), ...weekOf(2, flat(300))];
     const loads = loadOf({ weekLogs });
     expect(loads.length).toBe(1);
@@ -188,11 +188,10 @@ describe("training load family — one reminder for ACWR, monotony and sustained
   it("names every driver that fired in the one body", () => {
     const weekLogs = [...weekOf(0, repetitive(400)), ...weekOf(1, flat(300)), ...weekOf(2, flat(300))];
     const [load] = loadOf({ weekLogs });
-    expect(load.body).toContain("well above the recent average");
-    expect(load.body).toContain("review progression and recovery");
-    expect(load.body).not.toMatch(/danger|recovery day/i);
     expect(load.body).toContain("repetitive");
     expect(load.body).toContain("3 consecutive weeks");
+    // The ratio is very high on this fixture. It contributes nothing.
+    expect(load.body).not.toMatch(/above the recent average/i);
   });
 
   it("escalates the single reminder to danger when any driver is danger", () => {
@@ -208,25 +207,57 @@ describe("training load family — one reminder for ACWR, monotony and sustained
     expect(load.title).toBe("Too repetitive");           // dominant (danger) driver
     expect(load.body).toContain("repetitive");
     expect(load.body).toContain("3 consecutive weeks");
-    expect(load.body).not.toContain("ACWR");             // that driver did not fire
+    expect(load.body).not.toMatch(/ACWR|recent average/i);   // no ratio language at all
   });
 
-  it("still fires for an acute ACWR spike on its own", () => {
+  // ─── THE RATIO ALONE CANNOT RAISE A REMINDER ────────────────────────
+  // There used to be a test here called "still fires for an acute ACWR spike on
+  // its own", asserting a danger-toned card from a ratio and nothing else. That
+  // was the defect, written down as a requirement. It is replaced by its exact
+  // negation, because a deleted test proves nothing to the next reader.
+  it("raises NOTHING for a workload ratio on its own, however extreme", () => {
     // One big session in week 0, quiet weeks behind it: spiky enough that
-    // monotony reads as varied, and the prior weeks stay under 2000.
+    // monotony reads as varied, and the prior weeks stay under 2000. The only
+    // thing left that is remarkable about this week is the ratio.
     const weekLogs = [
       ...weekOf(0, [3000, 0, 0, 0, 0, 0, 0]),
       ...weekOf(1, flat(200)), ...weekOf(2, flat(200)), ...weekOf(3, flat(200)),
     ];
-    const [load, ...rest] = loadOf({ weekLogs });
-    expect(rest).toEqual([]);
-    expect(load.tone).toBe("danger");
-    expect(load.title).toBe("Training is above recent weeks");
-    expect(load.body).toContain("well above the recent average");
-    expect(load.body).toContain("review progression and recovery");
-    expect(load.body).not.toMatch(/danger|recovery day/i);
-    expect(load.body).not.toContain("repetitive");
-    expect(load.body).not.toContain("consecutive weeks");
+    // The fixture is not vacuous: the ratio really is far past the old 1.5 line.
+    expect(computeLoad(weekLogs).acwr).toBeGreaterThan(1.5);
+    expect(loadOf({ weekLogs })).toEqual([]);
+    expect(kindsOf(dueReminders({ weekLogs }, LOAD_SUNDAY))).not.toContain("load");
+  });
+
+  it("raises nothing at a low ratio either — a quiet week is not a deficiency", () => {
+    // The mirror case. A week well BELOW the recent average must not produce a
+    // card, a nudge, or any suggestion that more training is owed.
+    const weekLogs = [
+      ...weekOf(0, [200, 0, 0, 0, 0, 0, 0]),
+      ...weekOf(1, flat(300)), ...weekOf(2, flat(300)), ...weekOf(3, flat(300)),
+    ];
+    expect(computeLoad(weekLogs).acwr).toBeLessThan(0.8);
+    expect(loadOf({ weekLogs })).toEqual([]);
+    const all = dueReminders({ weekLogs }, LOAD_SUNDAY);
+    for (const r of all) {
+      expect(`${r.title} ${r.body}`).not.toMatch(/train more|push|increase the load|underload/i);
+    }
+  });
+
+  it("changing ONLY the ratio changes no reminder", () => {
+    // Same current week both times — identical sessions, identical dates. Only
+    // the three weeks BEHIND it differ, which moves the 4-week denominator and
+    // therefore the ratio, and touches nothing else the engine reads.
+    const thisWeek = weekOf(0, [900, 0, 900, 0, 0, 0, 0]);
+    const lowRatio  = [...thisWeek, ...weekOf(1, flat(260)), ...weekOf(2, flat(260)), ...weekOf(3, flat(260))];
+    const highRatio = [...thisWeek, ...weekOf(1, flat(20)),  ...weekOf(2, flat(20)),  ...weekOf(3, flat(20))];
+
+    // The lever moved, and it moved across the whole of the old band set.
+    expect(computeLoad(lowRatio).acwr).toBeLessThan(1.0);
+    expect(computeLoad(highRatio).acwr).toBeGreaterThan(1.5);
+
+    expect(dueReminders({ weekLogs: highRatio }, LOAD_SUNDAY))
+      .toEqual(dueReminders({ weekLogs: lowRatio }, LOAD_SUNDAY));
   });
 
   it("still fires for monotony on its own", () => {

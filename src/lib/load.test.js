@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { sessionSRPE, computeLoad, computeLoadHistory, mergeWellbeingByDate, calculateMetrics, readinessScore, acwrStatus, loadLevelFromAcwr, workloadTrendStatus, workloadTrendLabel, getLoadContext, rollingSRPE, loadTrend, weeklyTrainingSummary, computeMonotonyStrain, monotonyStatus } from "./load.js";
+import * as load from "./load.js";
+import { sessionSRPE, computeLoad, computeLoadHistory, mergeWellbeingByDate, calculateMetrics, readinessScore, loadLevelFromAcwr, workloadTrendLabel, getLoadContext, rollingSRPE, loadTrend, weeklyTrainingSummary, computeMonotonyStrain, monotonyStatus } from "./load.js";
 import { getWeekBounds, toLocalDateStr } from "./dates.js";
 
 describe("sessionSRPE", () => {
@@ -243,48 +244,97 @@ describe("workloadTrendLabel", () => {
   });
 });
 
-describe("workloadTrendStatus", () => {
-  it("maps thresholds to neutral labels; tone is colour emphasis only", () => {
-    expect(workloadTrendStatus(1.6)).toEqual({ label: "Well above recent", tone: "danger" });
-    expect(workloadTrendStatus(1.4)).toEqual({ label: "Above recent", tone: "warn" });
-    expect(workloadTrendStatus(0.7)).toEqual({ label: "Below recent", tone: "muted" });
-    expect(workloadTrendStatus(1.0)).toEqual({ label: "In line with recent", tone: "success" });
-  });
-  it("handles a missing ratio", () => {
-    expect(workloadTrendStatus(null)).toEqual({ label: "No data", tone: "muted" });
-  });
-  it("never tells a low week to train more", () => {
-    for (const r of [0.1, 0.5, 0.79]) {
-      expect(workloadTrendStatus(r).label).not.toMatch(/push|more|increase|underload/i);
+// ─── THE RATIO CANNOT BE TURNED INTO A STATUS ──────────────────────────
+// This module used to export workloadTrendStatus/acwrStatus: ratio -> {label,
+// tone}, with tone in {danger, warn, success, muted}. Every screen keyed a
+// colour off it and the reminder engine fired a card off it. Both are gone, and
+// this block is what stops them coming back — by NAME, because the names are
+// what a future import would reach for.
+describe("the ratio cannot be turned into a status", () => {
+  it("exports no status function over the ratio, under any of its old names", () => {
+    for (const name of ["workloadTrendStatus", "acwrStatus", "acwrZone", "loadZone", "acwrTone"]) {
+      expect(load[name], `load.js must not export ${name}`).toBeUndefined();
     }
   });
-  it("is what acwrStatus now resolves to", () => {
-    expect(acwrStatus).toBe(workloadTrendStatus);
+
+  it("exports nothing else that maps a ratio onto a tone", () => {
+    // Anything callable that takes a number and hands back an object with a
+    // `tone` on it is the banned shape, whatever it ends up being called.
+    //
+    // monotonyStatus is the one deliberate exception and is NOT a ratio
+    // function: monotony is mean ÷ SD of one week's own sessions, so "every
+    // session was identical" is a fact about that week, not a comparison of
+    // this child against a population baseline. It keeps its tone.
+    const ALLOWED_TONE = new Set(["monotonyStatus"]);
+    for (const [name, value] of Object.entries(load)) {
+      if (typeof value !== "function" || ALLOWED_TONE.has(name)) continue;
+      let out;
+      try { out = value(1.6); } catch { continue; }
+      expect(out?.tone, `load.${name}(1.6) returned a tone — that is the retired shape`).toBeUndefined();
+    }
+  });
+
+  it("still exposes the arithmetic the description is built from", () => {
+    // Removing the status must not remove the numbers: a screen showing
+    // "2,140 vs 1,830 — +17%" needs all three, and they are still here.
+    const trend = loadTrend([{ date: "2026-08-12", type: "tennis", duration: 60, rpe: 7 }],
+      new Date("2026-08-12T12:00:00"));
+    expect(trend).toHaveProperty("last7DaySRPE");
+    expect(trend).toHaveProperty("baselineWeeklySRPE");
+    expect(trend).toHaveProperty("pctFromBaseline");
+    expect(trend).toHaveProperty("ratio");
+  });
+
+  it("0.7 does not recommend more training and 1.4/1.6 do not raise a warning", () => {
+    // The four figures the correction brief names, through the only ratio
+    // function that survives.
+    expect(workloadTrendLabel(0.7)).toBe("Below recent average");
+    expect(workloadTrendLabel(1.4)).toBe("Above recent average");
+    expect(workloadTrendLabel(1.6)).toBe("Well above recent average");
+    for (const r of [0.7, 1.4, 1.5, 1.6]) {
+      expect(workloadTrendLabel(r)).not.toMatch(/push|train more|increase|ease up|optimal|danger|warning|caution|underload|safe|risk/i);
+    }
   });
 });
 
 describe("getLoadContext", () => {
-  it("describes the ratio without medicalised zone language", () => {
-    const notes = getLoadContext(1.6, "none", null).join(" | ");
-    expect(notes).toContain("well above recent average");
+  // It now reads the DESCRIPTIVE trend object, not the acute:chronic ratio:
+  // nothing here tests a number against a fixed ratio band.
+  const trend = (last7DaySRPE, baselineWeeklySRPE) => ({
+    last7DaySRPE,
+    baselineWeeklySRPE,
+    pctFromBaseline: Math.round(((last7DaySRPE - baselineWeeklySRPE) / baselineWeeklySRPE) * 100),
+  });
+
+  it("reports the change as a percentage of the recent baseline, with no zone language", () => {
+    const notes = getLoadContext(trend(2000, 1000), "none", null).join(" | ");
+    expect(notes).toContain("100% higher than the recent 4-week weekly baseline");
     expect(notes).toContain("review progression and recovery");
-    expect(notes).not.toMatch(/danger zone|OPTIMAL|UNDERLOADED/i);
+    expect(notes).not.toMatch(/danger|optimal|underload|caution|injury risk/i);
   });
-  it("says explicitly that a low figure is not an instruction to train more", () => {
-    const notes = getLoadContext(0.5, "none", null).join(" | ");
+  it("says explicitly that a lower figure is not an instruction to train more", () => {
+    const notes = getLoadContext(trend(500, 1000), "none", null).join(" | ");
+    expect(notes).toContain("50% lower than");
     expect(notes).toContain("never a reason to add training");
-    expect(notes).not.toMatch(/can handle more|push more/i);
+    expect(notes).not.toMatch(/can handle more|push more|train more/i);
   });
-  it("stays neutral in the middle of the range", () => {
-    const notes = getLoadContext(1.0, "none", null).join(" | ");
-    expect(notes).toContain("in line with recent average");
+  it("stays neutral when the week is close to the baseline", () => {
+    const notes = getLoadContext(trend(1050, 1000), "none", null).join(" | ");
+    expect(notes).toContain("5% higher than");
     expect(notes).not.toContain("review progression and recovery");
   });
+  it("takes a large change in either direction, symmetrically", () => {
+    const up   = getLoadContext(trend(1300, 1000), "none", null).join(" | ");
+    const down = getLoadContext(trend(700, 1000), "none", null).join(" | ");
+    expect(up).toContain("large change from recent training");
+    expect(down).toContain("large change from recent training");
+  });
   it("keeps the tournament guidance, now describing the one-session week", () => {
-    expect(getLoadContext(1.0, "week_of", null).join(" | ")).toContain("one shortened maintenance session");
+    expect(getLoadContext(trend(1000, 1000), "week_of", null).join(" | ")).toContain("one shortened maintenance session");
   });
   it("handles no history at all", () => {
     expect(getLoadContext(null, "none", null).join(" | ")).toContain("Not enough load history");
+    expect(getLoadContext({ pctFromBaseline: null }, "none", null).join(" | ")).toContain("Not enough load history");
   });
 });
 

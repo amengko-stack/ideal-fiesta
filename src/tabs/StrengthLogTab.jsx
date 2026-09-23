@@ -1,25 +1,32 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Dumbbell } from "lucide-react";
 import { toLocalDateStr } from "../lib/dates.js";
 import { COLORS } from "../styles/theme.js";
 
 // ─── STRENGTH LOG TAB ─────────────────────────────────────────────────────────
-export default function StrengthLogTab({ sessionHistory, addSession, planResult }) {
+export default function StrengthLogTab({ addSession, planResult }) {
   const [logExercises, setLogExercises]   = useState([]);
   const [sessionDate, setSessionDate]     = useState(toLocalDateStr(new Date()));
   const [sessionTimeLog, setSessionTimeLog] = useState(new Date().toTimeString().slice(0, 5));
   const [saving, setSaving]               = useState(false);
   const [saved, setSaved]                 = useState(false);
 
-  useEffect(() => {
-    if (planResult?.plan && logExercises.length === 0) {
-      setLogExercises(planResult.plan.map(ex => ({
-        id: ex.id, name: ex.name,
-        sets: ex.sets || 2, reps: ex.reps || 10,
-        weight: "", difficulty: 3, completed: true, notes: ""
-      })));
-    }
-  }, [planResult]);
+  // Seed the log from the plan, once, while the log is still empty — the same
+  // condition the effect this replaces used. Done during render rather than in
+  // an effect: setting state synchronously inside an effect body renders the
+  // empty log first and the seeded one immediately after, which is a visible
+  // flash on a slow device. `seededFrom` is what stops it re-seeding on every
+  // render; `logExercises.length === 0` is what stops it overwriting work the
+  // athlete has already typed.
+  const [seededFrom, setSeededFrom] = useState(null);
+  if (planResult?.plan && planResult !== seededFrom && logExercises.length === 0) {
+    setSeededFrom(planResult);
+    setLogExercises(planResult.plan.map(ex => ({
+      id: ex.id, name: ex.name,
+      sets: ex.sets || 2, reps: ex.reps || 10,
+      weight: "", difficulty: 3, completed: true, notes: ""
+    })));
+  }
 
   const addExercise = () => {
     setLogExercises(prev => [...prev, {

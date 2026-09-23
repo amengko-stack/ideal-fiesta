@@ -7,7 +7,7 @@ import { db } from "../firebase";
 import { toLocalDateStr } from "../lib/dates.js";
 import { COLORS } from "../styles/theme.js";
 import { FITNESS_TESTS } from "../lib/fitnessTests.js";
-import { maturityOffset, stageInfo } from "../lib/maturity.js";
+import { maturityOffset, MATURITY_UNCERTAINTY_NOTE } from "../lib/maturity.js";
 
 // ─── BENCHMARKS TAB ───────────────────────────────────────────────────────────
 export default function BenchmarksTab({ athleteId, profile }) {
@@ -18,6 +18,9 @@ export default function BenchmarksTab({ athleteId, profile }) {
   const [ftResult,     setFtResult]     = useState("");
   const [ftDate,       setFtDate]       = useState(toLocalDateStr(new Date()));
   const [ftNotes,      setFtNotes]      = useState("");
+  // "Retest every 6-8 weeks" cutoff. Lazily initialised so the clock is read
+  // once at mount rather than on every render.
+  const [cutoff56] = useState(() => toLocalDateStr(new Date(Date.now() - 56 * 24 * 60 * 60 * 1000)));
   const [ftSaving,     setFtSaving]     = useState(false);
   const [expandedTest, setExpandedTest] = useState(null);
 
@@ -61,15 +64,10 @@ export default function BenchmarksTab({ athleteId, profile }) {
   const ageYears  = maturity?.age    ?? null;
   const phvStage  = maturity?.stage  ?? null;
 
-  const phvColor = phvStage === "Pre-PHV"  ? COLORS.accent
-    : phvStage === "Mid-PHV"  ? COLORS.yellow
-    : COLORS.cheer;
-
-  const implications = {
-    "Pre-PHV":  stageInfo("Pre-PHV").implication,
-    "Mid-PHV":  stageInfo("Mid-PHV").implication,
-    "Post-PHV": stageInfo("Post-PHV").implication,
-  };
+  // One neutral colour for the whole panel. Stage-coded colour is a verdict:
+  // green/amber/red on a population estimate tells a parent this number grades
+  // their child, which is exactly what it does not do.
+  const estimateColor = COLORS.muted;
 
   const missing = [];
   if (!height)        missing.push("standing height");
@@ -80,10 +78,23 @@ export default function BenchmarksTab({ athleteId, profile }) {
   return (
     <div>
       <div className="card">
-        <div className="card-title"><TrendingUp size={18} /> Maturity Assessment</div>
-        <p style={{ color: COLORS.muted, fontSize: "0.83rem", marginBottom: 16 }}>
-          Mirwald maturity offset estimates years to/from Peak Height Velocity (PHV) — the point of fastest growth. Used to calibrate training load and injury risk.
+        <div className="card-title"><TrendingUp size={18} /> Estimated maturity timing</div>
+        <p style={{ color: COLORS.muted, fontSize: "0.83rem", marginBottom: 10, lineHeight: 1.6 }}>
+          The Mirwald equation estimates how many years she is from Peak Height Velocity (PHV) — her fastest period of growth — from standing height, sitting height,
+          weight and age. It is a <strong style={{ color: COLORS.text }}>rough anthropometric estimate from a population regression</strong>, not a measurement:
+          individual error is wide, and two children with the same numbers can be at genuinely different stages.
         </p>
+        <div className="note-box" style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: "0.78rem", color: COLORS.text, lineHeight: 1.6 }}>
+            <strong>This figure is informational only.</strong> It does not determine S&amp;C, training load, injury risk, readiness,
+            match analysis, season analysis, Guardian alerts or Growth Watch, and it never approves or prohibits an exercise. No AI prompt
+            in this app is given it — including the one that writes the wording of a Guardian alert. The one place it is carried at all is
+            alongside a Guardian assessment, as labelled context with zero weight, excluded from that alert's signal count, severity,
+            recommended action and note. Her{" "}
+            <strong>measured height history</strong> — the dated measurements in the Growth tab, and the growth velocity derived from them — is the
+            growth signal that actually informs current training.
+          </div>
+        </div>
 
         {missing.length > 0 ? (
           <div className="note-box" style={{ borderColor: COLORS.yellow, background: "rgba(245,197,24,0.07)" }}>
@@ -100,26 +111,24 @@ export default function BenchmarksTab({ athleteId, profile }) {
                 padding: "14px 16px", textAlign: "center",
                 border: `1px solid ${COLORS.border}`,
               }}>
-                <div style={{ fontSize: "0.7rem", color: COLORS.muted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Maturity Offset</div>
-                <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", color: mirwald >= 0 ? COLORS.accent : COLORS.yellow, lineHeight: 1 }}>
+                <div style={{ fontSize: "0.7rem", color: COLORS.muted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Estimated offset</div>
+                <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", color: COLORS.text, lineHeight: 1 }}>
                   {mirwald >= 0 ? "+" : ""}{mirwald}
                 </div>
-                <div style={{ fontSize: "0.72rem", color: COLORS.muted, marginTop: 4 }}>years from PHV</div>
+                <div style={{ fontSize: "0.72rem", color: COLORS.muted, marginTop: 4 }}>estimated years from PHV</div>
               </div>
 
               <div style={{
                 flex: 1, minWidth: 120, background: COLORS.surface, borderRadius: 10,
                 padding: "14px 16px", textAlign: "center",
-                border: `2px solid ${phvColor}`,
+                border: `1px solid ${COLORS.border}`,
               }}>
-                <div style={{ fontSize: "0.7rem", color: COLORS.muted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>PHV Stage</div>
-                <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", color: phvColor, lineHeight: 1.1 }}>
+                <div style={{ fontSize: "0.7rem", color: COLORS.muted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Estimated band</div>
+                <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", color: estimateColor, lineHeight: 1.1 }}>
                   {phvStage}
                 </div>
                 <div style={{ fontSize: "0.72rem", color: COLORS.muted, marginTop: 4 }}>
-                  {phvStage === "Pre-PHV"  && "approaching peak growth"}
-                  {phvStage === "Mid-PHV"  && "in peak growth window"}
-                  {phvStage === "Post-PHV" && "past peak growth"}
+                  estimated / informational
                 </div>
               </div>
 
@@ -137,14 +146,18 @@ export default function BenchmarksTab({ athleteId, profile }) {
             </div>
 
             <div style={{
-              borderLeft: `3px solid ${phvColor}`,
+              borderLeft: `3px solid ${COLORS.border}`,
               paddingLeft: 12, marginBottom: 16,
             }}>
-              <div style={{ fontSize: "0.75rem", color: phvColor, fontWeight: 700, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                Training Implication — {phvStage}
+              <div style={{ fontSize: "0.75rem", color: COLORS.muted, fontWeight: 700, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                What the estimate says — estimated / informational
               </div>
               <div style={{ fontSize: "0.83rem", color: COLORS.text, lineHeight: 1.6 }}>
-                {implications[phvStage]}
+                {MATURITY_UNCERTAINTY_NOTE}
+              </div>
+              <div style={{ fontSize: "0.78rem", color: COLORS.muted, lineHeight: 1.6, marginTop: 6 }}>
+                No training recommendation follows from this band. What she trains this week comes from the deterministic S&amp;C framework,
+                her measured growth velocity and her own logged training history.
               </div>
             </div>
 
@@ -164,7 +177,8 @@ export default function BenchmarksTab({ athleteId, profile }) {
             </div>
 
             <div className="note-box mt16">
-              💡 Re-measure monthly and update Profile to track maturity progression over time.
+              💡 Re-measure monthly and update Profile. Repeated <strong>measured</strong> heights are what make the growth picture useful —
+              the estimate above only moves because these inputs moved.
             </div>
           </>
         )}
@@ -218,7 +232,6 @@ export default function BenchmarksTab({ athleteId, profile }) {
         {ftLoading ? (
           <div style={{ textAlign: "center", padding: 20 }}><div className="spinner" /></div>
         ) : (() => {
-          const cutoff56 = toLocalDateStr(new Date(Date.now() - 56 * 24 * 60 * 60 * 1000));
 
           // Group entries by test name, sorted newest-first per test
           const byTest = {};

@@ -1,4 +1,4 @@
-import { computeLoad, workloadTrendStatus, computeMonotonyStrain, monotonyStatus, calculateMetrics } from "./load.js";
+import { computeLoad, computeMonotonyStrain, monotonyStatus, calculateMetrics } from "./load.js";
 import { daysUntil, nearestUpcoming } from "./tournaments.js";
 import { weeklyFocus } from "./practiceFocus.js";
 import { toLocalDateStr } from "./dates.js";
@@ -132,33 +132,32 @@ export function dueReminders(state, today, { suppressKinds = [] } = {}) {
     }
   }
 
-  // 3. Training load — one reminder for the whole family. An acute spike, high
-  // monotony and a sustained-volume run are three readings of the same
-  // weekLogs and, in practice, of the same week of training; emitting one card
-  // each taught the reader that load cards are noise and could be swiped away
-  // together. So the sub-signals are collected as *drivers* and at most one
-  // reminder goes out, carrying the worst tone and naming every driver that
-  // fired — the reader still has to be able to tell an acute spike from
-  // repetitiveness from sustained volume, because the response differs.
-  const { acwr, weekSRPEs } = computeLoad(weekLogs);
+  // 3. Training load — one reminder for the whole family. High monotony and a
+  // sustained-volume run are two readings of the same weekLogs and, in
+  // practice, of the same week of training; emitting one card each taught the
+  // reader that load cards are noise and could be swiped away together. So the
+  // sub-signals are collected as *drivers* and at most one reminder goes out,
+  // carrying the worst tone and naming every driver that fired — the reader
+  // still has to be able to tell repetitiveness from sustained volume, because
+  // the response differs.
+  //
+  // ── THE WORKLOAD RATIO IS NOT ONE OF THE DRIVERS, AND MUST NOT BECOME ONE ──
+  // There used to be a rule 3a here: workloadTrendStatus(acwr) returned
+  // "danger" above 1.5 or "warn" above 1.3, and that alone pushed a card. So a
+  // ratio — a number whose bands have never been validated for an individual
+  // child — was on its own enough to buzz a parent's phone and tell them this
+  // week was a problem. Deleting the tone was not enough; the whole path is
+  // gone, and lowering it to `info` would have been the same mistake in a
+  // quieter font.
+  //
+  // What remains below are observations, not inferences: the same load every
+  // day (3a), and weeks that were genuinely big in absolute terms (3b). Pain,
+  // wellbeing, missed recovery and tournament proximity have their own rules
+  // further down. A ratio reaching a threshold is not among them.
+  const { weekSRPEs } = computeLoad(weekLogs);
   const loadDrivers = [];
 
-  // 3a. Acute:chronic workload ratio.
-  // The ratio describes how this week compares to the recent block. It is not a
-  // validated injury predictor, so the card reports the change and asks for a
-  // look at progression and recovery — it never prescribes a recovery day.
-  const acwrSt = workloadTrendStatus(acwr);
-  if (acwrSt && (acwrSt.tone === "danger" || acwrSt.tone === "warn")) {
-    loadDrivers.push({
-      tone: acwrSt.tone,
-      title: "Training is above recent weeks",
-      body: acwrSt.tone === "danger"
-        ? "This week's training is well above the recent average — review progression and recovery."
-        : "This week's training is above the recent average — review progression and recovery.",
-    });
-  }
-
-  // 3b. Monotony — same load every day, regardless of how much of it there is.
+  // 3a. Monotony — same load every day, regardless of how much of it there is.
   const { monotony } = computeMonotonyStrain(weekLogs, now);
   const monoSt = monotonyStatus(monotony);
   if (monoSt && (monoSt.tone === "danger" || monoSt.tone === "warn")) {
@@ -169,7 +168,7 @@ export function dueReminders(state, today, { suppressKinds = [] } = {}) {
     });
   }
 
-  // 3c. Extended high load — sRPE > highLoadSRPE for highLoadWeeks consecutive
+  // 3b. Extended high load — sRPE > highLoadSRPE for highLoadWeeks consecutive
   // weeks. weekSRPEs is [thisWeek, 1wk ago, 2wk ago, 3wk ago].
   const highWeeks = weekSRPEs.slice(0, RULES.highLoadWeeks);
   if (highWeeks.length === RULES.highLoadWeeks && highWeeks.every(s => s > RULES.highLoadSRPE)) {
@@ -182,10 +181,10 @@ export function dueReminders(state, today, { suppressKinds = [] } = {}) {
 
   if (loadDrivers.length > 0) {
     // Worst tone wins; the title comes from the most severe driver, and ties
-    // fall to declaration order (spike → repetitiveness → sustained volume),
-    // which is the most-acute-first ordering a parent should act on. The id
-    // keeps the original date-stamped `load-<tone>-<date>` shape so alerts
-    // dismissed under the old three-rule engine stay dismissed.
+    // fall to declaration order (repetitiveness → sustained volume), which is
+    // the most-acute-first ordering a parent should act on. The id keeps the
+    // original date-stamped `load-<tone>-<date>` shape so alerts dismissed
+    // under the older engines stay dismissed.
     const tone = loadDrivers.some(d => d.tone === "danger") ? "danger" : "warn";
     push({
       id: `load-${tone}-${todayStr}`, kind: "load", tone,

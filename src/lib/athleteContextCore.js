@@ -2,7 +2,6 @@ import { sessionSRPE, computeLoad } from "./load.js";
 import { toLocalDateStr } from "./dates.js";
 import { nearestUpcoming, daysUntil } from "./tournaments.js";
 import { computeAge, identityBlock, resolveIdentity } from "./athleteIdentity.js";
-import { maturityOffset, stageInfo, MATURITY_ESTIMATE_LABEL } from "./maturity.js";
 import { memoryBlock } from "./athleteMemoryCore.js";
 import { openInjuries, injuryLoadFlag, injuryDuration, recurringAreas } from "./injuries.js";
 
@@ -177,22 +176,29 @@ export function assembleAthleteContext(raw, now = new Date()) {
     const p        = profile;
     const identity  = resolveIdentity(p, now);
 
-    // Maturation line for the AI: uses the latest measurement carrying a
-    // sitting-height reading (measurements are stored newest-first), falling
-    // back to the top-level profile fields when that entry omits height/weight.
-    const latestWithSittingHeight = (p.measurements ?? []).find(m => m.sittingHeight != null);
-    const maturity = latestWithSittingHeight
-      ? maturityOffset({
-          dob:             p.dob,
-          heightCm:        latestWithSittingHeight.height ?? p.height,
-          sittingHeightCm: latestWithSittingHeight.sittingHeight ?? p.sittingHeight,
-          weightKg:        latestWithSittingHeight.weight ?? p.weight,
-          date:            now,
-        })
-      : null;
-    const maturityLine = maturity
-      ? `${MATURITY_ESTIMATE_LABEL}: ${maturity.stage} (≈${Math.abs(maturity.offset).toFixed(1)} yrs ${maturity.offset < 0 ? "from" : "past"} the estimated growth spurt) — ${stageInfo(maturity.stage)?.implication ?? ""}`
-      : null;
+    // ─── NO MIRWALD/MATURITY ESTIMATE REACHES THE MODEL FROM HERE ────────────
+    // This block used to compute maturityOffset() and append a line to
+    // identityText that named the band and its stage-derived "implication":
+    //
+    //   Estimated maturity offset — interpret cautiously: Mid-PHV
+    //   (≈0.4 yrs past the estimated growth spurt) — <stage implication>
+    //
+    // identityText is the first line of the match-analysis prompt AND the
+    // season-report prompt, and both of those write deferred priorities and
+    // standing season priorities that later steer planning. So a population
+    // regression carrying years of individual error was, by that route,
+    // shaping what she would be told to work on for the next month.
+    //
+    // It is gone. The estimate is still calculated for a parent to read (the
+    // Me screen, the classic Benchmarks panel) and still carried in the
+    // Guardian's own metrics, but it enters no AI decision context. What the
+    // model is told about who she is comes from identityBlock: age,
+    // competition category, whether she is playing up — measured or
+    // administrative facts. Measured height history and observed growth
+    // velocity remain available to the components that legitimately use them.
+    //
+    // maturityIsolation.test.js proves it, by holding every other field fixed
+    // and moving the estimate across all three bands.
 
     athleteProfile = {
       name:                p.name ?? null,
@@ -203,9 +209,12 @@ export function assembleAthleteContext(raw, now = new Date()) {
       playingUp:           identity.playingUp,
       isPlayingUp:         identity.isPlayingUp,
       gaps:                p.gaps ?? [],
-      phvStage:            p.phvStage ?? null,
-      maturityLine,
-      identityText:        identityBlock(p, now) + (maturityLine ? `\n${maturityLine}` : ""),
+      // `phvStage` was a legacy persisted profile field forwarded straight
+      // through here — a stored maturity band sitting inside the very object
+      // the prompts are built from. Nothing writes it and nothing read it, and
+      // it is no longer surfaced. The field itself stays in Firestore
+      // untouched; this is not a migration.
+      identityText:        identityBlock(p, now),
     };
   }
 

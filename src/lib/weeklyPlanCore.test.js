@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildWeeklyFramework, buildSession, buildWeeklyPlanDoc, readWeeklyPlan,
   blockPhase, clampBlockWeek, progressionGate,
+  readMovementQuality, MOVEMENT_QUALITY, MOVEMENT_QUALITY_OPTIONS,
   newProgramState, readProgramState, migrateProgramState, resolveProgramState,
   startNextBlock, calendarWeeksBetween, PROGRAM_STATE_SCHEMA_VERSION, PROGRAM_STATE_DOC,
   mergeSessionAdjustments, clampPlyoVolume, plyometricContacts, workingSetCount,
@@ -397,11 +398,21 @@ describe("block identity reaches the plan document", () => {
 });
 
 describe("progressionGate — movement quality over rep count", () => {
-  it("opens for a clean, completed, manageable session", () => {
+  it("opens for a clean, completed, manageable session rated good", () => {
     const gate = progressionGate({
-      lastSession: { exercises: [{ completed: true, difficulty: 3 }, { completed: true, difficulty: 4 }] },
+      lastSession: {
+        movementQuality: "good",
+        exercises: [{ completed: true, difficulty: 3 }, { completed: true, difficulty: 4 }],
+      },
     });
-    expect(gate).toEqual({ allowed: true, reasons: [] });
+    expect(gate).toEqual({
+      allowed: true,
+      reasons: [],
+      notes: [],
+      movementQuality: "good",
+      movementQualityConcern: false,
+      regressionAllowed: false,
+    });
   });
 
   it("holds when pain or an open injury is on record", () => {
@@ -426,7 +437,7 @@ describe("progressionGate — movement quality over rep count", () => {
     expect(gate.reasons).toContain("last session was rated maximally hard");
   });
 
-  it("holds when movement quality was flagged", () => {
+  it("holds when movement quality was flagged by the caller", () => {
     expect(progressionGate({ movementQualityConcern: true }).allowed).toBe(false);
   });
 
@@ -436,6 +447,88 @@ describe("progressionGate — movement quality over rep count", () => {
     });
     expect(gate.allowed).toBe(false);
     expect(gate.reasons).toContain("last session carried a pain note");
+  });
+
+  // ── THE MOVEMENT-QUALITY SIGNAL ──────────────────────────────────────────
+  // The design always said technique controls progression. These are the tests
+  // that make that true of the code rather than of the comment.
+  describe("movement quality drives the gate", () => {
+    const clean = [{ completed: true, difficulty: 3 }];
+
+    it("good technique may progress when every other gate permits", () => {
+      const gate = progressionGate({ lastSession: { movementQuality: "good", exercises: clean } });
+      expect(gate.allowed).toBe(true);
+      expect(gate.movementQuality).toBe("good");
+      expect(gate.movementQualityConcern).toBe(false);
+      expect(gate.regressionAllowed).toBe(false);
+    });
+
+    it("mixed technique HOLDS progression without authorising a step back", () => {
+      const gate = progressionGate({ lastSession: { movementQuality: "mixed", exercises: clean } });
+      expect(gate.allowed).toBe(false);
+      expect(gate.reasons).toContain("some reps lost quality last session — hold the prescription, do not add load");
+      expect(gate.movementQualityConcern).toBe(false);
+      expect(gate.regressionAllowed).toBe(false);
+    });
+
+    it("poor technique BLOCKS progression and authorises a regression", () => {
+      const gate = progressionGate({ lastSession: { movementQuality: "poor", exercises: clean } });
+      expect(gate.allowed).toBe(false);
+      expect(gate.movementQualityConcern).toBe(true);
+      expect(gate.regressionAllowed).toBe(true);
+      expect(gate.reasons).toContain("movement quality was flagged");
+    });
+
+    it("pain holds progression regardless of the movement-quality rating", () => {
+      for (const q of ["good", "mixed", "poor"]) {
+        const byInjury = progressionGate({ lastSession: { movementQuality: q, exercises: clean }, painReported: true });
+        expect(byInjury.allowed).toBe(false);
+        expect(byInjury.reasons).toContain("pain, discomfort or an open injury is on record");
+
+        const byNote = progressionGate({ lastSession: { movementQuality: q, exercises: clean, painNote: "left ankle" } });
+        expect(byNote.allowed).toBe(false);
+        expect(byNote.reasons).toContain("last session carried a pain note");
+      }
+    });
+
+    it("difficulty alone never stands in for technique", () => {
+      // An easy session is not a well-executed one, and vice versa.
+      const easyUnrated = progressionGate({ lastSession: { exercises: [{ completed: true, difficulty: 1 }] } });
+      expect(easyUnrated.movementQuality).toBe("unknown");
+      const hardButClean = progressionGate({ lastSession: { movementQuality: "good", exercises: [{ completed: true, difficulty: 4 }] } });
+      expect(hardButClean.movementQuality).toBe("good");
+    });
+
+    describe("historical sessions with no rating", () => {
+      const historical = { date: "2026-05-01", exercises: clean };
+
+      it("still load, and read as unknown rather than good", () => {
+        expect(readMovementQuality(historical)).toBe("unknown");
+        expect(readMovementQuality({})).toBe("unknown");
+        expect(readMovementQuality(null)).toBe("unknown");
+        expect(readMovementQuality({ movementQuality: "excellent" })).toBe("unknown");
+      });
+
+      it("do not corrupt progression — unknown holds nothing by itself", () => {
+        const gate = progressionGate({ lastSession: historical });
+        expect(gate.allowed).toBe(true);
+        expect(gate.movementQualityConcern).toBe(false);
+      });
+
+      it("but say so explicitly, so nobody reads silence as approval", () => {
+        const gate = progressionGate({ lastSession: historical });
+        expect(gate.movementQuality).toBe("unknown");
+        expect(gate.notes).toContain("movement quality was not rated last session — do not assume technique was clean");
+      });
+    });
+
+    it("exposes the three choices a human is actually offered", () => {
+      expect(MOVEMENT_QUALITY_OPTIONS.map(o => o.value))
+        .toEqual([MOVEMENT_QUALITY.GOOD, MOVEMENT_QUALITY.MIXED, MOVEMENT_QUALITY.POOR]);
+      // "unknown" is a read result, never something anyone can pick.
+      expect(MOVEMENT_QUALITY_OPTIONS.map(o => o.value)).not.toContain(MOVEMENT_QUALITY.UNKNOWN);
+      expect(MOVEMENT_QUALITY.UNKNOWN).toBe("unknown");
+    });
   });
 
   it("a held gate withholds the third set even in a build week", () => {

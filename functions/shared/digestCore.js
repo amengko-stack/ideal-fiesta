@@ -1,5 +1,5 @@
 import { toLocalDateStr } from "./dates.js";
-import { sessionSRPE, computeMonotonyStrain, acwrStatus } from "./load.js";
+import { sessionSRPE, computeMonotonyStrain, workloadTrendLabel } from "./load.js";
 import { weeklyFocus } from "./practiceFocus.js";
 
 // ─── WEEKLY DIGEST — PURE CORE ───────────────────────────────────────────────
@@ -76,11 +76,16 @@ export function buildDigestData({
   const acwr = ctx?.sessionLogs?.acwr ?? null;
   const { monotony, strain } = computeMonotonyStrain(sessions, now);
 
+  // `trendLabel` replaces the old `acwrStatus: {label, tone}`. The tone was a
+  // colour slot derived from fixed ratio bands, and it was the thing screens
+  // painted red; the label is a plain description of the direction of change.
+  // Digest documents written before this cutover still carry acwrStatus, and
+  // readers fall back to its `label` (never its `tone`) so old weeks still read.
   const load = {
     thisWeekSRPE: ctx?.sessionLogs?.thisWeekSrpe ?? null,
     fourWeekAvg:  ctx?.sessionLogs?.fourWeekAvgSrpe ?? null,
     acwr,
-    acwrStatus:   acwrStatus(acwr),
+    trendLabel:   workloadTrendLabel(acwr),
     monotony,
     strain,
     sessionCount: weekSessions.length,
@@ -207,7 +212,7 @@ export function buildDigestNotesPrompt(digestData, athleteName) {
 
 TRAINING LOAD:
 - This week sRPE: ${num(load.thisWeekSRPE)} (4-week average ${num(load.fourWeekAvg)})
-- ACWR: ${num(load.acwr)} — ${load.acwrStatus?.label || "no data"}
+- This week vs recent weekly average: ${num(load.thisWeekSRPE)} vs ${num(load.fourWeekAvg)} (ratio ${num(load.acwr)}) — ${load.trendLabel || load.acwrStatus?.label || "no data"}
 - Monotony: ${num(load.monotony)} | Strain: ${num(load.strain)}
 - Sessions logged: ${num(load.sessionCount)} (sRPE by type: ${byType})
 
@@ -262,7 +267,8 @@ export function digestPushPayload(digest) {
   const parts = [];
   parts.push(`${load.sessionCount ?? 0} session${load.sessionCount === 1 ? "" : "s"}`);
   if (load.thisWeekSRPE != null) parts.push(`load ${load.thisWeekSRPE}`);
-  if (load.acwrStatus?.label && load.acwrStatus.label !== "No data") parts.push(load.acwrStatus.label);
+  const trendLabel = load.trendLabel || load.acwrStatus?.label || null;
+  if (trendLabel && trendLabel !== "No data" && trendLabel !== "Unknown") parts.push(trendLabel);
   if ((d.matches || []).length > 0) {
     parts.push(`${d.matches.length} match${d.matches.length === 1 ? "" : "es"}`);
   }

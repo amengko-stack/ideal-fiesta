@@ -10,7 +10,8 @@
 // deploy time.
 //
 // So this runs against the real functions/node_modules and checks, in order:
-//   1. the Node major version matches package.json engines;
+//   1. the running Node SATISFIES package.json engines.node (not "is at least
+//      as new as" — see the engines section for why that distinction matters);
 //   2. every declared dependency resolves;
 //   3. every relative import in the deployed .js files points at a file that
 //      exists (this is what catches an unsynced functions/shared module);
@@ -41,14 +42,79 @@ const pkg = JSON.parse(readFileSync(path.join(FUNCTIONS_DIR, 'package.json'), 'u
 console.log('\n══ functions/ deployable package verification ══\n');
 
 // ── 1. engines ───────────────────────────────────────────────────────────────
-const wantMajor = Number(String(pkg.engines?.node ?? '').match(/\d+/)?.[0]);
-const haveMajor = Number(process.versions.node.split('.')[0]);
-if (!Number.isFinite(wantMajor)) {
-  fail('package.json declares no engines.node — the deploy runtime is unpinned');
-} else if (haveMajor < wantMajor) {
-  fail(`Node ${process.versions.node} is older than the declared runtime (node ${wantMajor})`);
+// The question is whether the running Node SATISFIES engines.node, which is a
+// semver RANGE. It is not "is this Node at least as new as the declared major".
+//
+// That distinction is the whole point of this check. The original comparison
+// was `haveMajor < wantMajor`, which passes every newer major — so on a Node 24
+// machine `npm ci` printed EBADENGINE (correctly: npm reads "20" as 20.x) while
+// this script printed PASS on the very next line. The verifier was reassuring
+// the reader about the exact thing npm had just refused. Cloud Functions runs
+// the declared runtime, so "newer" is not "compatible"; it is a different
+// runtime that nothing has tested this package on.
+//
+// Matching is delegated to semver when it resolves from the real functions tree
+// (it does — firebase-admin depends on it), because hand-rolling range
+// semantics is how this bug happened in the first place. The fallback below
+// understands only a `||` list of bare majors and REFUSES anything else, so an
+// engines expression nobody has taught it about fails the check instead of
+// sliding through it.
+
+const DECLARED = String(pkg.engines?.node ?? '').trim();
+
+// A bare major ("20") or a `||` list of them ("20 || 22"). Deliberately narrow.
+const BARE_MAJOR_LIST = /^\d+(\s*\|\|\s*\d+)*$/;
+function satisfiesFallback(version, range) {
+  if (!BARE_MAJOR_LIST.test(range)) return null;   // null = "I cannot judge this"
+  const have = Number(version.split('.')[0]);
+  return range.split('||').map(s => Number(s.trim())).includes(have);
+}
+
+let semverSatisfies = null;
+let matcher = 'fallback (bare-major list)';
+try {
+  const semver = (await import('semver')).default;
+  if (typeof semver?.satisfies === 'function') {
+    semverSatisfies = (v, r) => semver.satisfies(v, r, { includePrerelease: true });
+    matcher = 'semver';
+  }
+} catch { /* not resolvable from this tree — the fallback stands */ }
+
+const satisfies = (v, r) => (semverSatisfies ? semverSatisfies(v, r) : satisfiesFallback(v, r));
+
+// Self-check: the matcher proves itself on known pairs BEFORE it is trusted to
+// judge this machine. These are the cases the old comparison got wrong, so they
+// are the ones that must stay right — and they hold whichever Node runs them.
+const MATCHER_CASES = [
+  ['20.11.0', '20', true],
+  ['20.0.0',  '20', true],
+  ['20.19.5', '20', true],
+  ['24.15.0', '20', false],   // the bug: a newer major is NOT a match
+  ['22.0.0',  '20', false],
+  ['18.20.0', '20', false],
+  ['22.1.0',  '20 || 22', true],
+  ['21.7.0',  '20 || 22', false],
+];
+const matcherWrong = MATCHER_CASES
+  .filter(([v, r, want]) => satisfies(v, r) !== want)
+  .map(([v, r, want]) => `${v} vs "${r}" should be ${want}`);
+if (matcherWrong.length) {
+  fail(`the engines matcher (${matcher}) is wrong about: ${matcherWrong.join('; ')}`);
 } else {
-  pass(`Node ${process.versions.node} satisfies engines.node "${pkg.engines.node}"`);
+  pass(`engines matcher (${matcher}) agrees with npm on ${MATCHER_CASES.length} known version/range pairs`);
+}
+
+if (!DECLARED) {
+  fail('package.json declares no engines.node — the deploy runtime is unpinned');
+} else {
+  const ok = satisfies(process.versions.node, DECLARED);
+  if (ok === null) {
+    fail(`engines.node "${DECLARED}" is a range this verifier cannot evaluate — install semver in functions/, or teach satisfiesFallback this syntax. Refusing to guess.`);
+  } else if (!ok) {
+    fail(`Node ${process.versions.node} does NOT satisfy engines.node "${DECLARED}" — this is the runtime mismatch npm reports as EBADENGINE. Run this under Node ${DECLARED}; do not widen engines.node to make the local machine pass.`);
+  } else {
+    pass(`Node ${process.versions.node} satisfies engines.node "${DECLARED}"`);
+  }
 }
 
 // ── 2. declared dependencies resolve ─────────────────────────────────────────
