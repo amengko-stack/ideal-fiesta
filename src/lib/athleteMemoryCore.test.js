@@ -226,7 +226,10 @@ describe("buildMemoryUpdatePrompt — shared structure", () => {
     expect(system).toContain("REVISE AND MERGE — do not simply append.");
     expect(system).toContain("Return ONLY a raw JSON object matching the given schema.");
     expect(system).toContain("Start your response with { and end with }.");
-    expect(maxTokens).toBe(1500);
+    // Room for a whole memory at every cap (1500 truncated every weekly run),
+    // and still inside the /api/chat proxy's 6000 clamp.
+    expect(maxTokens).toBe(4000);
+    expect(maxTokens).toBeLessThanOrEqual(6000);
   });
 
   it.each(["match", "season", "weeklyReview"])("%s: leads with the current memory and closes with the schema", (kind) => {

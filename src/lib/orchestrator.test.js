@@ -28,6 +28,9 @@ async function testApp() {
 const {
   reportWeeklyReviewRun, runWeeklyReviewNow, isCompletedWeeklyReview, weeklyReviewFailureMessage,
   WEEKLY_REVIEW_COMPLETE_TOAST, WEEKLY_REVIEW_FAILED, WEEKLY_REVIEW_FAILED_AFTER_PLAN,
+  WEEKLY_REVIEW_UNCONFIRMED, WEEKLY_REVIEW_IN_PROGRESS,
+  reportGuardianRun, runGuardianNow, isCompletedGuardianCheck,
+  GUARDIAN_COMPLETE_TOAST, GUARDIAN_FAILED, GUARDIAN_UNCONFIRMED, GUARDIAN_IN_PROGRESS,
 } = await import("./orchestrator.js");
 
 const ATHLETE = "kDybMQH9lefwHI0dRway";
@@ -137,11 +140,26 @@ describe("Run now — 2. the callable rejects (the production HTTP 500)", () => 
     expectFailureUi(await pressRunNow(), WEEKLY_REVIEW_FAILED_AFTER_PLAN);
   });
 
-  it("a network failure or a bare 500 is unconfirmed, not success", async () => {
+  it("a network failure or a bare 500 is unconfirmed, not success — and says not to press again", async () => {
+    // 2026-09-23: the app said "failed" while the server was still mid-run.
     fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
-    expectFailureUi(await pressRunNow(), WEEKLY_REVIEW_FAILED);
+    expectFailureUi(await pressRunNow(), WEEKLY_REVIEW_UNCONFIRMED);
     respond(500, {});
-    expectFailureUi(await pressRunNow(), WEEKLY_REVIEW_FAILED);
+    expectFailureUi(await pressRunNow(), WEEKLY_REVIEW_UNCONFIRMED);
+    expect(WEEKLY_REVIEW_UNCONFIRMED).toMatch(/may still be running/);
+    expect(WEEKLY_REVIEW_UNCONFIRMED).not.toMatch(/failed/i);
+  });
+
+  it("an uncaught server crash (firebase-functions' own INTERNAL body, no summary) is unconfirmed too", async () => {
+    // What functions/node_modules/firebase-functions/lib/common/providers/https.js
+    // sends when the handler throws anything that is not an HttpsError.
+    respond(500, { error: { status: "INTERNAL", message: "INTERNAL" } });
+    expectFailureUi(await pressRunNow(), WEEKLY_REVIEW_UNCONFIRMED);
+  });
+
+  it("a server-reported failure (summary attached) still says failed, not unconfirmed", async () => {
+    respond(500, PRODUCTION_500);
+    expect((await pressRunNow()).toasts).toEqual([WEEKLY_REVIEW_FAILED]);
   });
 
   it("an access failure keeps its fixed, non-sensitive wording", async () => {
@@ -154,6 +172,11 @@ describe("Run now — 3. the callable resolves with an explicit error payload", 
   it("shows failure, never success", async () => {
     respond(200, { result: { ...PRODUCTION_500.error.details } });
     expectFailureUi(await pressRunNow(), WEEKLY_REVIEW_FAILED);
+  });
+
+  it("a second press during a live run is told the review is already running", async () => {
+    respond(200, { result: { athleteId: ATHLETE, weekKey: "2026-09-21", status: "run-in-progress", steps: {} } });
+    expectFailureUi(await pressRunNow(), WEEKLY_REVIEW_IN_PROGRESS);
   });
 
   it("a real non-complete summary the server can return today (no athlete doc) is a failure", async () => {
@@ -350,5 +373,114 @@ describe("Run now — the Profile button reaches the success toast only through 
     };
     walk(SRC);
     expect(hits.map(h => h.replace(/\\/g, "/"))).toEqual(["lib/orchestrator.js"]);
+  });
+});
+
+// ─── GUARDIAN CHECK-NOW — FAIL CLOSED ────────────────────────────────────────
+// The same contract for Profile → "Check now". It used to toast "Guardian
+// check complete" whenever the callable resolved, whatever it resolved with.
+async function pressCheckNow() {
+  const toasts = [];
+  const onComplete = vi.fn();
+  const returned = await reportGuardianRun(ATHLETE, { showToast: (m) => toasts.push(m), onComplete });
+  return { toasts, onComplete, returned };
+}
+const G = (status, extra = {}) => ({ athleteId: ATHLETE, date: "2026-09-23", status, ...extra });
+
+describe("Check now — completed assessments are the only success", () => {
+  it.each([
+    ["quiet", G("quiet", { reason: "no-family-stack", resolvedAlerts: 0, cooldownCleared: false })],
+    ["suppressed", G("suppressed", { suppressed: "cooldown", severity: "watch", storyKey: "k" })],
+    ["alerted", G("alerted", { alertId: "a1", severity: "watch", push: "sent" })],
+  ])("%s → success toast and refresh", async (_, result) => {
+    respond(200, { result });
+    const ui = await pressCheckNow();
+    expect(ui.returned).toBe(true);
+    expect(ui.toasts).toEqual([GUARDIAN_COMPLETE_TOAST]);
+    expect(ui.onComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it("goes through the real runGuardianNow callable with the athlete id", async () => {
+    respond(200, { result: G("quiet") });
+    await pressCheckNow();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://us-central1-demo-athlete-os.cloudfunctions.net/runGuardianNow");
+    expect(JSON.parse(init.body)).toEqual({ data: { athleteId: ATHLETE } });
+  });
+
+  it("accepts the multi-athlete shape only when every athlete completed", async () => {
+    respond(200, { result: { date: "2026-09-23", results: [G("quiet"), G("alerted", { athleteId: "b" })] } });
+    expect((await pressCheckNow()).toasts).toEqual([GUARDIAN_COMPLETE_TOAST]);
+    respond(200, { result: { date: "2026-09-23", results: [G("quiet"), G("no-athlete-doc", { athleteId: "b" })] } });
+    expect((await pressCheckNow()).toasts).toEqual([GUARDIAN_FAILED]);
+  });
+});
+
+describe("Check now — resolved non-success payloads fail closed", () => {
+  const failing = [
+    ["no-athlete-doc", { result: G("no-athlete-doc") }, GUARDIAN_FAILED],
+    ["run-in-progress", { result: G("run-in-progress") }, GUARDIAN_IN_PROGRESS],
+    ["guardian-disabled (impossible for a forced run)", { result: G("guardian-disabled") }, GUARDIAN_FAILED],
+    ["already-complete (impossible for a forced run)", { result: G("already-complete") }, GUARDIAN_FAILED],
+    ["an explicit error payload", { result: G("error", { error: "boom" }) }, GUARDIAN_FAILED],
+    ["an unknown status", { result: G("done") }, GUARDIAN_FAILED],
+    ["status without an athlete id", { result: { date: "2026-09-23", status: "quiet" } }, GUARDIAN_FAILED],
+    ["both shapes at once", { result: { ...G("quiet"), results: [G("quiet")] } }, GUARDIAN_FAILED],
+    ["an empty results list", { result: { date: "2026-09-23", results: [] } }, GUARDIAN_FAILED],
+    ["null", { result: null }, GUARDIAN_FAILED],
+    ["a bare string", { result: "ok" }, GUARDIAN_FAILED],
+  ];
+  it.each(failing)("%s → failure, never success", async (_, body, message) => {
+    respond(200, body);
+    const ui = await pressCheckNow();
+    expect(ui.returned).toBe(false);
+    expect(ui.toasts).toEqual([message]);
+    expect(ui.toasts.join(" ")).not.toContain("complete");
+    expect(ui.onComplete).not.toHaveBeenCalled();
+  });
+
+  it("a server-reported failure says failed, with no backend text on screen", async () => {
+    respond(500, { error: { status: "INTERNAL", message: "Firestore exploded", details: G("error", { error: "Firestore exploded" }) } });
+    const ui = await pressCheckNow();
+    expect(ui.toasts).toEqual([GUARDIAN_FAILED]);
+    expect(ui.toasts[0]).not.toContain("Firestore");
+  });
+
+  it("a dropped connection or an uncaught server crash is unconfirmed, not failed", async () => {
+    fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
+    expect((await pressCheckNow()).toasts).toEqual([GUARDIAN_UNCONFIRMED]);
+    respond(500, { error: { status: "INTERNAL", message: "INTERNAL" } });
+    expect((await pressCheckNow()).toasts).toEqual([GUARDIAN_UNCONFIRMED]);
+  });
+
+  it("an access failure keeps its fixed wording", async () => {
+    respond(403, { error: { status: "PERMISSION_DENIED", message: "no" } });
+    expect((await pressCheckNow()).toasts).toEqual(["Guardian check failed. Only the family accounts can run this."]);
+  });
+
+  it("runGuardianNow itself rejects a non-complete payload, keeping it on .result", async () => {
+    respond(200, { result: G("no-athlete-doc") });
+    const err = await runGuardianNow(ATHLETE).catch(e => e);
+    expect(err.userMessage).toBe(GUARDIAN_FAILED);
+    expect(err.result.status).toBe("no-athlete-doc");
+  });
+
+  it("isCompletedGuardianCheck agrees with the table above", () => {
+    expect(isCompletedGuardianCheck(G("alerted"))).toBe(true);
+    for (const [, body] of failing) expect(isCompletedGuardianCheck(body.result)).toBe(false);
+  });
+});
+
+describe("Check now — the Profile button reaches the success toast only through this path", () => {
+  const SRC = fileURLToPath(new URL("..", import.meta.url));
+  const read = (f) => fs.readFileSync(path.join(SRC, f), "utf8");
+
+  it("MeScreen's button → MobileApp's handler → reportGuardianRun", () => {
+    expect(read("screens/MeScreen.jsx")).toMatch(/onClick=\{guardianRunning \? undefined : onRunGuardian\}/);
+    const app = read("screens/MobileApp.jsx");
+    expect(app).toContain("onRunGuardian={runGuardian}");
+    expect(app).toMatch(/const runGuardian = async \(\) => \{[\s\S]*?await reportGuardianRun\(athleteId, \{ showToast, onComplete: refresh \}\);/);
+    expect(app).not.toContain("runGuardianNow(");
+    expect(app).not.toContain("Guardian check complete");
   });
 });

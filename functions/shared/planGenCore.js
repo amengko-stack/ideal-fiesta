@@ -28,9 +28,20 @@ import {
 // The golden files in __fixtures__/ pin the prompt bytes: any edit here that
 // changes the wording for identical inputs fails planGenCore.test.js.
 
+// The browser path (planGen.js → /api/chat) cannot ask for more than 6000:
+// the api function clamps there, and the Hosting rewrite in front of it cuts
+// the request at 60 s. So the reply has to FIT, which is what the output
+// length rules at the end of the prompt are for.
 export const WEEKLY_PLAN_MAX_TOKENS = 6000;
 // Retained name for callers that still import the old spelling.
 export const SUNDAY_PLAN_MAX_TOKENS = WEEKLY_PLAN_MAX_TOKENS;
+// The scheduled/Run-now path calls Anthropic directly from a 540 s function,
+// with no clamp and no proxy timeout, so it gets real headroom. On 2026-09-23
+// the production Run-now died on a reply that ran past 6000 tokens — a
+// measured reply for the same inputs was 5,680, one boilerplate note per held
+// exercise away from the ceiling. A truncated reply is not retried (it is not
+// transient), so the budget is the only protection.
+export const WEEKLY_PLAN_SERVER_MAX_TOKENS = 12000;
 
 // "3 × 8/side", "2 × 25 sec/side", "4 × 5 m". Sprint entries carry the distance
 // separately from the rep count (4 reps OF 5 m, not 4 reps of 1), so the
@@ -408,7 +419,7 @@ If a technical assessment cannot be addressed inside the framework, defer it exp
 YOUR TASK
 ═══════════════════════════════════════════
 Return an adjustment to the framework above. For each scheduled session you may:
-- hold an exercise at its prescribed sets/reps (the default — say nothing about it);
+- hold an exercise at its prescribed sets/reps (the default);
 - REDUCE sets or reps where load, wellbeing, growth or competition warrants;
 - swap to one of the approved swaps listed on that entry (regression or progression);
 - add a load note (hold / small increase within the allowed percentage / reduce);
@@ -417,7 +428,14 @@ Return an adjustment to the framework above. For each scheduled session you may:
 
 You may NOT: add an exercise, raise sets or reps above the framework, grant a third set the block has not allowed, exceed the landing-contact cap, or prescribe anything outside the approved exercise database. Those limits are deterministic safety rules and always win over anything else in this prompt.
 
-Respond with ONLY valid JSON, no other text:
+OUTPUT LENGTH RULES — the reply has a hard length limit and is discarded if it runs over:
+- An exercise you HOLD is either left out of "adjustments" or appears only as { "id", "tennisConnection" } when it genuinely addresses a match finding, tennis gap or priority. Never give a held exercise sets, reps, variant, loadNote or note, and never write "prescription held" or restate the framework.
+- An exercise you CHANGE lists only the fields that changed, plus "note" and "tennisConnection".
+- "note", "loadNote" and "tennisConnection": 12 words or fewer each.
+- Keep every rationale to the sentence count given; "coachNote" at most 4 sentences.
+- Write compact JSON: no indentation, no blank lines, no markdown code fences.
+
+Respond with ONLY valid JSON, no other text, in this shape (shown indented here for reading only):
 {
   "sessions": [
     {
@@ -428,12 +446,12 @@ Respond with ONLY valid JSON, no other text:
         {
           "id": "goblet_squat",
           "sets": 2,
-          "reps": 8,
-          "variant": "approved swap id, or null to keep the prescribed movement",
+          "variant": "approved swap id — only when swapping",
           "loadNote": "hold / +5% / reduce — and why",
           "note": "what changed from last week and why",
           "tennisConnection": "which match finding or tennis gap this addresses"
-        }
+        },
+        { "id": "pallof_press", "tennisConnection": "held exercise that addresses a finding — id and connection only" }
       ]
     }
   ],

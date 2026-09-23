@@ -175,7 +175,10 @@ const { default: fs } = await import('node:fs');
 const anthropicReal = fs.readFileSync(anthropicPath, 'utf8');
 const STUB = `
 export async function callAnthropicJSON({ model, system, userContent, maxTokens }) {
-  globalThis.__anthropicCalls.push({ model, maxTokens, promptLength: userContent.length, systemLength: system.length });
+  const kind = userContent.includes("THIS WEEK'S FRAMEWORK") ? "plan"
+    : userContent.includes("CURRENT MEMORY") ? "memory"
+    : userContent.includes("WEEK IN REVIEW") ? "digest" : "other";
+  globalThis.__anthropicCalls.push({ kind, model, maxTokens, promptLength: userContent.length, systemLength: system.length });
   if (userContent.includes("THIS WEEK'S FRAMEWORK")) {
     return {
       sessions: [
@@ -391,6 +394,41 @@ ok('12. no duplicate plan or session records',
   `${planDocs.length} plan doc(s), ${sessionsAfter2.length} session doc(s)`);
 ok('   run 2 completes', run2.status === 'complete', JSON.stringify(run2.steps));
 
+// ── token budgets the pipeline actually REQUESTS ─────────────────────────────
+// The 2026-09-23 Run-now died on "AI response was truncated": the plan call
+// asked for 6000 and the reply ran past it. The stub cannot produce a long
+// reply, but it records what was asked for — which is the part that broke.
+const { WEEKLY_PLAN_SERVER_MAX_TOKENS } = await import(
+  pathToFileURL(`${REPO}/functions/shared/planGenCore.js`).href);
+const budgets = (kind) => [...new Set(anthropicCalls.filter(c => c.kind === kind).map(c => c.maxTokens))];
+ok('14. plan call requests the server budget, above the 6000 proxy clamp',
+  budgets('plan').length === 1 && budgets('plan')[0] === WEEKLY_PLAN_SERVER_MAX_TOKENS && budgets('plan')[0] > 6000,
+  `plan maxTokens=${budgets('plan').join('/')} (server budget ${WEEKLY_PLAN_SERVER_MAX_TOKENS})`);
+ok('15. memory call requests room for a whole memory (was 1500 and truncated weekly)',
+  budgets('memory').length === 1 && budgets('memory')[0] >= 4000,
+  `memory maxTokens=${budgets('memory').join('/')}`);
+
+// ── a forced run never starts beside a live one ──────────────────────────────
+// Run-now is a forced run. It used to take over ANY claim, including one a
+// live pipeline held — so a second press after a premature "failed" toast
+// would have raced two plan writes and two pushes.
+const claimPath = `${A}/orchestratorRuns/${run2.weekKey}`;
+const planBeforeBusy = JSON.stringify(store.get(`${A}/plans/current`));
+const callsBeforeBusy = anthropicCalls.length;
+const writesBeforeBusy = writeLog.length;
+store.set(claimPath, { weekKey: run2.weekKey, status: 'running', startedAt: Date.now() - 60 * 1000, forced: true, steps: {} });
+const busy = await attempt('busy');
+ok('16. a forced run refuses a FRESH running claim and writes nothing',
+  busy.status === 'run-in-progress'
+    && JSON.stringify(store.get(`${A}/plans/current`)) === planBeforeBusy
+    && anthropicCalls.length === callsBeforeBusy
+    && writeLog.length === writesBeforeBusy
+    && store.get(claimPath).status === 'running',
+  `status=${busy.status} writes=${writeLog.length - writesBeforeBusy} aiCalls=${anthropicCalls.length - callsBeforeBusy}`);
+// A crashed run's claim goes stale after 15 minutes; run 3 below must take it
+// over (and completes only if it does).
+store.set(claimPath, { weekKey: run2.weekKey, status: 'running', startedAt: Date.now() - 16 * 60 * 1000, forced: true, steps: {} });
+
 // A run in the FOLLOWING calendar week must advance by exactly one. The clock
 // cannot be injected into the orchestrator, so the equivalent move is made on
 // the stored state: shifting the block start back one week is exactly what the
@@ -402,7 +440,7 @@ shifted.blockStartWeekKey = `${bs.getFullYear()}-${String(bs.getMonth() + 1).pad
 store.set(`${A}/programState/strength`, shifted);
 const run3 = await attempt('run 3');
 const plan3 = store.get(`${A}/plans/current`);
-ok('   next calendar week advances exactly one block week',
+ok('   next calendar week advances exactly one block week (taking over a stale claim)',
   run3.status === 'complete' && plan3.block.week === 2,
   `week ${plan2.block.week} → ${plan3.block.week}`);
 ok('   still one plan doc and two historical sessions',

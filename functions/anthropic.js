@@ -9,8 +9,9 @@ import { rawTextOf, cleanAndParseJson } from './shared/aiJson.js';
 // Two deliberate differences from the /api/chat proxy:
 //   - NO 6000-token clamp. That clamp exists to stop a *client* asking for an
 //     oversized (costly) completion; the orchestrator's own prompts choose
-//     their budget (WEEKLY_PLAN_MAX_TOKENS is exactly 6000 and must not be
-//     silently trimmed by a Math.min that also caps at 6000).
+//     their budget (WEEKLY_PLAN_SERVER_MAX_TOKENS is 12000 — deliberately
+//     above the proxy's ceiling — and must not be silently trimmed by a
+//     Math.min that caps at 6000).
 //   - The model is per-call, not hard-coded: Sonnet for the plan, Haiku for the
 //     small memory/digest calls.
 //

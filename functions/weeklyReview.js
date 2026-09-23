@@ -15,7 +15,7 @@ import { assembleAthleteContext } from './shared/athleteContextCore.js';
 import { calculateMetrics } from './shared/load.js';
 import { nearestUpcoming, daysUntil, tournamentModeFor } from './shared/tournaments.js';
 import {
-  buildWeeklyStrengthPlanPrompt, toWeeklyPlanData, resolvedPriorityLabels, WEEKLY_PLAN_MAX_TOKENS,
+  buildWeeklyStrengthPlanPrompt, toWeeklyPlanData, resolvedPriorityLabels, WEEKLY_PLAN_SERVER_MAX_TOKENS,
 } from './shared/planGenCore.js';
 import { readWeeklyPlan } from './shared/weeklyPlanCore.js';
 import {
@@ -124,15 +124,21 @@ async function claimRun(db, claimRef, weekKey, force) {
     const snap = await tx.get(claimRef);
     const data = snap.exists ? snap.data() : null;
 
-    if (!force && data) {
-      if (data.status === 'complete') return { skip: 'already-complete', steps: data.steps || {} };
-      if (data.status === 'running') {
-        const startedAt = toMillis(data.startedAt);
-        // An unresolved startedAt (write not yet visible) counts as fresh.
-        if (startedAt == null || Date.now() - startedAt < STALE_RUN_MS) {
-          return { skip: 'run-in-progress', steps: data.steps || {} };
-        }
+    // A fresh 'running' claim is honoured even by a forced run. `force` exists
+    // to re-run a week that already completed or failed — never to start a
+    // second pipeline beside a live one. On 2026-09-23 the app reported a
+    // failure while the server was still mid-run; a second press would have
+    // taken the claim over and raced two plan writes and two pushes.
+    if (data?.status === 'running') {
+      const startedAt = toMillis(data.startedAt);
+      // An unresolved startedAt (write not yet visible) counts as fresh.
+      if (startedAt == null || Date.now() - startedAt < STALE_RUN_MS) {
+        return { skip: 'run-in-progress', steps: data.steps || {} };
       }
+    }
+
+    if (!force && data?.status === 'complete') {
+      return { skip: 'already-complete', steps: data.steps || {} };
     }
 
     if (force) {
@@ -288,7 +294,9 @@ export async function runWeeklyReviewForAthlete(db, athleteId, { force = false, 
         model: PLAN_MODEL,
         system: built.system,
         userContent: built.prompt,
-        maxTokens: built.maxTokens ?? WEEKLY_PLAN_MAX_TOKENS,
+        // Not built.maxTokens: that is the browser's 6000, sized for the
+        // /api/chat clamp. This call has no proxy in front of it.
+        maxTokens: WEEKLY_PLAN_SERVER_MAX_TOKENS,
       });
 
       planData = toWeeklyPlanData(parsed, ctx, new Date().toISOString(), metrics, {

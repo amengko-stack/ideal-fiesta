@@ -87,8 +87,34 @@ export const WEEKLY_REVIEW_COMPLETE_TOAST = "Weekly review complete 🗞️";
 // never claim "no plan was created" from it.
 export const WEEKLY_REVIEW_FAILED = "Weekly review failed. Check the Plan tab before retrying.";
 export const WEEKLY_REVIEW_FAILED_AFTER_PLAN = "Weekly review failed after saving the new plan. Check the Plan tab.";
+// No server summary at all: the connection dropped (the SDK reports a fetch
+// that never got a response as a bare `internal`) or the function died
+// without answering. Either way the run's outcome is UNKNOWN and it may well
+// still be going — on 2026-09-23 this message's predecessor, "failed",
+// appeared while the server was still mid-run. Pressing again then is what
+// must not happen, so the copy says to wait.
+export const WEEKLY_REVIEW_UNCONFIRMED = "Lost contact with the weekly review — it may still be running. Check the Plan tab in a few minutes before retrying.";
+// The server refused to start a second pipeline beside a live one.
+export const WEEKLY_REVIEW_IN_PROGRESS = "A weekly review is already running. Check the Plan tab in a few minutes.";
 
 const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+
+// noAnswer(error, summary) → true when the callable rejected without the
+// server ever describing the run. Both pipelines attach their summary to every
+// failure they report, so its absence means the request itself was lost: the
+// SDK turns a fetch that never got a response — and a 5xx with no body — into
+// a bare `functions/internal` whose message is just "internal". A handler that
+// crashes with something other than an HttpsError reaches the client the same
+// way but UPPERCASE — firebase-functions answers `HttpsError("internal",
+// "INTERNAL")` — and is just as unknown. The SDK's other `internal`
+// rejections carry their own text (e.g. a 200 missing its data field: the
+// server DID answer, malformed) and stay ordinary failures.
+function noAnswer(error, summary) {
+  if (!error || summary) return false;
+  if (error.code && error.code !== "functions/internal") return false;
+  const msg = String(error.message ?? "").trim().toLowerCase();
+  return msg === "" || msg === "internal";
+}
 
 // The five step keys runWeeklyReviewForAthlete always populates on a run that
 // reaches "complete" (functions/weeklyReview.js STEPS).
@@ -168,6 +194,11 @@ export function weeklyReviewFailureMessage({ error = null, data = null } = {}) {
   if (mapped) return `Weekly review failed. ${mapped}`;
 
   const summary = isObject(data) ? data : isObject(error?.details) ? error.details : null;
+  if (noAnswer(error, summary)) return WEEKLY_REVIEW_UNCONFIRMED;
+  const statuses = isObject(summary) && Array.isArray(summary.results)
+    ? summary.results.map(r => r?.status)
+    : [summary?.status];
+  if (statuses.includes("run-in-progress")) return WEEKLY_REVIEW_IN_PROGRESS;
   const steps = isObject(summary?.steps) ? summary.steps : null;
   // Only a confirmed "done" checkpoint is proof the plan was saved; anything
   // else — absent, "not-reached", mid-run — is unknown, not "no plan."
@@ -175,7 +206,7 @@ export function weeklyReviewFailureMessage({ error = null, data = null } = {}) {
   return WEEKLY_REVIEW_FAILED;
 }
 
-const weeklyReviewError = (userMessage, extra) => {
+const userFacingError = (userMessage, extra) => {
   const err = new Error(userMessage);
   err.userMessage = userMessage;
   return Object.assign(err, extra);
@@ -198,11 +229,11 @@ export async function runWeeklyReviewNow(athleteId) {
     ({ data } = await callable(athleteId ? { athleteId } : {}));
   } catch (e) {
     console.error("runWeeklyReviewNow:", e);
-    throw weeklyReviewError(weeklyReviewFailureMessage({ error: e }), { cause: e });
+    throw userFacingError(weeklyReviewFailureMessage({ error: e }), { cause: e });
   }
   if (!isCompletedWeeklyReview(data)) {
     console.error("runWeeklyReviewNow: resolved without a completed run:", data);
-    throw weeklyReviewError(weeklyReviewFailureMessage({ data }), { result: data });
+    throw userFacingError(weeklyReviewFailureMessage({ data }), { result: data });
   }
   return data;
 }
@@ -227,11 +258,72 @@ export async function reportWeeklyReviewRun(athleteId, { showToast, onComplete }
   return true;
 }
 
+// ─── GUARDIAN CHECK-NOW — FAIL CLOSED ────────────────────────────────────────
+// Same rule as the weekly review, for the same reason: "Guardian check
+// complete" used to follow the promise merely resolving, so a resolved
+// `no-athlete-doc` or `run-in-progress` summary — or any payload at all — was
+// announced as a finished check.
+//
+// The response schema is functions/guardian.js runGuardianNow:
+//   one athlete → { athleteId, date, status, ... }
+//   several     → { date, results: [{ athleteId, date, status, ... }] }
+// and a failed assessment rejects with HttpsError('internal', message,
+// { athleteId, date, status: "error", error }).
+//
+// A FORCED run (which Check-now always is) that finishes an assessment returns
+// exactly one of three statuses — read off runGuardianForAthlete, not guessed:
+//   quiet      → the gate did not fire (cards cleared, zero tokens)
+//   suppressed → it fired, but the same story is inside its cooldown
+//   alerted    → a new alert was written (and pushed, if tokens exist)
+// Everything else it can return is not a completed check: 'no-athlete-doc',
+// 'run-in-progress' (another check is live), and 'guardian-disabled' /
+// 'already-complete', which a forced run cannot produce at all.
+export const GUARDIAN_COMPLETE_TOAST = "Guardian check complete 🛡️";
+export const GUARDIAN_FAILED = "Guardian check failed. Try again in a minute.";
+export const GUARDIAN_UNCONFIRMED = "Lost contact with the Guardian check — it may still be running. Check Home in a minute.";
+export const GUARDIAN_IN_PROGRESS = "A Guardian check is already running. Check Home in a minute.";
+
+const GUARDIAN_COMPLETED_STATUSES = new Set(["quiet", "suppressed", "alerted"]);
+
+function isCompleteGuardianResult(r) {
+  return isObject(r)
+    && typeof r.athleteId === "string" && r.athleteId.length > 0
+    && typeof r.date === "string" && r.date.length > 0
+    && GUARDIAN_COMPLETED_STATUSES.has(r.status);
+}
+
+// isCompletedGuardianCheck(data) → true ONLY for a summary of a finished
+// assessment, in one of the two shapes runGuardianNow returns.
+export function isCompletedGuardianCheck(data) {
+  if (!isObject(data)) return false;
+  const hasStatus = "status" in data;
+  const hasResults = "results" in data;
+  if (hasStatus && !hasResults) return isCompleteGuardianResult(data);
+  if (hasResults && !hasStatus) {
+    return typeof data.date === "string" && data.date.length > 0
+      && Array.isArray(data.results) && data.results.length > 0
+      && data.results.every(isCompleteGuardianResult);
+  }
+  return false;
+}
+
+export function guardianFailureMessage({ error = null, data = null } = {}) {
+  const mapped = error ? CODE_MESSAGE[error.code] : null;
+  if (mapped) return `Guardian check failed. ${mapped}`;
+  const summary = isObject(data) ? data : isObject(error?.details) ? error.details : null;
+  if (noAnswer(error, summary)) return GUARDIAN_UNCONFIRMED;
+  const statuses = isObject(summary) && Array.isArray(summary.results)
+    ? summary.results.map(r => r?.status)
+    : [summary?.status];
+  if (statuses.includes("run-in-progress")) return GUARDIAN_IN_PROGRESS;
+  return GUARDIAN_FAILED;
+}
+
 // Runs the Load & Health Guardian's daily assessment now, bypassing both the
 // 6am schedule and the guardianEnabled flag. Resolves with the callable's
-// summary — which, because the assessment is written to Firestore in full,
-// says exactly why it fired or stayed silent ({ status, suppressed, ... }).
-// Throws an Error whose message is already readable.
+// summary ONLY when it describes a finished assessment; otherwise throws an
+// Error whose message (also on `.userMessage`) is safe to show, with the raw
+// error on `.cause` and a non-complete payload on `.result`.
 export async function runGuardianNow(athleteId) {
   const callable = httpsCallable(getFunctions(app), "runGuardianNow", {
     // 30s past the function's own 120s budget, for the same reason the weekly
@@ -240,13 +332,32 @@ export async function runGuardianNow(athleteId) {
     // succeeding, and the round trip itself needs room.
     timeout: 150000,
   });
+  let data;
   try {
-    const { data } = await callable(athleteId ? { athleteId } : {});
-    return data;
+    ({ data } = await callable(athleteId ? { athleteId } : {}));
   } catch (e) {
     console.error("runGuardianNow:", e);
-    const err = new Error(friendlyCallableError(e));
-    err.cause = e;
-    throw err;
+    throw userFacingError(guardianFailureMessage({ error: e }), { cause: e });
   }
+  if (!isCompletedGuardianCheck(data)) {
+    console.error("runGuardianNow: resolved without a completed check:", data);
+    throw userFacingError(guardianFailureMessage({ data }), { result: data });
+  }
+  return data;
+}
+
+// reportGuardianRun — the Profile → "Check now" button's whole contract, kept
+// here so the tests drive the code the button does. Resolves true/false and
+// never rejects.
+export async function reportGuardianRun(athleteId, { showToast, onComplete } = {}) {
+  try {
+    await runGuardianNow(athleteId);
+  } catch (e) {
+    console.error("runGuardian:", e);
+    showToast?.(e?.userMessage || GUARDIAN_FAILED);
+    return false;
+  }
+  showToast?.(GUARDIAN_COMPLETE_TOAST);
+  onComplete?.();
+  return true;
 }

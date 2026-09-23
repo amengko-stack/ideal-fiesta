@@ -159,7 +159,12 @@ export function memoryBlock(memory) {
 // and one clause of the system prompt differ, which is exactly what kept the
 // two originals from drifting apart.
 
-const MEMORY_MAX_TOKENS = 1500;
+// The reply is the WHOLE revised memory, not a diff, so it grows with the
+// memory up to the caps. 1500 truncated every scheduled weekly review from at
+// least 2026-09-13 onward ("AI response was truncated"), which left the memory
+// frozen. 4000 fits a memory at every cap and stays under the /api/chat
+// proxy's 6000 clamp for the browser-side match and season revisions.
+const MEMORY_MAX_TOKENS = 4000;
 
 // The subset of the memory the model is allowed to revise. divisionHistory and
 // shoutouts are maintained in code and deliberately withheld.

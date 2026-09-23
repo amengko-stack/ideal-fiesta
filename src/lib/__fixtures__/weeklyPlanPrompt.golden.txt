@@ -254,7 +254,7 @@ If a technical assessment cannot be addressed inside the framework, defer it exp
 YOUR TASK
 ═══════════════════════════════════════════
 Return an adjustment to the framework above. For each scheduled session you may:
-- hold an exercise at its prescribed sets/reps (the default — say nothing about it);
+- hold an exercise at its prescribed sets/reps (the default);
 - REDUCE sets or reps where load, wellbeing, growth or competition warrants;
 - swap to one of the approved swaps listed on that entry (regression or progression);
 - add a load note (hold / small increase within the allowed percentage / reduce);
@@ -263,7 +263,14 @@ Return an adjustment to the framework above. For each scheduled session you may:
 
 You may NOT: add an exercise, raise sets or reps above the framework, grant a third set the block has not allowed, exceed the landing-contact cap, or prescribe anything outside the approved exercise database. Those limits are deterministic safety rules and always win over anything else in this prompt.
 
-Respond with ONLY valid JSON, no other text:
+OUTPUT LENGTH RULES — the reply has a hard length limit and is discarded if it runs over:
+- An exercise you HOLD is either left out of "adjustments" or appears only as { "id", "tennisConnection" } when it genuinely addresses a match finding, tennis gap or priority. Never give a held exercise sets, reps, variant, loadNote or note, and never write "prescription held" or restate the framework.
+- An exercise you CHANGE lists only the fields that changed, plus "note" and "tennisConnection".
+- "note", "loadNote" and "tennisConnection": 12 words or fewer each.
+- Keep every rationale to the sentence count given; "coachNote" at most 4 sentences.
+- Write compact JSON: no indentation, no blank lines, no markdown code fences.
+
+Respond with ONLY valid JSON, no other text, in this shape (shown indented here for reading only):
 {
   "sessions": [
     {
@@ -274,12 +281,12 @@ Respond with ONLY valid JSON, no other text:
         {
           "id": "goblet_squat",
           "sets": 2,
-          "reps": 8,
-          "variant": "approved swap id, or null to keep the prescribed movement",
+          "variant": "approved swap id — only when swapping",
           "loadNote": "hold / +5% / reduce — and why",
           "note": "what changed from last week and why",
           "tennisConnection": "which match finding or tennis gap this addresses"
-        }
+        },
+        { "id": "pallof_press", "tennisConnection": "held exercise that addresses a finding — id and connection only" }
       ]
     }
   ],

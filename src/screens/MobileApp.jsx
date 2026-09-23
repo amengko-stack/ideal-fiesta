@@ -43,7 +43,7 @@ import { emptyMemory, deleteMemoryPattern } from "../lib/athleteMemory.js";
 import { dueReminders } from "../lib/reminders.js";
 import { supersededReminderKinds } from "../lib/guardianCore.js";
 import { isPushSupported, pushPermission, enablePush, disablePush, refreshPushToken, onForegroundMessage } from "../lib/push.js";
-import { reportWeeklyReviewRun, runGuardianNow } from "../lib/orchestrator.js";
+import { reportWeeklyReviewRun, reportGuardianRun } from "../lib/orchestrator.js";
 
 // Why enabling reminders failed, in words the family can act on. Keyed by the
 // `reason` push.js returns instead of throwing.
@@ -459,14 +459,10 @@ export default function MobileApp({ athleteId, isParent, user, onSignOut }) {
   const runGuardian = async () => {
     if (guardianRunning) return;
     setGuardianRunning(true);
+    // Fail-closed, decided in orchestrator.js: "complete" only for a summary
+    // of a finished assessment.
     try {
-      await runGuardianNow(athleteId);
-      showToast("Guardian check complete 🛡️");
-      refresh();
-    } catch (e) {
-      console.error("runGuardian:", e);
-      // orchestrator.js has already turned the callable error into a sentence.
-      showToast(`Couldn't run the check — ${e.message}`);
+      await reportGuardianRun(athleteId, { showToast, onComplete: refresh });
     } finally {
       setGuardianRunning(false);
     }

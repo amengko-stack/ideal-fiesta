@@ -145,14 +145,15 @@ async function claimGuardianRun(db, claimRef, date, force) {
     const snap = await tx.get(claimRef);
     const data = snap.exists ? snap.data() : null;
 
-    if (!force && data) {
-      if (data.status === 'complete') return 'already-complete';
-      if (data.status === 'running') {
-        const startedAt = toMillis(data.startedAt);
-        // An unresolved startedAt (write not yet visible) counts as fresh.
-        if (startedAt == null || Date.now() - startedAt < STALE_RUN_MS) return 'run-in-progress';
-      }
+    // A fresh 'running' claim is honoured even by a forced run — `force`
+    // re-runs a finished day, it never starts a second assessment beside a
+    // live one (two notes calls, two alerts, two pushes).
+    if (data?.status === 'running') {
+      const startedAt = toMillis(data.startedAt);
+      // An unresolved startedAt (write not yet visible) counts as fresh.
+      if (startedAt == null || Date.now() - startedAt < STALE_RUN_MS) return 'run-in-progress';
     }
+    if (!force && data?.status === 'complete') return 'already-complete';
 
     const base = {
       date,

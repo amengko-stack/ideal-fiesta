@@ -4,7 +4,7 @@ import path from "node:path";
 import {
   buildWeeklyStrengthPlanPrompt, buildSundayPlanPrompt,
   toWeeklyPlanData, toPlanData, resolvedPriorityLabels, adjustmentConnections,
-  WEEKLY_PLAN_MAX_TOKENS, SUNDAY_PLAN_MAX_TOKENS,
+  WEEKLY_PLAN_MAX_TOKENS, SUNDAY_PLAN_MAX_TOKENS, WEEKLY_PLAN_SERVER_MAX_TOKENS,
 } from "./planGenCore.js";
 import { buildWeeklyFramework, plyometricContacts } from "./weeklyPlanCore.js";
 import { FIXTURE_NOW, fixtureArgs, fixtureCtx } from "./__fixtures__/weeklyPlanFixture.js";
@@ -35,6 +35,24 @@ describe("buildWeeklyStrengthPlanPrompt — golden prompt bytes", () => {
     expect(maxTokens).toBe(6000);
     expect(WEEKLY_PLAN_MAX_TOKENS).toBe(6000);
     expect(SUNDAY_PLAN_MAX_TOKENS).toBe(6000);
+  });
+
+  it("gives the server path its own budget, above the browser proxy's clamp", () => {
+    // The production Run-now of 2026-09-23 was truncated at 6000.
+    expect(WEEKLY_PLAN_SERVER_MAX_TOKENS).toBe(12000);
+    expect(WEEKLY_PLAN_SERVER_MAX_TOKENS).toBeGreaterThan(WEEKLY_PLAN_MAX_TOKENS);
+  });
+
+  it("tells the model to keep held exercises out of the reply and write compact JSON", () => {
+    // A measured production reply spent ~190 chars restating "prescription
+    // held" on every one of 37 exercises, plus ~4 KB of indentation.
+    const { prompt } = buildWeeklyStrengthPlanPrompt({ ...fixtureArgs, ctx: fixtureCtx });
+    expect(prompt).toContain("OUTPUT LENGTH RULES");
+    expect(prompt).toContain('appears only as { "id", "tennisConnection" }');
+    expect(prompt).toContain('never write "prescription held"');
+    expect(prompt).toContain("12 words or fewer each");
+    expect(prompt).toContain("Write compact JSON: no indentation");
+    expect(prompt).not.toContain("say nothing about it");
   });
 
   it("still answers to the old buildSundayPlanPrompt name", () => {
